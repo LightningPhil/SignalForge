@@ -24,6 +24,8 @@ export const elements = {
     inputIters: document.getElementById('param-iters'),
     inputStartDecay: document.getElementById('param-start-decay'),
     inputEndDecay: document.getElementById('param-end-decay'),
+    chkApplyStart: document.getElementById('param-apply-start'),
+    chkApplyEnd: document.getElementById('param-apply-end'),
     inputStartOffset: document.getElementById('param-start-offset'),
     inputAutoOffsetPoints: document.getElementById('param-offset-points'),
     btnAutoOffset: document.getElementById('btn-auto-offset'),

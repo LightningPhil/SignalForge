@@ -19,6 +19,8 @@ const {
     sliderIters,
     inputStartDecay,
     inputEndDecay,
+    chkApplyStart,
+    chkApplyEnd,
     inputStartOffset,
     inputAutoOffsetPoints,
     sliderStartDecay,
@@ -65,6 +67,8 @@ function updateParamsFromUI() {
     if (inputIters) params.iterations = clamp(inputIters, 1, 16);
     if (inputStartDecay) params.startLength = clamp(inputStartDecay, 0, 10000);
     if (inputEndDecay) params.endLength = clamp(inputEndDecay, 0, 10000);
+    if (chkApplyStart) params.applyStart = !!chkApplyStart.checked;
+    if (chkApplyEnd) params.applyEnd = !!chkApplyEnd.checked;
     if (inputStartOffset) params.startOffset = parseFloat(inputStartOffset.value) || 0;
     if (inputAutoOffsetPoints) params.autoOffsetPoints = clamp(inputAutoOffsetPoints, 1, 100000);
 
@@ -110,7 +114,11 @@ function renderPipelineList() {
         if (step.type === 'median') desc = `Median (Win: ${step.windowSize})`;
         if (step.type === 'iir') desc = `IIR (Alpha: ${step.alpha})`;
         if (step.type === 'gaussian') desc = `Gaussian (Sig: ${step.sigma})`;
-        if (step.type === 'startStopNorm') desc = `Norm (Start: ${step.startLength ?? 0}, End: ${step.endLength ?? 0})`;
+        if (step.type === 'startStopNorm') {
+            const startLabel = step.applyStart === false ? 'Off' : (step.startLength ?? 0);
+            const endLabel = step.applyEnd === false ? 'Off' : (step.endLength ?? 0);
+            desc = `Norm (Start: ${startLabel}, End: ${endLabel})`;
+        }
 
         if (step.type === 'lowPassFFT') desc = `Low Pass (${fmtHz(step.cutoffFreq)}Hz)`;
         if (step.type === 'highPassFFT') desc = `High Pass (${fmtHz(step.cutoffFreq)}Hz)`;
@@ -192,6 +200,8 @@ function updateParamEditor() {
 
     if (startLen !== undefined) setVal(inputStartDecay, sliderStartDecay, startLen);
     if (endLen !== undefined) setVal(inputEndDecay, sliderEndDecay, endLen);
+    if (chkApplyStart) chkApplyStart.checked = step.applyStart !== false;
+    if (chkApplyEnd) chkApplyEnd.checked = step.applyEnd !== false;
     if (inputStartOffset) inputStartOffset.value = step.startOffset ?? 0;
     if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = step.autoOffsetPoints ?? 100;
     if (step.slope) setVal(inputSlope, sliderSlope, step.slope);
