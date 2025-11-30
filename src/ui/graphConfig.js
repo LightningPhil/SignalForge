@@ -10,11 +10,37 @@ export const GraphConfig = {
     
     show() {
         const config = State.config.graph;
-        const colors = State.config.colors || Config.colors; 
+        const colors = State.config.colors || Config.colors;
         const headers = State.data.headers;
-        
+
+        const getThemeColor = (theme, key) => {
+            if (colors[theme] && colors[theme][key]) return colors[theme][key];
+            if (colors[key]) return colors[key];
+            if (Config.colors[theme] && Config.colors[theme][key]) return Config.colors[theme][key];
+            return Config.colors.dark[key];
+        };
+
+        const createFormatOptions = (selectedVal) => {
+            const options = [
+                { value: 'decimal', label: 'Decimal Notation' },
+                { value: 'scientific', label: 'Scientific Notation' },
+                { value: 'integer', label: 'Integer Format' },
+                { value: 'currency', label: 'Currency Format' },
+                { value: 'percentage', label: 'Percentage Format' },
+                { value: 'datetime', label: 'Date and Time Format' },
+                { value: 'engineering', label: 'Engineering Notation' }
+            ];
+
+            return options.map(opt =>
+                `<option value="${opt.value}" ${opt.value === selectedVal ? 'selected' : ''}>${opt.label}</option>`
+            ).join('');
+        };
+
+        const xFormat = config.xAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
+        const yFormat = config.yAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
+
         const createOptions = (selectedVal) => {
-            return headers.map(h => 
+            return headers.map(h =>
                 `<option value="${h}" ${h === selectedVal ? 'selected' : ''}>${h}</option>`
             ).join('');
         };
@@ -48,23 +74,37 @@ export const GraphConfig = {
                 <div style="flex: 1;">
                     <div class="panel">
                         <h4>Trace Colors</h4>
-                        <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
-                            <input type="color" id="gc-col-raw" value="${colors.raw}" style="height:35px; width:50px; padding:0; border:none;">
-                            <label style="margin:0;">Raw Data Color</label>
+                        <div class="subpanel">
+                            <h5 style="margin-top:0;">Light Mode</h5>
+                            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                                <input type="color" id="gc-col-light-raw" value="${getThemeColor('light','raw')}" style="height:35px; width:50px; padding:0; border:none;">
+                                <label style="margin:0;">Raw Data Color</label>
+                            </div>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <input type="color" id="gc-col-light-filt" value="${getThemeColor('light','filtered')}" style="height:35px; width:50px; padding:0; border:none;">
+                                <label style="margin:0;">Filtered Data Color</label>
+                            </div>
                         </div>
-                        <div style="display:flex; gap:10px; align-items:center;">
-                            <input type="color" id="gc-col-filt" value="${colors.filtered}" style="height:35px; width:50px; padding:0; border:none;">
-                            <label style="margin:0;">Filtered Data Color</label>
+                        <div class="subpanel" style="margin-top:12px;">
+                            <h5 style="margin-top:0;">Dark Mode</h5>
+                            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                                <input type="color" id="gc-col-dark-raw" value="${getThemeColor('dark','raw')}" style="height:35px; width:50px; padding:0; border:none;">
+                                <label style="margin:0;">Raw Data Color</label>
+                            </div>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <input type="color" id="gc-col-dark-filt" value="${getThemeColor('dark','filtered')}" style="height:35px; width:50px; padding:0; border:none;">
+                                <label style="margin:0;">Filtered Data Color</label>
+                            </div>
                         </div>
                     </div>
 
                     <div class="panel">
                         <h4>Display Options</h4>
-                        
-                        <label style="display:flex; align-items:center;">
-                            <input type="checkbox" id="gc-sci" style="width:auto; margin-right:10px;" ${config.useScientificNotation ? 'checked' : ''}>
-                            Scientific Notation Axes
-                        </label>
+                        <label> X-Axis Format</label>
+                        <select id="gc-x-format">${createFormatOptions(xFormat)}</select>
+
+                        <label> Y-Axis Format</label>
+                        <select id="gc-y-format">${createFormatOptions(yFormat)}</select>
 
                         <label style="display:flex; align-items:center;">
                             <input type="checkbox" id="gc-log" style="width:auto; margin-right:10px;" ${config.logScaleY ? 'checked' : ''}>
@@ -96,16 +136,31 @@ export const GraphConfig = {
             cfg.title = modal.querySelector('#gc-title').value;
             cfg.xAxisTitle = modal.querySelector('#gc-xlabel').value;
             cfg.yAxisTitle = modal.querySelector('#gc-ylabel').value;
-            cfg.useScientificNotation = modal.querySelector('#gc-sci').checked;
+            cfg.xAxisFormat = modal.querySelector('#gc-x-format').value;
+            cfg.yAxisFormat = modal.querySelector('#gc-y-format').value;
             cfg.logScaleY = modal.querySelector('#gc-log').checked;
             cfg.enableDownsampling = modal.querySelector('#gc-downsample').checked;
 
             // Colors
             if(!State.config.colors) State.config.colors = {};
-            State.config.colors.raw = modal.querySelector('#gc-col-raw').value;
-            State.config.colors.filtered = modal.querySelector('#gc-col-filt').value;
-            State.config.colors.diffRaw = State.config.colors.raw;
-            State.config.colors.diffFilt = State.config.colors.filtered;
+
+            State.config.colors.light = {
+                ...Config.colors.light,
+                ...(State.config.colors.light || {}),
+                raw: modal.querySelector('#gc-col-light-raw').value,
+                filtered: modal.querySelector('#gc-col-light-filt').value,
+                diffRaw: modal.querySelector('#gc-col-light-raw').value,
+                diffFilt: modal.querySelector('#gc-col-light-filt').value
+            };
+
+            State.config.colors.dark = {
+                ...Config.colors.dark,
+                ...(State.config.colors.dark || {}),
+                raw: modal.querySelector('#gc-col-dark-raw').value,
+                filtered: modal.querySelector('#gc-col-dark-filt').value,
+                diffRaw: modal.querySelector('#gc-col-dark-raw').value,
+                diffFilt: modal.querySelector('#gc-col-dark-filt').value
+            };
 
             // Trigger Re-render
             const xCol = State.data.timeColumn;

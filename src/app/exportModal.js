@@ -6,6 +6,7 @@ import { renderColumnTabs } from './tabs.js';
 import { runPipelineAndRender, hasData } from './dataPipeline.js';
 import { updateToolbarUIFromState } from './toolbar.js';
 import { State } from '../state.js';
+import { Theme } from '../ui/theme.js';
 
 function applySettingsAndRefreshUI() {
     if (State.config.pipeline.length > 0) {
@@ -25,6 +26,7 @@ function applySettingsAndRefreshUI() {
 }
 
 function showExportModal() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
     const html = `
         <h3>Export & Settings</h3>
 
@@ -40,6 +42,18 @@ function showExportModal() {
         <div class="panel">
             <h4>Graph Image</h4>
             <p>Save the current graph view as an image.</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <label for="export-theme" style="margin:0; min-width:120px;">Image Theme</label>
+                <select id="export-theme">
+                    <option value="current" selected>Match App (${currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1)})</option>
+                    <option value="light">Light Mode</option>
+                    <option value="dark">Dark Mode</option>
+                </select>
+            </div>
+            <label style="display:flex; align-items:center; gap:10px; margin:10px 0;">
+                <input type="checkbox" id="export-transparent" style="width:auto;">
+                Transparent background
+            </label>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <button id="btn-export-png">Download PNG</button>
                 <button id="btn-export-svg">Download SVG</button>
@@ -62,6 +76,8 @@ function showExportModal() {
     const modal = createModal(html);
 
     const fileInput = modal.querySelector('#input-settings-file');
+    const themeSelect = modal.querySelector('#export-theme');
+    const transparentToggle = modal.querySelector('#export-transparent');
 
     modal.querySelector('#btn-export-filtered')?.addEventListener('click', () => {
         Exporter.downloadCSV(false);
@@ -73,12 +89,14 @@ function showExportModal() {
 
     modal.querySelector('#btn-export-png')?.addEventListener('click', () => {
         if (!hasData()) return;
-        Exporter.downloadImage('png');
+        const selectedTheme = themeSelect?.value === 'current' ? Theme.current : themeSelect?.value;
+        Exporter.downloadImage('png', { theme: selectedTheme, transparent: transparentToggle?.checked });
     });
 
     modal.querySelector('#btn-export-svg')?.addEventListener('click', () => {
         if (!hasData()) return;
-        Exporter.downloadImage('svg');
+        const selectedTheme = themeSelect?.value === 'current' ? Theme.current : themeSelect?.value;
+        Exporter.downloadImage('svg', { theme: selectedTheme, transparent: transparentToggle?.checked });
     });
 
     modal.querySelector('#btn-save-browser')?.addEventListener('click', () => {

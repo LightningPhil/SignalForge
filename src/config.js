@@ -8,11 +8,12 @@ export const Config = {
         title: "Signal Analysis",
         xAxisTitle: "Time",
         yAxisTitle: "Amplitude",
-        
+
         // Display
-        useScientificNotation: true,
+        xAxisFormat: 'scientific',
+        yAxisFormat: 'scientific',
         logScaleY: false,
-        showDifferential: false, 
+        showDifferential: false,
         showGrid: true,
         showFreqDomain: false,
         
@@ -53,11 +54,20 @@ export const Config = {
     },
 
     colors: {
-        raw: '#888888',           
-        filtered: '#ff9800',      
-        diffRaw: '#888888',       
-        diffFilt: '#ff9800',
-        transfer: '#00bcd4'
+        light: {
+            raw: '#888888',
+            filtered: '#0047AB',
+            diffRaw: '#888888',
+            diffFilt: '#0047AB',
+            transfer: '#00bcd4'
+        },
+        dark: {
+            raw: '#888888',
+            filtered: '#ff9800',
+            diffRaw: '#888888',
+            diffFilt: '#ff9800',
+            transfer: '#00bcd4'
+        }
     },
 
     limits: {
