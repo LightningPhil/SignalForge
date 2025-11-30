@@ -259,14 +259,21 @@ button.primary:hover { background-color: var(--accent-hover); }
 
 /* --- Help System --- */
 .help-container { display: flex; height: 100%; }
-.help-sidebar { width: 150px; background: var(--bg-toolbar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; }
-.help-tab { padding: 15px; cursor: pointer; border-bottom: 1px solid var(--border-color); color: var(--text-muted); }
-.help-tab:hover { background: var(--button-hover); color: var(--text-main); }
-.help-tab.active { background: var(--accent); color: #fff; font-weight: bold; }
-.help-content { flex: 1; padding: 20px; overflow-y: auto; background: var(--bg-panel); }
+.help-sidebar { width: 260px; background: var(--bg-toolbar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; overflow-y: auto; }
+.help-content { flex: 1; padding: 24px; overflow-y: auto; background: var(--bg-panel); }
 .help-section { display: none; }
 .help-section.active { display: block; animation: fadeIn 0.3s; }
-.wiki-entry { margin-bottom: 25px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+
+.help-tree { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.tree-node { border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); overflow: hidden; }
+.tree-node-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; user-select: none; font-weight: 600; color: var(--text-main); background: linear-gradient(180deg, var(--bg-toolbar), var(--bg-surface)); }
+.tree-caret { width: 12px; display: inline-block; transition: transform 0.2s ease; }
+.tree-node:not(.expanded) .tree-caret { transform: rotate(-90deg); }
+.tree-children { display: flex; flex-direction: column; padding: 8px 10px 10px 22px; gap: 6px; }
+.tree-node:not(.expanded) .tree-children { display: none; }
+.tree-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; color: var(--text-muted); transition: background 0.2s ease, color 0.2s ease; }
+.tree-item:hover { background: var(--button-hover); color: var(--text-main); }
+.tree-item.active { background: var(--accent); color: #fff; font-weight: 600; }
 
 /* --- Modal Add Buttons --- */
 .add-opt { width: 100%; padding: 10px; text-align: left; background: var(--button-bg); border: 1px solid var(--button-border); color: var(--button-text); cursor: pointer; margin-bottom: 5px; border-radius: 5px; }
