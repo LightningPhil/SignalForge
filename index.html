@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Signal Processor v5.0</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+
+    <div class="app-container">
+        <header>
+            <h1>Signal Processor</h1>
+            <nav>
+                <button id="btn-load-file">📂 Load</button>
+                <button id="btn-view-grid">📅 Grid</button>
+                <button id="btn-graph-config">⚙️ Graph</button>
+                <button id="btn-export">💾 Export</button>
+                <button id="btn-help">❓ Help</button>
+            </nav>
+        </header>
+
+        <main>
+            <!-- Sidebar -->
+            <aside class="controls">
+                
+                <div class="panel">
+                    <h3>Filter Pipeline</h3>
+                    <div id="pipeline-list"></div>
+                    <div class="pipeline-actions">
+                        <button id="btn-add-step" title="Add Step">➕ Add</button>
+                        <button id="btn-remove-step" title="Remove Step">🗑️</button>
+                        <button id="btn-move-up" title="Move Up">⬆️</button>
+                        <button id="btn-move-down" title="Move Down">⬇️</button>
+                    </div>
+                </div>
+
+                <div class="panel" id="param-editor">
+                    <h3>Parameters</h3>
+                    <div class="step-type-label" id="step-type-display">Select a step</div>
+                    
+                    <div id="filter-params">
+                        
+                        <!-- Window Size -->
+                        <div id="group-window">
+                            <label for="param-window">Window / Kernel</label>
+                            <input type="number" id="param-window" value="5" min="1" step="2">
+                            <div class="slider-group">
+                                <input type="range" id="slider-window" min="1" max="101" step="2">
+                            </div>
+                            <small class="hint">Odd numbers only</small>
+                        </div>
+
+                        <!-- Polynomial Order -->
+                        <div id="group-poly" style="display:none;">
+                            <label for="param-poly">Poly Order</label>
+                            <input type="number" id="param-poly" value="3" min="1" max="10">
+                            <div class="slider-group">
+                                <input type="range" id="slider-poly" min="1" max="6" step="1">
+                            </div>
+                        </div>
+
+                        <!-- Iterations -->
+                        <div id="group-iters" style="display:none;">
+                            <label for="param-iters">Iterations</label>
+                            <input type="number" id="param-iters" value="1" min="1" max="16">
+                            <div class="slider-group">
+                                <input type="range" id="slider-iters" min="1" max="16" step="1">
+                            </div>
+                        </div>
+
+                        <!-- Alpha -->
+                        <div id="group-alpha" style="display:none;">
+                            <label for="param-alpha">Alpha</label>
+                            <input type="number" id="param-alpha" value="0.1" min="0.001" max="1.0" step="0.01">
+                            <div class="slider-group">
+                                <input type="range" id="slider-alpha" min="0.001" max="1.0" step="0.001">
+                            </div>
+                        </div>
+
+                        <!-- Sigma -->
+                        <div id="group-sigma" style="display:none;">
+                            <label for="param-sigma">Sigma</label>
+                            <input type="number" id="param-sigma" value="1.0" min="0.1" step="0.1">
+                            <div class="slider-group">
+                                <input type="range" id="slider-sigma" min="0.1" max="20.0" step="0.1">
+                            </div>
+                        </div>
+
+                        <!-- Decay Length -->
+                        <div id="group-decay" style="display:none;">
+                            <label for="param-decay">Decay Length</label>
+                            <input type="number" id="param-decay" value="50" min="1">
+                            <div class="slider-group">
+                                <input type="range" id="slider-decay" min="1" max="500" step="1">
+                            </div>
+                        </div>
+
+                        <!-- Frequency Domain (No sliders for huge ranges usually) -->
+                        <div id="group-freq" style="display:none;">
+                            <label for="param-freq">Cutoff Frequency</label>
+                            <div class="input-with-unit">
+                                <input type="number" id="param-freq" value="100" min="0.1" step="0.1">
+                                <select id="unit-freq">
+                                    <option value="1">Hz</option>
+                                    <option value="1000">kHz</option>
+                                    <option value="1000000" selected>MHz</option>
+                                    <option value="1000000000">GHz</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="group-slope" style="display:none;">
+                            <label for="param-slope">Slope (dB/Octave)</label>
+                            <input type="number" id="param-slope" value="12" min="6" step="6">
+                            <div class="slider-group">
+                                <input type="range" id="slider-slope" min="6" max="96" step="6">
+                            </div>
+                        </div>
+
+                        <div id="group-q" style="display:none;">
+                            <label for="param-q">Q Factor</label>
+                            <input type="number" id="param-q" value="0.707" min="0.1" step="0.01">
+                            <div class="slider-group">
+                                <input type="range" id="slider-q" min="0.1" max="10.0" step="0.1">
+                            </div>
+                        </div>
+
+                        <div id="group-bw" style="display:none;">
+                            <label for="param-bw">Bandwidth</label>
+                            <div class="input-with-unit">
+                                <input type="number" id="param-bw" value="1" min="0.1" step="0.1">
+                                <select id="unit-bw">
+                                    <option value="1">Hz</option>
+                                    <option value="1000">kHz</option>
+                                    <option value="1000000" selected>MHz</option>
+                                    <option value="1000000000">GHz</option>
+                                </select>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>Math & Offset</h3>
+                    <button id="btn-math-settings">Configure Math...</button>
+                </div>
+            </aside>
+
+            <section class="graph-container">
+                <div id="column-tabs" class="tabs-container">
+                    <div class="tab-placeholder">Load data to see columns</div>
+                </div>
+
+                <div class="graph-toolbar">
+                    <div class="tool-group">
+                        <label class="toggle-label"><input type="checkbox" id="live-show-raw" checked> Raw</label>
+                    </div>
+                    <div class="tool-group" id="container-opacity">
+                        <label>Opacity</label>
+                        <input type="range" id="live-raw-opacity" min="0" max="1" step="0.05" value="0.5">
+                    </div>
+                    <div class="tool-group" style="margin-left: 15px; border-left: 1px solid #444; padding-left: 15px;">
+                        <label class="toggle-label"><input type="checkbox" id="live-show-diff"> Diff</label>
+                    </div>
+                    <div class="tool-group" style="margin-left: 15px; border-left: 1px solid #444; padding-left: 15px;">
+                        <label class="toggle-label"><input type="checkbox" id="live-freq-domain"> Freq Domain (FFT)</label>
+                    </div>
+                    <div class="tool-item" style="margin-left: auto;">
+                        <span id="live-status" style="font-size: 0.8em; color: #888;">Ready</span>
+                    </div>
+                </div>
+
+                <div id="main-plot"></div>
+            </section>
+        </main>
+    </div>
+
+    <input type="file" id="file-input" accept=".csv,.txt" style="display: none;">
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>

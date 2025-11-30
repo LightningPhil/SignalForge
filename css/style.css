@@ -1,0 +1,215 @@
+:root {
+    --bg-dark: #1e1e1e;
+    --bg-panel: #2d2d2d;
+    --text-main: #e0e0e0;
+    --accent: #4caf50;
+    --accent-hover: #45a049;
+    --math-accent: #00bcd4; /* New for Virtual Traces */
+    --border-color: #444;
+    --input-bg: #111;
+    --tab-active-bg: #444;
+    --selected-step-bg: #383838;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* --- Header --- */
+header {
+    background-color: #111;
+    padding: 10px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+}
+
+header h1 { margin: 0; font-size: 1.2rem; }
+
+nav button {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 6px 15px;
+    cursor: pointer;
+    margin-left: 5px;
+    border-radius: 3px;
+}
+nav button:hover { background: #444; }
+
+main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* --- Sidebar --- */
+aside.controls {
+    width: 300px;
+    background-color: var(--bg-panel);
+    padding: 15px;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.panel {
+    margin-bottom: 25px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.panel h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--accent);
+    font-size: 1rem;
+    text-transform: uppercase;
+}
+
+/* --- Pipeline List --- */
+#pipeline-list {
+    background: #111;
+    border: 1px solid #444;
+    min-height: 100px;
+    max-height: 250px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+.pipeline-step {
+    padding: 8px;
+    border-bottom: 1px solid #333;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    font-size: 0.9em;
+}
+.pipeline-step:hover { background-color: #222; }
+.pipeline-step.selected { background-color: var(--selected-step-bg); border-left: 3px solid var(--accent); }
+
+.step-num {
+    background: #444;
+    color: #fff;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 0.8em;
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+
+.step-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.pipeline-actions { display: flex; gap: 5px; }
+.pipeline-actions button {
+    flex: 1; padding: 5px; background: #333; border: 1px solid #555; color: #fff; cursor: pointer;
+}
+.pipeline-actions button:hover { background: #444; }
+#btn-add-step { flex: 2; font-weight: bold; }
+
+/* --- Parameter Editor --- */
+.step-type-label {
+    font-weight: bold;
+    color: #fff;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #444;
+}
+
+.hint { color: #888; font-size:0.8em; margin-top: 2px; display: block; }
+
+.panel label { display: block; margin-top: 12px; margin-bottom: 5px; font-size: 0.9em; }
+
+.panel input[type="number"], .panel select, .panel input[type="text"] {
+    width: 100%;
+    padding: 8px;
+    background: var(--input-bg);
+    border: 1px solid #555;
+    color: white;
+    border-radius: 3px;
+}
+
+.slider-group { margin-top: 5px; }
+.slider-group input[type="range"] { width: 100%; cursor: pointer; }
+
+.input-with-unit { display: flex; gap: 5px; }
+.input-with-unit input { flex: 2; }
+.input-with-unit select { flex: 1; min-width: 60px; text-align: center; padding: 8px 2px; }
+
+input[type=number]::-webkit-inner-spin-button, 
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
+
+button.primary {
+    width: 100%; margin-top: 20px; background-color: var(--accent); color: white; border: none; padding: 10px; font-weight: bold; cursor: pointer; border-radius: 4px;
+}
+button.primary:hover { background-color: var(--accent-hover); }
+
+/* --- Graph Area --- */
+.graph-container {
+    flex: 1; display: flex; flex-direction: column; background-color: var(--bg-dark); position: relative;
+}
+
+.tabs-container {
+    display: flex; background-color: #252525; border-bottom: 1px solid var(--border-color); overflow-x: auto; white-space: nowrap; height: 35px; scrollbar-width: thin; scrollbar-color: #555 #222;
+}
+
+.tab {
+    padding: 0 15px; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333; font-size: 0.9rem; color: #888; transition: background 0.2s, color 0.2s; user-select: none;
+}
+.tab:hover { background-color: #333; color: #ccc; }
+.tab.active { background-color: var(--tab-active-bg); color: #fff; font-weight: bold; border-bottom: 2px solid var(--accent); }
+
+/* Virtual Tabs (Math Traces) */
+.tab.virtual {
+    color: #888; /* Default */
+}
+.tab.virtual.active {
+    border-bottom: 2px solid var(--math-accent);
+    color: var(--math-accent); /* Cyan text when active */
+}
+
+.tab-placeholder { padding: 0 15px; display: flex; align-items: center; color: #555; font-style: italic; }
+
+/* --- Graph Toolbar --- */
+.graph-toolbar {
+    display: flex; align-items: center; padding: 8px 15px; background-color: #222; border-bottom: 1px solid #333; gap: 15px; flex-wrap: wrap;
+}
+.tool-group { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #ccc; }
+.toggle-label { display: flex; align-items: center; cursor: pointer; user-select: none; }
+.toggle-label input { margin-right: 8px; }
+#main-plot { flex: 1; width: 100%; }
+
+/* --- Help System --- */
+.help-container { display: flex; height: 100%; }
+.help-sidebar { width: 150px; background: #222; border-right: 1px solid #444; display: flex; flex-direction: column; }
+.help-tab { padding: 15px; cursor: pointer; border-bottom: 1px solid #333; color: #aaa; }
+.help-tab:hover { background: #333; color: #fff; }
+.help-tab.active { background: var(--accent); color: #fff; font-weight: bold; }
+.help-content { flex: 1; padding: 20px; overflow-y: auto; background: #2d2d2d; }
+.help-section { display: none; }
+.help-section.active { display: block; animation: fadeIn 0.3s; }
+.wiki-entry { margin-bottom: 25px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+
+/* --- Modal Add Buttons --- */
+.add-opt { width: 100%; padding: 10px; text-align: left; background: #333; border: 1px solid #555; color: #fff; cursor: pointer; margin-bottom: 5px; }
+.add-opt:hover { background: #444; border-color: var(--accent); }

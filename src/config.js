@@ -1,0 +1,67 @@
+/**
+ * Application Defaults
+ */
+
+export const Config = {
+    // Default Graph Settings
+    graph: {
+        title: "Signal Analysis",
+        xAxisTitle: "Time",
+        yAxisTitle: "Amplitude",
+        
+        // Display
+        useScientificNotation: true,
+        logScaleY: false,
+        showDifferential: false, 
+        showGrid: true,
+        showFreqDomain: false,
+        
+        // Raw Data Visibility
+        showRaw: true,
+        rawOpacity: 0.5,
+        
+        // Performance
+        enableDownsampling: false, 
+        maxDisplayPoints: 20000    
+    },
+
+    // Default Pipeline (Updated per request)
+    pipeline: [
+        {
+            id: 'default-1',
+            type: 'savitzkyGolay',
+            windowSize: 20,
+            polyOrder: 2,
+            iterations: 1,
+            enabled: true
+        }
+    ],
+
+    // Default Parameters for new filters
+    defaults: {
+        movingAverage: { windowSize: 5 },
+        savitzkyGolay: { windowSize: 20, polyOrder: 2, iterations: 1 },
+        median: { windowSize: 5 },
+        iir: { alpha: 0.1 },
+        gaussian: { sigma: 1.0, kernelSize: 5 },
+        startStopNorm: { decayLength: 50 },
+        
+        // Frequency Domain Defaults (100 MHz)
+        lowPassFFT: { cutoffFreq: 100000000, slope: 12, qFactor: 0.707 },
+        highPassFFT: { cutoffFreq: 100000000, slope: 12, qFactor: 0.707 },
+        notchFFT: { centerFreq: 100000000, bandwidth: 1000000 } 
+    },
+
+    colors: {
+        raw: '#888888',           
+        filtered: '#ff9800',      
+        diffRaw: '#888888',       
+        diffFilt: '#ff9800',
+        transfer: '#00bcd4'
+    },
+
+    limits: {
+        previewLines: 50,         
+        maxGridRows: 1000         
+    }
+};
