@@ -49,6 +49,7 @@ export const HelpSystem = {
                                 <div class="tree-item" data-target="fft-lowpass">FFT Low Pass</div>
                                 <div class="tree-item" data-target="fft-highpass">FFT High Pass</div>
                                 <div class="tree-item" data-target="fft-notch">FFT Notch / Band-Stop</div>
+                                <div class="tree-item" data-target="start-stop-norm">Start / Stop Normalization</div>
                             </div>
                         </div>
 
@@ -222,6 +223,19 @@ export const HelpSystem = {
                             <li>Use the frequency-domain view to confirm the notch fully captures the interference.</li>
                             <li>For wide-band suppression, prefer paired high-pass and low-pass filters instead of an excessively broad notch.</li>
                         </ul>
+                    </div>
+
+                    <div id="content-start-stop-norm" class="help-section">
+                        <h3>Start / Stop Normalization</h3>
+                        <p><strong>Ideal for:</strong> Eliminating step changes at the boundaries before running FFT-based filters and for intentionally pinning the start and end of a trace to zero.</p>
+                        <p><strong>Mechanism:</strong> Subtracts an offset from the full series, then applies independent sine tapers to the first and last portions of the data. The separate start and end lengths let you zero asymmetric boundaries without over-suppressing the opposite side.</p>
+                        <p><strong>Parameters:</strong></p>
+                        <ul>
+                            <li><em>Start/End lengths:</em> Choose different taper widths to fade the opening and closing samples toward zero. Set either side to zero to bypass tapering there.</li>
+                            <li><em>Offset:</em> Manually remove a DC level before tapering. Use the <em>Auto Start Offset</em> button to average the first N samples (configurable) and fill the offset automatically for signals with a biased leading edge.</li>
+                            <li><em>Enable switches:</em> Toggle start or end processing independently if only one boundary needs correction.</li>
+                        </ul>
+                        <p><strong>Usage tips:</strong> Apply this step early in the pipeline when preparing for FFT operations to minimize wrap-around discontinuities that create ringing. Re-run <em>Auto Start Offset</em> after changing the data selection to keep the taper aligned with the current segment.</p>
                     </div>
 
                     <div id="content-data-integrity" class="help-section">
