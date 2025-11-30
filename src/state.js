@@ -6,19 +6,23 @@ import { Config } from './config.js';
 export const State = {
     // Data Storage
     data: {
-        raw: [],          
-        headers: [],      
-        processed: [],    
-        timeColumn: null, 
-        dataColumn: null  
+        raw: [],
+        headers: [],
+        processed: [],
+        timeColumn: null,
+        dataColumn: null
     },
+
+    // Multi-View tabs
+    multiViews: [],
 
     // Configuration
     config: JSON.parse(JSON.stringify(Config)),
 
     // Runtime state
     ui: {
-        selectedStepId: null
+        selectedStepId: null,
+        activeMultiViewId: null
     },
 
     // Methods
@@ -30,6 +34,9 @@ export const State = {
         if (!this.data.dataColumn && headers.length > 1) this.data.dataColumn = headers[1];
 
         this.data.processed = [];
+
+        this.multiViews = [];
+        this.ui.activeMultiViewId = null;
         
         // Reset Math definitions on new file load? 
         // Usually yes, as columns might change.
@@ -171,6 +178,37 @@ export const State = {
 
     getSelectedStep() {
         return this.getPipeline().find(s => s.id === this.ui.selectedStepId);
+    },
+
+    // --- Multi-View Management ---
+
+    addMultiView(name = null, activeColumnIds = []) {
+        const view = {
+            id: `mv-${Date.now()}`,
+            name: name || `Multi View ${this.multiViews.length + 1}`,
+            activeColumnIds: [...new Set(activeColumnIds)]
+        };
+        this.multiViews.push(view);
+        return view;
+    },
+
+    removeMultiView(id) {
+        this.multiViews = this.multiViews.filter((v) => v.id !== id);
+        if (this.ui.activeMultiViewId === id) {
+            this.ui.activeMultiViewId = null;
+        }
+    },
+
+    toggleColumnInMultiView(viewId, columnId) {
+        const view = this.multiViews.find((v) => v.id === viewId);
+        if (!view || !columnId) return;
+
+        const idx = view.activeColumnIds.indexOf(columnId);
+        if (idx === -1) {
+            view.activeColumnIds.push(columnId);
+        } else {
+            view.activeColumnIds.splice(idx, 1);
+        }
     },
 
     // --- Math Management ---

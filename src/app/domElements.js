@@ -64,5 +64,8 @@ export const elements = {
     liveStatus: document.getElementById('live-status'),
 
     tabContainer: document.getElementById('column-tabs'),
-    chkSyncTabs: document.getElementById('chk-sync-tabs')
+    btnAddMultiView: document.getElementById('btn-add-multiview'),
+    chkSyncTabs: document.getElementById('chk-sync-tabs'),
+    traceSelectorPanel: document.getElementById('trace-selector-panel'),
+    traceSelectorList: document.getElementById('trace-selector-list')
 };

@@ -53,6 +53,12 @@
                     </div>
                 </div>
 
+                <div class="panel" id="trace-selector-panel" style="display:none;">
+                    <h3>Trace Selector</h3>
+                    <p>Select which columns to display in this multi-view tab.</p>
+                    <div id="trace-selector-list" class="checkbox-column"></div>
+                </div>
+
                 <div class="panel" id="param-editor">
                     <h3>Parameters</h3>
                     <div class="step-type-label" id="step-type-display">Select a step</div>
@@ -197,8 +203,11 @@
             </aside>
 
             <section class="graph-container">
-                <div id="column-tabs" class="tabs-container">
-                    <div class="tab-placeholder">Load data to see columns</div>
+                <div class="tabs-container" id="tabs-wrapper">
+                    <div id="column-tabs" class="tabs-container">
+                        <div class="tab-placeholder">Load data to see columns</div>
+                    </div>
+                    <button id="btn-add-multiview" class="tab add-tab" title="Add Multi-View" aria-label="Add Multi-View">➕</button>
                 </div>
 
                 <div class="graph-toolbar">

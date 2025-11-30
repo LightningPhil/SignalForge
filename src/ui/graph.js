@@ -3,6 +3,7 @@ import { Config } from '../config.js';
 import { lttb } from '../processing/lttb.js';
 import { FFT } from '../processing/fft.js';
 import { Filter } from '../processing/filter.js';
+import { MathEngine } from '../processing/math.js';
 
 const PLOT_ID = 'main-plot';
 const STATUS_ID = 'graph-status';
@@ -11,6 +12,8 @@ const STATUS_ID = 'graph-status';
  * Graph Visualization Module
  */
 export const Graph = {
+
+    lastRanges: { x: null, y: null },
 
     getPlotStyling() {
         const styles = getComputedStyle(document.documentElement);
@@ -86,6 +89,13 @@ export const Graph = {
         const plotElement = document.getElementById(PLOT_ID);
         if (!plotElement || !plotElement.data) return;
 
+        const xRange = (plotElement.layout && plotElement.layout.xaxis && plotElement.layout.xaxis.range)
+            ? [...plotElement.layout.xaxis.range]
+            : null;
+        const yRange = (plotElement.layout && plotElement.layout.yaxis && plotElement.layout.yaxis.range)
+            ? [...plotElement.layout.yaxis.range]
+            : null;
+
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
         Plotly.relayout(PLOT_ID, {
             paper_bgcolor: paperBg,
@@ -93,11 +103,17 @@ export const Graph = {
             'font.color': fontColor,
             'xaxis.gridcolor': gridColor,
             'yaxis.gridcolor': gridColor,
-            'yaxis2.gridcolor': gridColor
+            'yaxis2.gridcolor': gridColor,
+            ...(xRange ? { 'xaxis.range': xRange } : {}),
+            ...(yRange ? { 'yaxis.range': yRange } : {})
         });
 
-        if (State.data.raw.length && State.data.timeColumn && State.data.dataColumn) {
-            this.triggerRefresh(null);
+        if (State.data.raw.length && State.data.timeColumn && (State.data.dataColumn || State.ui.activeMultiViewId)) {
+            const rangePayload = {};
+            if (xRange) rangePayload.x = xRange;
+            if (yRange) rangePayload.y = yRange;
+            const hasRange = !!(xRange || yRange);
+            this.triggerRefresh(hasRange ? rangePayload : null);
         }
     },
 
@@ -149,12 +165,174 @@ export const Graph = {
         if (!rawX || rawX.length === 0) return;
 
         const config = State.config.graph;
-        
+
         // --- Mode Switching ---
         if (config.showFreqDomain) {
             this.renderFreqDomain(rawX, rawY, filteredY);
         } else {
             this.renderTimeDomain(rawX, rawY, filteredY, range);
+        }
+    },
+
+    renderMultiView(rawX, seriesList, ranges = null) {
+        if (!rawX || rawX.length === 0) return;
+        const config = State.config.graph;
+
+        if (config.showFreqDomain) {
+            this.renderMultiFreqDomain(rawX, seriesList);
+        } else {
+            this.renderMultiTimeDomain(rawX, seriesList, ranges);
+        }
+    },
+
+    renderMultiTimeDomain(rawX, seriesList, ranges) {
+        const config = State.config.graph;
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+        const showDiff = config.showDifferential;
+        const showRaw = (config.showRaw !== false);
+        const allowDownsample = config.enableDownsampling;
+
+        const xRange = Array.isArray(ranges) ? ranges : (ranges && ranges.x ? ranges.x : null);
+        const yRange = (!Array.isArray(ranges) && ranges && ranges.y) ? ranges.y : null;
+
+        if (ranges === null) {
+            this.lastRanges = { x: null, y: null };
+        } else {
+            this.lastRanges = { x: xRange ? [...xRange] : null, y: yRange ? [...yRange] : null };
+        }
+
+        let displayX = rawX;
+        let sliceStart = 0;
+        let sliceEnd = rawX.length;
+        if (xRange) {
+            const startIndex = rawX.findIndex(val => val >= xRange[0]);
+            let endIndex = rawX.findIndex(val => val > xRange[1]);
+
+            if (startIndex !== -1) {
+                if (endIndex === -1) endIndex = rawX.length;
+                const buffer = 5;
+                sliceStart = Math.max(0, startIndex - buffer);
+                sliceEnd = Math.min(rawX.length, endIndex + buffer);
+                displayX = rawX.slice(sliceStart, sliceEnd);
+            }
+        }
+
+        const traces = [];
+        let isDownsampled = false;
+
+        seriesList.forEach((series) => {
+            if (!series || !series.rawY || series.rawY.length === 0) return;
+            const name = series.columnId || 'Series';
+            let seriesX = displayX;
+            let seriesY = series.rawY;
+            let seriesF = series.filteredY || [];
+
+            if (sliceStart !== 0 || sliceEnd !== rawX.length) {
+                seriesY = seriesY.slice(sliceStart, sliceEnd);
+                if (seriesF.length > 0) seriesF = seriesF.slice(sliceStart, sliceEnd);
+            }
+
+            if (allowDownsample && seriesX.length > config.maxDisplayPoints) {
+                isDownsampled = true;
+                const originalX = seriesX;
+                const zippedRaw = originalX.map((x, i) => [x, seriesY[i]]);
+                const sampledRaw = lttb(zippedRaw, config.maxDisplayPoints);
+                seriesX = sampledRaw.map(p => p[0]);
+                seriesY = sampledRaw.map(p => p[1]);
+
+                if (seriesF.length > 0) {
+                    const zippedF = originalX.map((x, i) => [x, seriesF[i]]);
+                    const sampledF = lttb(zippedF, config.maxDisplayPoints);
+                    seriesF = sampledF.map(p => p[1]);
+                }
+            }
+
+            if (showRaw) {
+                traces.push({
+                    x: seriesX, y: seriesY, mode: 'lines', name: `${name} (Raw)`,
+                    line: { width: 1 }, xaxis: 'x', yaxis: 'y'
+                });
+            }
+
+            if (seriesF && seriesF.length > 0) {
+                traces.push({
+                    x: seriesX, y: seriesF, mode: 'lines', name: `${name} (Filtered)`,
+                    line: { width: 2 }, xaxis: 'x', yaxis: 'y'
+                });
+            }
+
+            if (showDiff) {
+                if (showRaw) {
+                    const dRaw = this.calculateDerivative(seriesX, seriesY);
+                    traces.push({
+                        x: seriesX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
+                        line: { width: 1 }, xaxis: 'x', yaxis: 'y2'
+                    });
+                }
+                if (seriesF && seriesF.length > 0) {
+                    const dF = this.calculateDerivative(seriesX, seriesF);
+                    traces.push({
+                        x: seriesX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
+                        line: { width: 1.5 }, xaxis: 'x', yaxis: 'y2'
+                    });
+                }
+            }
+        });
+
+        const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear', config.currencySymbol, config.significantFigures);
+        const yAxisBaseType = config.logScaleY ? 'log' : 'linear';
+        const yAxisFormat = this.getAxisFormat(config.yAxisFormat, yAxisBaseType, config.currencySymbol, config.significantFigures);
+        const secondaryYAxisFormat = this.getAxisFormat(config.yAxisFormat, 'linear', config.currencySymbol, config.significantFigures);
+
+        const layout = {
+            title: config.title,
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
+            grid: {
+                rows: showDiff ? 2 : 1,
+                columns: 1,
+                pattern: 'independent',
+                roworder: 'top to bottom'
+            },
+            showlegend: true,
+            legend: { orientation: 'h', y: -0.15 },
+            xaxis: {
+                title: config.xAxisTitle,
+                ...(xRange ? { range: xRange } : { autorange: true }),
+                showgrid: config.showGrid,
+                gridcolor: gridColor,
+                ...xAxisFormat
+            },
+            yaxis: {
+                title: config.yAxisTitle,
+                type: yAxisBaseType,
+                showgrid: config.showGrid,
+                gridcolor: gridColor,
+                domain: showDiff ? [0.55, 1] : [0, 1],
+                ...(yRange ? { range: yRange } : { autorange: true }),
+                ...yAxisFormat
+            },
+            yaxis2: {
+                title: "Derivative (dy/dx)",
+                domain: [0, 0.45],
+                anchor: 'x',
+                showgrid: config.showGrid,
+                gridcolor: gridColor,
+                ...secondaryYAxisFormat
+            }
+        };
+
+        Plotly.react(PLOT_ID, traces, layout);
+
+        const statusEl = document.getElementById(STATUS_ID);
+        if (statusEl) {
+            const seriesCount = seriesList.filter((s) => s && s.rawY && s.rawY.length).length;
+            let statusText = seriesCount > 0
+                ? `Multi-View: ${seriesCount} trace(s) visible`
+                : 'No traces selected';
+            if (isDownsampled) statusText += ' (Downsampled)';
+            statusEl.textContent = statusText;
         }
     },
 
@@ -269,6 +447,71 @@ export const Graph = {
         if(statusEl) statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(fs)} Hz)`;
     },
 
+    renderMultiFreqDomain(timeX, seriesList) {
+        if (!seriesList || seriesList.length === 0) return;
+        const config = State.config.graph;
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+
+        let fs = 1.0;
+        if(timeX.length > 1) {
+            const limit = Math.min(100, timeX.length-1);
+            let sum = 0;
+            for(let i=0; i<limit; i++) sum += (timeX[i+1]-timeX[i]);
+            if(sum > 0) fs = 1.0 / (sum/limit);
+        }
+
+        const traces = [];
+
+        seriesList.forEach((series) => {
+            const { rawY, filteredY, columnId } = series;
+            if (!rawY || rawY.length === 0) return;
+
+            const { re: rawRe, im: rawIm } = FFT.forward(rawY);
+            const rawMag = FFT.getMagnitudeDB(rawRe, rawIm);
+
+            const freqAxis = [];
+            const binWidth = (fs/2) / rawMag.length;
+            for(let i=0; i<rawMag.length; i++) freqAxis.push(i * binWidth);
+
+            if (config.showRaw !== false) {
+                traces.push({
+                    x: freqAxis,
+                    y: rawMag,
+                    mode: 'lines',
+                    name: `${columnId} Raw Spectrum`,
+                    line: { width: 1 }
+                });
+            }
+
+            if (filteredY && filteredY.length > 0) {
+                const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
+                const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
+                traces.push({
+                    x: freqAxis,
+                    y: filtMag,
+                    mode: 'lines',
+                    name: `${columnId} Filtered Spectrum`,
+                    line: { width: 1.5 }
+                });
+            }
+        });
+
+        const layout = {
+            title: "Frequency Domain (FFT)",
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
+            showlegend: true,
+            xaxis: { title: "Frequency (Hz)", type: 'log', autorange: true, gridcolor: gridColor },
+            yaxis: { title: "Magnitude (dB)", gridcolor: gridColor }
+        };
+
+        Plotly.react(PLOT_ID, traces, layout);
+
+        const statusEl = document.getElementById(STATUS_ID);
+        if(statusEl) statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(fs)} Hz)`;
+    },
+
     // --- Time Domain Renderer (Existing Logic) ---
     renderTimeDomain(rawX, rawY, filteredY, range) {
         const config = State.config.graph;
@@ -279,24 +522,35 @@ export const Graph = {
         const showRaw = (config.showRaw !== false);
         const allowDownsample = config.enableDownsampling;
 
+        const xRange = Array.isArray(range) ? range : (range && range.x ? range.x : null);
+        const yRange = (!Array.isArray(range) && range && range.y) ? range.y : null;
+
         let displayX = rawX;
         let displayY = rawY;
         let displayF = filteredY || [];
 
+        if (range === null) {
+            this.lastRanges = { x: null, y: null };
+        } else {
+            this.lastRanges = { x: xRange ? [...xRange] : null, y: yRange ? [...yRange] : null };
+        }
+
         // Slicing
-        if (range) {
-            const startIndex = rawX.findIndex(val => val >= range[0]);
-            let endIndex = rawX.findIndex(val => val > range[1]);
-            
+        let sliceStart = 0;
+        let sliceEnd = rawX.length;
+        if (xRange) {
+            const startIndex = rawX.findIndex(val => val >= xRange[0]);
+            let endIndex = rawX.findIndex(val => val > xRange[1]);
+
             if (startIndex !== -1) {
                 if (endIndex === -1) endIndex = rawX.length;
                 const buffer = 5;
-                const safeStart = Math.max(0, startIndex - buffer);
-                const safeEnd = Math.min(rawX.length, endIndex + buffer);
+                sliceStart = Math.max(0, startIndex - buffer);
+                sliceEnd = Math.min(rawX.length, endIndex + buffer);
 
-                displayX = rawX.slice(safeStart, safeEnd);
-                displayY = rawY.slice(safeStart, safeEnd);
-                if (filteredY) displayF = filteredY.slice(safeStart, safeEnd);
+                displayX = rawX.slice(sliceStart, sliceEnd);
+                displayY = rawY.slice(sliceStart, sliceEnd);
+                if (filteredY) displayF = filteredY.slice(sliceStart, sliceEnd);
             }
         }
 
@@ -306,13 +560,14 @@ export const Graph = {
         // Downsampling
         if (allowDownsample && pointCount > config.maxDisplayPoints) {
             isDownsampled = true;
-            const zippedRaw = displayX.map((x, i) => [x, displayY[i]]);
+            const originalX = displayX;
+            const zippedRaw = originalX.map((x, i) => [x, displayY[i]]);
             const sampledRaw = lttb(zippedRaw, config.maxDisplayPoints);
             displayX = sampledRaw.map(p => p[0]);
             displayY = sampledRaw.map(p => p[1]);
 
             if (filteredY && displayF.length > 0) {
-                const zippedF = displayF.map((y, i) => [i, y]); 
+                const zippedF = originalX.map((x, i) => [x, displayF[i]]);
                 const sampledF = lttb(zippedF, config.maxDisplayPoints);
                 displayF = sampledF.map(p => p[1]);
             }
@@ -376,7 +631,7 @@ export const Graph = {
 
             xaxis: {
                 title: config.xAxisTitle,
-                range: range,
+                ...(xRange ? { range: xRange } : { autorange: true }),
                 showgrid: config.showGrid,
                 gridcolor: gridColor,
                 ...xAxisFormat
@@ -387,6 +642,7 @@ export const Graph = {
                 showgrid: config.showGrid,
                 gridcolor: gridColor,
                 domain: showDiff ? [0.55, 1] : [0, 1],
+                ...(yRange ? { range: yRange } : { autorange: true }),
                 ...yAxisFormat
             },
             yaxis2: {
@@ -413,6 +669,8 @@ export const Graph = {
     handleZoom(event) {
         if(State.config.graph.showFreqDomain) return; // No custom zoom logic for FFT yet
 
+        const ranges = { ...this.lastRanges };
+
         if (event['xaxis.range[0]'] || event['xaxis.range']) {
             let min, max;
             if (event['xaxis.range']) {
@@ -421,24 +679,93 @@ export const Graph = {
                 min = event['xaxis.range[0]'];
                 max = event['xaxis.range[1]'];
             }
-            this.triggerRefresh([min, max]);
+            ranges.x = [min, max];
         }
-        
-        if (event['xaxis.autorange'] === true) {
+
+        if (event['yaxis.range[0]'] || event['yaxis.range']) {
+            let minY, maxY;
+            if (event['yaxis.range']) {
+                [minY, maxY] = event['yaxis.range'];
+            } else {
+                minY = event['yaxis.range[0]'];
+                maxY = event['yaxis.range[1]'];
+            }
+            ranges.y = [minY, maxY];
+        }
+
+        if (event['xaxis.autorange'] === true || event['yaxis.autorange'] === true) {
             this.triggerRefresh(null);
+            return;
         }
+
+        this.triggerRefresh(ranges);
     },
 
     triggerRefresh(range) {
+        if (range === null) {
+            this.lastRanges = { x: null, y: null };
+        } else if (Array.isArray(range)) {
+            this.lastRanges = { x: [...range], y: this.lastRanges.y };
+        } else if (range && typeof range === 'object') {
+            this.lastRanges = {
+                x: range.x ? [...range.x] : this.lastRanges.x,
+                y: range.y ? [...range.y] : this.lastRanges.y
+            };
+        }
+
         const xCol = State.data.timeColumn;
+        if (!xCol) return;
+
+        if (State.ui.activeMultiViewId) {
+            this.renderMultiViewFromState(this.lastRanges.x || this.lastRanges.y ? this.lastRanges : null);
+            return;
+        }
+
         const yCol = State.data.dataColumn;
-        if (!xCol || !yCol) return;
+        if (!yCol) return;
 
         const rawX = State.data.raw.map(r => parseFloat(r[xCol]));
         const rawY = State.data.raw.map(r => parseFloat(r[yCol]));
-        
+
         const filteredY = State.data.processed.length > 0 ? State.data.processed : null;
 
-        this.render(rawX, rawY, filteredY, range);
+        this.render(rawX, rawY, filteredY, this.lastRanges.x || this.lastRanges.y ? this.lastRanges : range);
+    },
+
+    getSeriesForColumn(columnId, rawX) {
+        if (!columnId) return null;
+        const mathDef = State.getMathDefinition(columnId);
+        let rawY = [];
+
+        if (mathDef) {
+            rawY = MathEngine.calculateVirtualColumn(mathDef, rawX);
+        } else if (State.data.headers.includes(columnId)) {
+            rawY = State.data.raw.map((r) => parseFloat(r[columnId]));
+        } else {
+            return null;
+        }
+
+        const pipeline = State.getPipelineForColumn(columnId);
+        const filteredY = Filter.applyPipeline(rawY, rawX, pipeline);
+
+        return { columnId, rawY, filteredY };
+    },
+
+    renderMultiViewFromState(range = null) {
+        const activeId = State.ui.activeMultiViewId;
+        const view = State.multiViews.find((v) => v.id === activeId);
+        const xCol = State.data.timeColumn;
+        if (!view) {
+            State.ui.activeMultiViewId = null;
+            return;
+        }
+        if (!xCol) return;
+
+        const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
+        const seriesList = view.activeColumnIds
+            .map((col) => this.getSeriesForColumn(col, rawX))
+            .filter(Boolean);
+
+        this.renderMultiView(rawX, seriesList, range);
     }
 };
