@@ -36,6 +36,18 @@ export const Config = {
     pipeline: [
         {
             id: 'default-1',
+            type: 'startStopNorm',
+            startLength: 200,
+            endLength: 50,
+            startOffset: 0,
+            autoOffset: true,
+            autoOffsetPoints: 200,
+            applyStart: true,
+            applyEnd: false,
+            enabled: true
+        },
+        {
+            id: 'default-2',
             type: 'savitzkyGolay',
             windowSize: 20,
             polyOrder: 2,
@@ -56,7 +68,7 @@ export const Config = {
             endLength: 50,
             startOffset: 0,
             autoOffset: false,
-            autoOffsetPoints: 100,
+            autoOffsetPoints: 200,
             applyStart: true,
             applyEnd: true
         },
