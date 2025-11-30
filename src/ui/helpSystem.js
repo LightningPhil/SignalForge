@@ -262,7 +262,7 @@ export const HelpSystem = {
                         <pre style="background:#111; padding:10px; font-size:0.8em; overflow:auto;">
 MIT License
 
-Copyright (c) 2023 Philip J. McLachlan (LightningPhil)
+Copyright (c) 2025 Philip Leichauer (LightningPhil)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
