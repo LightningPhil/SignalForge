@@ -5,7 +5,7 @@ import { HelpSystem } from '../ui/helpSystem.js';
 import { elements } from './domElements.js';
 import { handleFileSelection } from './dataImport.js';
 import { renderPipelineList, updateParamEditor, showAddStepMenu, updateParamsFromUI } from './pipelineUi.js';
-import { runPipelineAndRender, hasData } from './dataPipeline.js';
+import { runPipelineAndRender, hasData, getRawSeries } from './dataPipeline.js';
 import { showMathModal } from './mathModal.js';
 import { showExportModal } from './exportModal.js';
 import { bindToolbarEvents } from './toolbar.js';
@@ -33,8 +33,13 @@ function setupEventListeners() {
         sliderSigma,
         inputIters,
         sliderIters,
-        inputDecay,
-        sliderDecay,
+        inputStartDecay,
+        inputEndDecay,
+        inputStartOffset,
+        inputAutoOffsetPoints,
+        btnAutoOffset,
+        sliderStartDecay,
+        sliderEndDecay,
         inputFreq,
         selFreqUnit,
         inputBW,
@@ -105,12 +110,38 @@ function setupEventListeners() {
     bindInput(inputAlpha, sliderAlpha);
     bindInput(inputSigma, sliderSigma);
     bindInput(inputIters, sliderIters);
-    bindInput(inputDecay, sliderDecay);
+    bindInput(inputStartDecay, sliderStartDecay);
+    bindInput(inputEndDecay, sliderEndDecay);
     bindInput(inputSlope, sliderSlope);
     bindInput(inputQ, sliderQ);
 
-    [inputFreq, selFreqUnit, inputBW, selBWUnit].forEach((el) => {
+    [inputFreq, selFreqUnit, inputBW, selBWUnit, inputStartOffset, inputAutoOffsetPoints].forEach((el) => {
         el?.addEventListener('input', updateParamsFromUI);
+    });
+
+    const clampVal = (val, min, max) => Math.min(max, Math.max(min, val));
+
+    btnAutoOffset?.addEventListener('click', () => {
+        const step = State.getSelectedStep();
+        if (!step || step.type !== 'startStopNorm') return;
+        if (!hasData()) return;
+
+        const { rawY } = getRawSeries();
+        if (!rawY || rawY.length === 0) return;
+
+        const desiredCount = clampVal(parseInt(inputAutoOffsetPoints?.value || '0', 10), 1, rawY.length);
+        if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = desiredCount;
+
+        let sum = 0;
+        for (let i = 0; i < desiredCount; i++) sum += rawY[i];
+        const avg = sum / desiredCount;
+
+        State.updateStepParams(step.id, { startOffset: avg, autoOffsetPoints: desiredCount });
+        if (inputStartOffset) inputStartOffset.value = avg;
+
+        renderPipelineList();
+        updateParamEditor();
+        runPipelineAndRender();
     });
 
     bindToolbarEvents();

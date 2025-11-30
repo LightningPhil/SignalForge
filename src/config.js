@@ -47,7 +47,14 @@ export const Config = {
         median: { windowSize: 5 },
         iir: { alpha: 0.1 },
         gaussian: { sigma: 1.0, kernelSize: 5 },
-        startStopNorm: { decayLength: 50 },
+        startStopNorm: {
+            startLength: 50,
+            endLength: 50,
+            startOffset: 0,
+            autoOffsetPoints: 100,
+            applyStart: true,
+            applyEnd: true
+        },
         
         // Frequency Domain Defaults (100 MHz)
         lowPassFFT: { cutoffFreq: 100000000, slope: 12, qFactor: 0.707 },

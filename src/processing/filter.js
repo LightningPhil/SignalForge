@@ -45,7 +45,7 @@ export const Filter = {
                     currentData = this.gaussian(currentData, step.sigma, step.kernelSize);
                     break;
                 case 'startStopNorm':
-                    currentData = this.startStopNorm(currentData, step.decayLength);
+                    currentData = this.startStopNorm(currentData, step);
                     break;
                 
                 // Frequency Domain
@@ -226,17 +226,45 @@ export const Filter = {
         return result;
     },
 
-    startStopNorm(data, decayLength) {
-        if (decayLength <= 0) return data;
-        const result = [...data];
+    startStopNorm(data, config) {
+        const {
+            startLength = undefined,
+            endLength = undefined,
+            decayLength = undefined,
+            startOffset = 0,
+            applyStart = true,
+            applyEnd = true
+        } = config || {};
+
+        const resolvedStart = startLength ?? decayLength ?? 0;
+        const resolvedEnd = endLength ?? decayLength ?? 0;
+
         const len = data.length;
-        const safeLength = Math.min(decayLength, Math.floor(len / 2));
-        for (let i = 0; i < safeLength; i++) {
-            const factor = Math.sin((i / safeLength) * (Math.PI / 2));
-            result[i] *= factor;
-            result[len - 1 - i] *= factor;
+        if (len === 0) return data;
+
+        const startSafe = applyStart ? Math.min(Math.max(0, resolvedStart), Math.floor(len / 2)) : 0;
+        const endSafe = applyEnd ? Math.min(Math.max(0, resolvedEnd), Math.floor(len / 2)) : 0;
+
+        if (startSafe <= 0 && endSafe <= 0 && startOffset === 0) return data;
+
+        const tapered = data.map(v => v - startOffset);
+
+        const fadeFactor = (i, length) => {
+            if (length <= 0) return 1;
+            if (length === 1) return 0;
+            const ratio = i / (length - 1);
+            return Math.sin(ratio * (Math.PI / 2));
+        };
+
+        for (let i = 0; i < startSafe; i++) {
+            tapered[i] *= fadeFactor(i, startSafe);
         }
-        return result;
+
+        for (let i = 0; i < endSafe; i++) {
+            tapered[len - 1 - i] *= fadeFactor(i, endSafe);
+        }
+
+        return tapered;
     },
 
     // --- Helpers ---
