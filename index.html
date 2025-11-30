@@ -24,6 +24,10 @@
                 <button id="btn-graph-config">⚙️ Graph</button>
                 <button id="btn-export">💾 Export</button>
                 <button id="btn-help">❓ Help</button>
+                <button id="btn-theme-toggle" class="theme-toggle" aria-pressed="false" title="Toggle light or dark appearance">
+                    <span class="theme-icon">🌙</span>
+                    <span class="theme-label">Dark Mode</span>
+                </button>
             </nav>
         </header>
 
@@ -168,14 +172,14 @@
                         <label>Opacity</label>
                         <input type="range" id="live-raw-opacity" min="0" max="1" step="0.05" value="0.5">
                     </div>
-                    <div class="tool-group" style="margin-left: 15px; border-left: 1px solid #444; padding-left: 15px;">
+                    <div class="tool-group tool-divider">
                         <label class="toggle-label"><input type="checkbox" id="live-show-diff"> Diff</label>
                     </div>
-                    <div class="tool-group" style="margin-left: 15px; border-left: 1px solid #444; padding-left: 15px;">
+                    <div class="tool-group tool-divider">
                         <label class="toggle-label"><input type="checkbox" id="live-freq-domain"> Freq Domain (FFT)</label>
                     </div>
                     <div class="tool-item" style="margin-left: auto;">
-                        <span id="live-status" style="font-size: 0.8em; color: #888;">Ready</span>
+                        <span id="live-status" style="font-size: 0.8em; color: var(--text-muted);">Ready</span>
                     </div>
                 </div>
 
