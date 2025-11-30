@@ -7,16 +7,19 @@ import { runPipelineAndRender, hasData } from './dataPipeline.js';
 import { updateToolbarUIFromState } from './toolbar.js';
 import { State } from '../state.js';
 import { Theme } from '../ui/theme.js';
+import { elements } from './domElements.js';
 
 function applySettingsAndRefreshUI() {
-    if (State.config.pipeline.length > 0) {
-        State.ui.selectedStepId = State.config.pipeline[0].id;
+    const pipeline = State.getPipeline();
+    if (pipeline.length > 0) {
+        State.ui.selectedStepId = pipeline[0].id;
     } else {
         State.ui.selectedStepId = null;
     }
 
     renderPipelineList();
     updateParamEditor();
+    if (elements.chkSyncTabs) elements.chkSyncTabs.checked = State.isGlobalScope();
     updateToolbarUIFromState();
     renderColumnTabs();
 

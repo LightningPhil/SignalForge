@@ -8,11 +8,21 @@ export const SettingsManager = {
     
     const_STORAGE_KEY: 'csv_filter_settings',
 
+    getSerializableConfig() {
+        const base = JSON.parse(JSON.stringify(State.config));
+        if (!State.isGlobalScope()) {
+            base.pipeline = JSON.parse(JSON.stringify(State.getPipeline()));
+        }
+        base.pipelineScope = State.config.pipelineScope !== false;
+        base.columnPipelines = State.config.columnPipelines || {};
+        return base;
+    },
+
     // --- Browser Memory (LocalStorage) ---
 
     saveToBrowser() {
         try {
-            const payload = JSON.stringify(State.config);
+            const payload = JSON.stringify(this.getSerializableConfig());
             localStorage.setItem(this.const_STORAGE_KEY, payload);
             alert("Settings saved to Browser Memory.");
         } catch (e) {
@@ -36,7 +46,7 @@ export const SettingsManager = {
 
     downloadSettings() {
         // Pretty print JSON (2 spaces)
-        const payload = JSON.stringify(State.config, null, 2);
+        const payload = JSON.stringify(this.getSerializableConfig(), null, 2);
         const blob = new Blob([payload], { type: 'application/json' });
         
         const url = URL.createObjectURL(blob);
@@ -68,14 +78,24 @@ export const SettingsManager = {
     applySettings(jsonString) {
         try {
             const newConfig = JSON.parse(jsonString);
-            
+
             // Basic Schema Validation
-            if (newConfig.graph && newConfig.filter) {
-                State.config = newConfig;
-                return true;
-            } else {
+            if (!newConfig.graph || (!newConfig.pipeline && !newConfig.columnPipelines)) {
                 throw new Error("Invalid settings file structure.");
             }
+
+            const merged = {
+                ...State.config,
+                ...newConfig,
+                pipeline: newConfig.pipeline || State.config.pipeline,
+                columnPipelines: newConfig.columnPipelines || {},
+                pipelineScope: newConfig.pipelineScope !== undefined
+                    ? newConfig.pipelineScope
+                    : true
+            };
+
+            State.config = merged;
+            return true;
         } catch (e) {
             alert("Error loading settings: " + e.message);
             return false;

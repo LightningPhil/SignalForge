@@ -232,6 +232,8 @@ export const Filter = {
             endLength = undefined,
             decayLength = undefined,
             startOffset = 0,
+            autoOffset = false,
+            autoOffsetPoints = 100,
             applyStart = true,
             applyEnd = true
         } = config || {};
@@ -245,9 +247,18 @@ export const Filter = {
         const startSafe = applyStart ? Math.min(Math.max(0, resolvedStart), Math.floor(len / 2)) : 0;
         const endSafe = applyEnd ? Math.min(Math.max(0, resolvedEnd), Math.floor(len / 2)) : 0;
 
-        if (startSafe <= 0 && endSafe <= 0 && startOffset === 0) return data;
+        if (startSafe <= 0 && endSafe <= 0 && startOffset === 0 && !autoOffset) return data;
 
-        const tapered = data.map(v => v - startOffset);
+        const resolveAutoOffset = () => {
+            if (!autoOffset) return startOffset;
+            const sampleCount = Math.min(Math.max(1, Math.floor(autoOffsetPoints || 1)), len);
+            let sum = 0;
+            for (let i = 0; i < sampleCount; i++) sum += data[i];
+            return sum / sampleCount;
+        };
+
+        const offsetToApply = resolveAutoOffset();
+        const tapered = data.map(v => v - offsetToApply);
 
         const fadeFactor = (i, length) => {
             if (length <= 0) return 1;

@@ -2,6 +2,7 @@ import { State } from '../state.js';
 import { MathEngine } from '../processing/math.js';
 import { elements } from './domElements.js';
 import { runPipelineAndRender } from './dataPipeline.js';
+import { renderPipelineList, updateParamEditor } from './pipelineUi.js';
 
 function renderColumnTabs() {
     const { tabContainer } = elements;
@@ -39,6 +40,15 @@ function renderColumnTabs() {
             tabs.forEach((t) => t.classList.remove('active'));
             tab.classList.add('active');
             State.data.dataColumn = tab.getAttribute('data-col');
+
+            const pipeline = State.getPipeline();
+            const selectionExists = pipeline.some((s) => s.id === State.ui.selectedStepId);
+            if (!selectionExists) {
+                State.ui.selectedStepId = pipeline[0]?.id || null;
+            }
+
+            renderPipelineList();
+            updateParamEditor();
             runPipelineAndRender();
         });
     });

@@ -37,7 +37,7 @@ function runPipelineAndRender() {
     const { rawX, rawY } = getRawSeries();
     if (!rawX.length || !rawY.length) return;
 
-    const filteredY = Filter.applyPipeline(rawY, rawX, State.config.pipeline);
+    const filteredY = Filter.applyPipeline(rawY, rawX, State.getPipeline());
     State.data.processed = filteredY;
 
     Graph.render(rawX, rawY, filteredY, null);
