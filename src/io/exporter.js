@@ -135,7 +135,7 @@ export const Exporter = {
     },
 
     downloadImage(format, options = {}) {
-        const { theme, transparent = false } = options;
+        const { theme, transparent = false, widthCm, heightCm, useWindowSize = true } = options;
         const graphDiv = document.getElementById('main-plot');
 
         if (!graphDiv || !graphDiv.layout) {
@@ -188,7 +188,16 @@ export const Exporter = {
             layout.yaxis2 = { ...layout.yaxis2, gridcolor: themeStyles.gridColor, zerolinecolor: themeStyles.gridColor };
         }
 
-        Plotly.toImage({ data: themedData, layout: layout }, { format: format, height: 600, width: 1000 })
+        const CM_TO_PX = 37.8;
+        let targetWidth = graphDiv.clientWidth || 1000;
+        let targetHeight = graphDiv.clientHeight || 600;
+
+        if (!useWindowSize) {
+            if (widthCm && !isNaN(widthCm)) targetWidth = Math.max(1, widthCm * CM_TO_PX);
+            if (heightCm && !isNaN(heightCm)) targetHeight = Math.max(1, heightCm * CM_TO_PX);
+        }
+
+        Plotly.toImage({ data: themedData, layout: layout }, { format: format, height: targetHeight, width: targetWidth })
             .then((url) => {
                 const link = document.createElement('a');
                 link.setAttribute('href', url);

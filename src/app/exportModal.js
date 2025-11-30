@@ -57,6 +57,19 @@ function showExportModal() {
                 <input type="checkbox" id="export-transparent" style="width:auto;">
                 Transparent background
             </label>
+            <div style="display:grid; gap:8px; margin-bottom:10px;">
+                <label class="toggle-label" style="margin:0; align-items:center; gap:10px;">
+                    <input type="checkbox" id="export-use-window" checked style="width:auto;">
+                    Use Window Size
+                </label>
+                <small id="export-window-size" style="color:var(--text-muted);"></small>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                    <label for="export-width-cm" style="min-width:120px;">Width (cm)</label>
+                    <input type="number" id="export-width-cm" min="1" step="0.1" style="width:120px;">
+                    <label for="export-height-cm" style="min-width:120px;">Height (cm)</label>
+                    <input type="number" id="export-height-cm" min="1" step="0.1" style="width:120px;">
+                </div>
+            </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <button id="btn-export-png">Download PNG</button>
                 <button id="btn-export-svg">Download SVG</button>
@@ -81,6 +94,31 @@ function showExportModal() {
     const fileInput = modal.querySelector('#input-settings-file');
     const themeSelect = modal.querySelector('#export-theme');
     const transparentToggle = modal.querySelector('#export-transparent');
+    const widthCmInput = modal.querySelector('#export-width-cm');
+    const heightCmInput = modal.querySelector('#export-height-cm');
+    const useWindowToggle = modal.querySelector('#export-use-window');
+    const sizeLabel = modal.querySelector('#export-window-size');
+
+    const updateSizeLabel = () => {
+        const graphDiv = document.getElementById('main-plot');
+        if (graphDiv && sizeLabel) {
+            const widthCm = (graphDiv.clientWidth / 37.8).toFixed(1);
+            const heightCm = (graphDiv.clientHeight / 37.8).toFixed(1);
+            sizeLabel.textContent = `Current window: ${widthCm} cm x ${heightCm} cm (approx.)`;
+            if (widthCmInput && !widthCmInput.value) widthCmInput.value = widthCm;
+            if (heightCmInput && !heightCmInput.value) heightCmInput.value = heightCm;
+        }
+    };
+
+    const syncSizeInputs = () => {
+        const disabled = useWindowToggle?.checked;
+        if (widthCmInput) widthCmInput.disabled = disabled;
+        if (heightCmInput) heightCmInput.disabled = disabled;
+    };
+
+    updateSizeLabel();
+    syncSizeInputs();
+    useWindowToggle?.addEventListener('change', syncSizeInputs);
 
     modal.querySelector('#btn-export-filtered')?.addEventListener('click', () => {
         Exporter.downloadCSV(false);
@@ -93,13 +131,25 @@ function showExportModal() {
     modal.querySelector('#btn-export-png')?.addEventListener('click', () => {
         if (!hasData()) return;
         const selectedTheme = themeSelect?.value === 'current' ? Theme.current : themeSelect?.value;
-        Exporter.downloadImage('png', { theme: selectedTheme, transparent: transparentToggle?.checked });
+        Exporter.downloadImage('png', {
+            theme: selectedTheme,
+            transparent: transparentToggle?.checked,
+            widthCm: parseFloat(widthCmInput?.value || '0'),
+            heightCm: parseFloat(heightCmInput?.value || '0'),
+            useWindowSize: useWindowToggle?.checked !== false
+        });
     });
 
     modal.querySelector('#btn-export-svg')?.addEventListener('click', () => {
         if (!hasData()) return;
         const selectedTheme = themeSelect?.value === 'current' ? Theme.current : themeSelect?.value;
-        Exporter.downloadImage('svg', { theme: selectedTheme, transparent: transparentToggle?.checked });
+        Exporter.downloadImage('svg', {
+            theme: selectedTheme,
+            transparent: transparentToggle?.checked,
+            widthCm: parseFloat(widthCmInput?.value || '0'),
+            heightCm: parseFloat(heightCmInput?.value || '0'),
+            useWindowSize: useWindowToggle?.checked !== false
+        });
     });
 
     modal.querySelector('#btn-save-browser')?.addEventListener('click', () => {

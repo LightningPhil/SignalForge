@@ -11,10 +11,10 @@ function hasData(alertUser = true) {
     return true;
 }
 
-function getRawSeries() {
+function getRawSeries(columnId = null) {
     if (!hasData(false)) return { rawX: [], rawY: [] };
 
-    const yCol = State.data.dataColumn;
+    const yCol = columnId || State.data.dataColumn;
     const xCol = State.data.timeColumn;
     if (!yCol || !xCol) return { rawX: [], rawY: [] };
 
@@ -31,8 +31,13 @@ function getRawSeries() {
     return { rawX, rawY };
 }
 
-function runPipelineAndRender() {
+function runPipelineAndRender(range = null) {
     if (!hasData(false)) return;
+
+    if (State.ui.activeMultiViewId) {
+        Graph.renderMultiViewFromState(range);
+        return;
+    }
 
     const { rawX, rawY } = getRawSeries();
     if (!rawX.length || !rawY.length) return;
@@ -40,11 +45,16 @@ function runPipelineAndRender() {
     const filteredY = Filter.applyPipeline(rawY, rawX, State.getPipeline());
     State.data.processed = filteredY;
 
-    Graph.render(rawX, rawY, filteredY, null);
+    Graph.render(rawX, rawY, filteredY, range);
 }
 
 function triggerGraphUpdateOnly() {
     if (!hasData(false)) return;
+
+    if (State.ui.activeMultiViewId) {
+        Graph.renderMultiViewFromState();
+        return;
+    }
 
     const { rawX, rawY } = getRawSeries();
     const filteredY = State.data.processed.length > 0 ? State.data.processed : null;
