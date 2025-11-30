@@ -13,6 +13,7 @@ export const Config = {
         xAxisFormat: 'scientific',
         yAxisFormat: 'scientific',
         currencySymbol: '£',
+        significantFigures: 3,
         logScaleY: false,
         showDifferential: false,
         showGrid: true,

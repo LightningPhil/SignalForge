@@ -39,6 +39,7 @@ export const GraphConfig = {
         const xFormat = config.xAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
         const yFormat = config.yAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
         const currencySymbol = config.currencySymbol || '£';
+        const sigFigs = config.significantFigures || 3;
 
         const currencyOptions = [
             { label: 'British Pound (£)', value: '£' },
@@ -131,6 +132,10 @@ export const GraphConfig = {
                         <label> Y-Axis Format</label>
                         <select id="gc-y-format">${createFormatOptions(yFormat)}</select>
 
+                        <label>Scientific Significant Figures</label>
+                        <input id="gc-sig-figs" type="number" min="1" max="10" value="${sigFigs}" />
+                        <small style="color:#666">Controls precision for scientific and engineering formats.</small>
+
                         <div id="gc-currency-wrapper" style="display:none;">
                             <label>Currency Symbol</label>
                             <select id="gc-currency-symbol">${createCurrencyOptions()}</select>
@@ -180,6 +185,7 @@ export const GraphConfig = {
             cfg.xAxisFormat = modal.querySelector('#gc-x-format').value;
             cfg.yAxisFormat = modal.querySelector('#gc-y-format').value;
             cfg.currencySymbol = modal.querySelector('#gc-currency-symbol').value;
+            cfg.significantFigures = Number.parseInt(modal.querySelector('#gc-sig-figs').value, 10) || 3;
             cfg.logScaleY = modal.querySelector('#gc-log').checked;
             cfg.enableDownsampling = modal.querySelector('#gc-downsample').checked;
 
