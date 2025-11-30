@@ -6,6 +6,7 @@ export const elements = {
     btnExport: document.getElementById('btn-export'),
     btnHelp: document.getElementById('btn-help'),
     btnMath: document.getElementById('btn-math-settings'),
+    btnThemeToggle: document.getElementById('btn-theme-toggle'),
 
     pipelineList: document.getElementById('pipeline-list'),
     btnAddStep: document.getElementById('btn-add-step'),

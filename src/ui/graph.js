@@ -11,8 +11,18 @@ const STATUS_ID = 'graph-status';
  * Graph Visualization Module
  */
 export const Graph = {
-    
+
+    getPlotStyling() {
+        const styles = getComputedStyle(document.documentElement);
+        const paperBg = styles.getPropertyValue('--plot-bg').trim() || '#1e1e1e';
+        const plotBg = styles.getPropertyValue('--plot-bg').trim() || '#1e1e1e';
+        const fontColor = styles.getPropertyValue('--text-main').trim() || '#e0e0e0';
+        const gridColor = styles.getPropertyValue('--plot-grid').trim() || '#333';
+        return { paperBg, plotBg, fontColor, gridColor };
+    },
+
     init() {
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
         const config = {
             responsive: true,
             displayModeBar: true,
@@ -27,11 +37,11 @@ export const Graph = {
         };
 
         const layout = {
-            paper_bgcolor: '#1e1e1e',
-            plot_bgcolor: '#1e1e1e',
-            font: { color: '#e0e0e0' },
-            xaxis: { title: Config.graph.xAxisTitle },
-            yaxis: { title: Config.graph.yAxisTitle }
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
+            xaxis: { title: Config.graph.xAxisTitle, gridcolor: gridColor },
+            yaxis: { title: Config.graph.yAxisTitle, gridcolor: gridColor }
         };
 
         Plotly.newPlot(PLOT_ID, [], layout, config);
@@ -41,6 +51,21 @@ export const Graph = {
         
         window.addEventListener('resize', () => {
             Plotly.Plots.resize(PLOT_ID);
+        });
+    },
+
+    updateTheme() {
+        const plotElement = document.getElementById(PLOT_ID);
+        if (!plotElement || !plotElement.data) return;
+
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+        Plotly.relayout(PLOT_ID, {
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            'font.color': fontColor,
+            'xaxis.gridcolor': gridColor,
+            'yaxis.gridcolor': gridColor,
+            'yaxis2.gridcolor': gridColor
         });
     },
 
@@ -81,6 +106,7 @@ export const Graph = {
     renderFreqDomain(timeX, rawY, filteredY) {
         const config = State.config.graph;
         const colors = State.config.colors || Config.colors;
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
 
         // 1. Calculate Sampling Rate (Fs) from current view
         // Use average delta of timeX
@@ -157,19 +183,20 @@ export const Graph = {
 
         const layout = {
             title: "Frequency Domain (FFT)",
-            paper_bgcolor: '#1e1e1e',
-            plot_bgcolor: '#1e1e1e',
-            font: { color: '#e0e0e0' },
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
             showlegend: true,
-            
-            xaxis: { 
-                title: "Frequency (Hz)", 
-                type: 'log', 
-                autorange: true 
+
+            xaxis: {
+                title: "Frequency (Hz)",
+                type: 'log',
+                autorange: true,
+                gridcolor: gridColor
             },
-            yaxis: { 
+            yaxis: {
                 title: "Magnitude (dB)",
-                gridcolor: '#333'
+                gridcolor: gridColor
             },
             yaxis2: {
                 title: "Filter Gain (dB)",
@@ -189,10 +216,11 @@ export const Graph = {
     // --- Time Domain Renderer (Existing Logic) ---
     renderTimeDomain(rawX, rawY, filteredY, range) {
         const config = State.config.graph;
-        const colors = State.config.colors || Config.colors; 
-        
+        const colors = State.config.colors || Config.colors;
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+
         const showDiff = config.showDifferential;
-        const showRaw = (config.showRaw !== false); 
+        const showRaw = (config.showRaw !== false);
         const allowDownsample = config.enableDownsampling;
 
         let displayX = rawX;
@@ -273,9 +301,9 @@ export const Graph = {
         
         const layout = {
             title: config.title,
-            paper_bgcolor: '#1e1e1e',
-            plot_bgcolor: '#1e1e1e',
-            font: { color: '#e0e0e0' },
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
             grid: {
                 rows: showDiff ? 2 : 1,
                 columns: 1,
@@ -289,20 +317,23 @@ export const Graph = {
                 title: config.xAxisTitle,
                 range: range,
                 exponentformat: exponentFormat,
-                showgrid: config.showGrid
+                showgrid: config.showGrid,
+                gridcolor: gridColor
             },
             yaxis: {
                 title: config.yAxisTitle,
                 type: config.logScaleY ? 'log' : 'linear',
                 exponentformat: exponentFormat,
                 showgrid: config.showGrid,
-                domain: showDiff ? [0.55, 1] : [0, 1] 
+                gridcolor: gridColor,
+                domain: showDiff ? [0.55, 1] : [0, 1]
             },
             yaxis2: {
                 title: "Derivative (dy/dx)",
-                domain: [0, 0.45], 
+                domain: [0, 0.45],
                 anchor: 'x',
                 showgrid: config.showGrid,
+                gridcolor: gridColor,
                 exponentformat: exponentFormat
             }
         };
