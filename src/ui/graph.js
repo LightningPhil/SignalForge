@@ -21,6 +21,34 @@ export const Graph = {
         return { paperBg, plotBg, fontColor, gridColor };
     },
 
+    getActiveTheme() {
+        const theme = document.documentElement.getAttribute('data-theme');
+        if (theme === 'light' || theme === 'dark') return theme;
+        return 'dark';
+    },
+
+    getColorsForTheme(theme = this.getActiveTheme()) {
+        const configColors = State.config.colors || Config.colors;
+        const defaults = (Config.colors[theme]) || Config.colors.dark || {};
+
+        if (configColors[theme]) {
+            return { ...defaults, ...configColors[theme] };
+        }
+
+        if (configColors.raw || configColors.filtered) {
+            return {
+                ...defaults,
+                raw: configColors.raw || defaults.raw,
+                filtered: configColors.filtered || defaults.filtered,
+                diffRaw: configColors.diffRaw || configColors.raw || defaults.diffRaw,
+                diffFilt: configColors.diffFilt || configColors.filtered || defaults.diffFilt,
+                transfer: configColors.transfer || defaults.transfer
+            };
+        }
+
+        return defaults;
+    },
+
     init() {
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
         const config = {
@@ -67,6 +95,10 @@ export const Graph = {
             'yaxis.gridcolor': gridColor,
             'yaxis2.gridcolor': gridColor
         });
+
+        if (State.data.raw.length && State.data.timeColumn && State.data.dataColumn) {
+            this.triggerRefresh(null);
+        }
     },
 
     calculateDerivative(x, y) {
@@ -89,6 +121,27 @@ export const Graph = {
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     },
 
+    getAxisFormat(format, axisType = 'linear') {
+        const presets = {
+            decimal: { exponentformat: 'none' },
+            scientific: { exponentformat: 'e', showexponent: 'all' },
+            integer: { tickformat: 'd', exponentformat: 'none' },
+            currency: { tickprefix: '$', tickformat: ',.2f', exponentformat: 'none' },
+            percentage: { tickformat: '.0%', exponentformat: 'none' },
+            datetime: { type: 'date', hoverformat: '%Y-%m-%d %H:%M' },
+            engineering: { tickformat: 's', exponentformat: 'SI' }
+        };
+
+        const selected = presets[format] || presets.decimal;
+
+        if (axisType === 'log' && selected.type === 'date') {
+            const { type, ...rest } = selected;
+            return rest;
+        }
+
+        return selected;
+    },
+
     render(rawX, rawY, filteredY = null, range = null) {
         if (!rawX || rawX.length === 0) return;
 
@@ -105,7 +158,7 @@ export const Graph = {
     // --- Frequency Domain Renderer ---
     renderFreqDomain(timeX, rawY, filteredY) {
         const config = State.config.graph;
-        const colors = State.config.colors || Config.colors;
+        const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
 
         // 1. Calculate Sampling Rate (Fs) from current view
@@ -216,7 +269,7 @@ export const Graph = {
     // --- Time Domain Renderer (Existing Logic) ---
     renderTimeDomain(rawX, rawY, filteredY, range) {
         const config = State.config.graph;
-        const colors = State.config.colors || Config.colors;
+        const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
 
         const showDiff = config.showDifferential;
@@ -264,7 +317,9 @@ export const Graph = {
 
         const traces = [];
         const rawColor = this.hexToRgba(colors.raw, config.rawOpacity || 0.5);
-        const filtColor = colors.filtered; 
+        const filtColor = colors.filtered;
+        const diffRawColor = colors.diffRaw || colors.raw;
+        const diffFiltColor = colors.diffFilt || colors.filtered;
 
         if (showRaw) {
             traces.push({
@@ -285,20 +340,23 @@ export const Graph = {
                 const dRaw = this.calculateDerivative(displayX, displayY);
                 traces.push({
                     x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
-                    line: { color: rawColor, width: 1 }, xaxis: 'x', yaxis: 'y2'
+                    line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
             if (filteredY && displayF.length > 0) {
                 const dF = this.calculateDerivative(displayX, displayF);
                 traces.push({
                     x: displayX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
-                    line: { color: filtColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
+                    line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
         }
 
-        const exponentFormat = config.useScientificNotation ? 'e' : 'none';
-        
+        const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear');
+        const yAxisBaseType = config.logScaleY ? 'log' : 'linear';
+        const yAxisFormat = this.getAxisFormat(config.yAxisFormat, yAxisBaseType);
+        const secondaryYAxisFormat = this.getAxisFormat(config.yAxisFormat, 'linear');
+
         const layout = {
             title: config.title,
             paper_bgcolor: paperBg,
@@ -316,17 +374,17 @@ export const Graph = {
             xaxis: {
                 title: config.xAxisTitle,
                 range: range,
-                exponentformat: exponentFormat,
                 showgrid: config.showGrid,
-                gridcolor: gridColor
+                gridcolor: gridColor,
+                ...xAxisFormat
             },
             yaxis: {
                 title: config.yAxisTitle,
-                type: config.logScaleY ? 'log' : 'linear',
-                exponentformat: exponentFormat,
+                type: yAxisBaseType,
                 showgrid: config.showGrid,
                 gridcolor: gridColor,
-                domain: showDiff ? [0.55, 1] : [0, 1]
+                domain: showDiff ? [0.55, 1] : [0, 1],
+                ...yAxisFormat
             },
             yaxis2: {
                 title: "Derivative (dy/dx)",
@@ -334,7 +392,7 @@ export const Graph = {
                 anchor: 'x',
                 showgrid: config.showGrid,
                 gridcolor: gridColor,
-                exponentformat: exponentFormat
+                ...secondaryYAxisFormat
             }
         };
 
