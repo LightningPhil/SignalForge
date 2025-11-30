@@ -17,8 +17,12 @@ const {
     sliderSigma,
     inputIters,
     sliderIters,
-    inputDecay,
-    sliderDecay,
+    inputStartDecay,
+    inputEndDecay,
+    inputStartOffset,
+    inputAutoOffsetPoints,
+    sliderStartDecay,
+    sliderEndDecay,
     inputFreq,
     selFreqUnit,
     inputSlope,
@@ -59,7 +63,10 @@ function updateParamsFromUI() {
     if (inputAlpha) params.alpha = clamp(inputAlpha, 0.001, 1.0);
     if (inputSigma) params.sigma = clamp(inputSigma, 0.1, 100.0);
     if (inputIters) params.iterations = clamp(inputIters, 1, 16);
-    if (inputDecay) params.decayLength = clamp(inputDecay, 1, 10000);
+    if (inputStartDecay) params.startLength = clamp(inputStartDecay, 0, 10000);
+    if (inputEndDecay) params.endLength = clamp(inputEndDecay, 0, 10000);
+    if (inputStartOffset) params.startOffset = parseFloat(inputStartOffset.value) || 0;
+    if (inputAutoOffsetPoints) params.autoOffsetPoints = clamp(inputAutoOffsetPoints, 1, 100000);
 
     const fMult = parseFloat(selFreqUnit.value);
     const rawFreq = parseFloat(inputFreq.value) || 0;
@@ -103,7 +110,7 @@ function renderPipelineList() {
         if (step.type === 'median') desc = `Median (Win: ${step.windowSize})`;
         if (step.type === 'iir') desc = `IIR (Alpha: ${step.alpha})`;
         if (step.type === 'gaussian') desc = `Gaussian (Sig: ${step.sigma})`;
-        if (step.type === 'startStopNorm') desc = `Norm (Len: ${step.decayLength})`;
+        if (step.type === 'startStopNorm') desc = `Norm (Start: ${step.startLength ?? 0}, End: ${step.endLength ?? 0})`;
 
         if (step.type === 'lowPassFFT') desc = `Low Pass (${fmtHz(step.cutoffFreq)}Hz)`;
         if (step.type === 'highPassFFT') desc = `High Pass (${fmtHz(step.cutoffFreq)}Hz)`;
@@ -180,7 +187,13 @@ function updateParamEditor() {
     if (step.alpha) setVal(inputAlpha, sliderAlpha, step.alpha);
     if (step.sigma) setVal(inputSigma, sliderSigma, step.sigma);
     if (step.iterations) setVal(inputIters, sliderIters, step.iterations);
-    if (step.decayLength) setVal(inputDecay, sliderDecay, step.decayLength);
+    const startLen = step.startLength ?? step.decayLength;
+    const endLen = step.endLength ?? step.decayLength;
+
+    if (startLen !== undefined) setVal(inputStartDecay, sliderStartDecay, startLen);
+    if (endLen !== undefined) setVal(inputEndDecay, sliderEndDecay, endLen);
+    if (inputStartOffset) inputStartOffset.value = step.startOffset ?? 0;
+    if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = step.autoOffsetPoints ?? 100;
     if (step.slope) setVal(inputSlope, sliderSlope, step.slope);
     if (step.qFactor) setVal(inputQ, sliderQ, step.qFactor);
 

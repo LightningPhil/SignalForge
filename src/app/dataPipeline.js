@@ -11,22 +11,31 @@ function hasData(alertUser = true) {
     return true;
 }
 
-function runPipelineAndRender() {
-    if (!hasData(false)) return;
+function getRawSeries() {
+    if (!hasData(false)) return { rawX: [], rawY: [] };
 
     const yCol = State.data.dataColumn;
     const xCol = State.data.timeColumn;
-    if (!yCol || !xCol) return;
+    if (!yCol || !xCol) return { rawX: [], rawY: [] };
 
-    let rawY = [];
     const mathDef = State.getMathDefinition(yCol);
     const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
+    let rawY = [];
 
     if (mathDef) {
         rawY = MathEngine.calculateVirtualColumn(mathDef, rawX);
     } else {
         rawY = State.data.raw.map((r) => parseFloat(r[yCol]));
     }
+
+    return { rawX, rawY };
+}
+
+function runPipelineAndRender() {
+    if (!hasData(false)) return;
+
+    const { rawX, rawY } = getRawSeries();
+    if (!rawX.length || !rawY.length) return;
 
     const filteredY = Filter.applyPipeline(rawY, rawX, State.config.pipeline);
     State.data.processed = filteredY;
@@ -36,21 +45,10 @@ function runPipelineAndRender() {
 
 function triggerGraphUpdateOnly() {
     if (!hasData(false)) return;
-    const xCol = State.data.timeColumn;
-    const yCol = State.data.dataColumn;
 
-    const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
-
-    let rawY = [];
-    const mathDef = State.getMathDefinition(yCol);
-    if (mathDef) {
-        rawY = MathEngine.calculateVirtualColumn(mathDef, rawX);
-    } else {
-        rawY = State.data.raw.map((r) => parseFloat(r[yCol]));
-    }
-
+    const { rawX, rawY } = getRawSeries();
     const filteredY = State.data.processed.length > 0 ? State.data.processed : null;
     Graph.render(rawX, rawY, filteredY, null);
 }
 
-export { hasData, runPipelineAndRender, triggerGraphUpdateOnly };
+export { hasData, runPipelineAndRender, triggerGraphUpdateOnly, getRawSeries };
