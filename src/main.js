@@ -6,9 +6,11 @@ import { setupEventListeners } from './app/eventSetup.js';
 import { renderPipelineList, updateParamEditor } from './app/pipelineUi.js';
 import { updateToolbarUIFromState } from './app/toolbar.js';
 import { elements } from './app/domElements.js';
+import { applyStoredCalibration } from './ui/displayCalibration.js';
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
+    applyStoredCalibration();
     Theme.init(elements.btnThemeToggle);
     Graph.init();
 
