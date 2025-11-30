@@ -214,7 +214,7 @@ function updateParamEditor() {
     if (chkAutoOffset) chkAutoOffset.checked = step.autoOffset ?? false;
     if (inputStartOffset) inputStartOffset.value = step.startOffset ?? 0;
     if (inputStartOffset && chkAutoOffset) inputStartOffset.disabled = chkAutoOffset.checked;
-    if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = step.autoOffsetPoints ?? 100;
+    if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = step.autoOffsetPoints ?? 200;
     if (step.slope) setVal(inputSlope, sliderSlope, step.slope);
     if (step.qFactor) setVal(inputQ, sliderQ, step.qFactor);
 

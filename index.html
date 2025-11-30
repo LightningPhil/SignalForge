@@ -130,17 +130,21 @@
                                 <input type="range" id="slider-end-decay" min="0" max="500" step="1">
                             </div>
 
-                            <label class="toggle-label" for="param-auto-offset" style="margin-top:4px;">
-                                <input type="checkbox" id="param-auto-offset">
-                                Auto Start Offset
-                            </label>
-
                             <label for="param-start-offset">Start Offset</label>
                             <input type="number" id="param-start-offset" value="0" step="0.000001">
 
-                            <label for="param-offset-points">Auto Offset Sample Count</label>
-                            <div style="display:flex; gap:10px; align-items:center;">
-                                <input type="number" id="param-offset-points" value="100" min="1" style="flex:1;">
+                            <div class="auto-offset-row">
+                                <div class="auto-offset-toggle">
+                                    <span>Auto Start Offset</span>
+                                    <label class="switch" for="param-auto-offset">
+                                        <input type="checkbox" id="param-auto-offset">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <div class="auto-offset-input">
+                                    <label for="param-offset-points">Auto Offset Sample Count</label>
+                                    <input type="number" id="param-offset-points" value="200" min="1">
+                                </div>
                             </div>
                             <small class="hint">Automatically averages the first N points when enabled.</small>
                         </div>
