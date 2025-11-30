@@ -12,6 +12,7 @@ export const Config = {
         // Display
         xAxisFormat: 'scientific',
         yAxisFormat: 'scientific',
+        currencySymbol: '£',
         logScaleY: false,
         showDifferential: false,
         showGrid: true,
