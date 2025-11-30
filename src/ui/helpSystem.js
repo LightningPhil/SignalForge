@@ -9,96 +9,238 @@ export const HelpSystem = {
         const html = `
             <div class="help-container">
                 <div class="help-sidebar">
-                    <div class="help-tab active" data-target="about">About</div>
-                    <div class="help-tab" data-target="ui-guide">UI Guide</div>
-                    <div class="help-tab" data-target="filters">Filter Wiki</div>
-                    <div class="help-tab" data-target="license">License</div>
+                    <div class="help-tree">
+                        <div class="tree-node expanded">
+                            <div class="tree-node-header" data-toggle>
+                                <span class="tree-caret">▾</span>
+                                <span class="tree-title">Overview</span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="tree-item active" data-target="about">Welcome & Purpose</div>
+                                <div class="tree-item" data-target="privacy">Local Processing & Privacy</div>
+                            </div>
+                        </div>
+
+                        <div class="tree-node expanded">
+                            <div class="tree-node-header" data-toggle>
+                                <span class="tree-caret">▾</span>
+                                <span class="tree-title">Workspace</span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="tree-item" data-target="loading-data">Loading Data</div>
+                                <div class="tree-item" data-target="workspace-layout">Workspace Layout</div>
+                                <div class="tree-item" data-target="plot-controls">Plot Controls</div>
+                                <div class="tree-item" data-target="pipeline">Filter Pipeline Management</div>
+                                <div class="tree-item" data-target="live-toolbar">Live Toolbar & Views</div>
+                            </div>
+                        </div>
+
+                        <div class="tree-node expanded">
+                            <div class="tree-node-header" data-toggle>
+                                <span class="tree-caret">▾</span>
+                                <span class="tree-title">Filter Library</span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="tree-item" data-target="filter-overview">How Filters Work Together</div>
+                                <div class="tree-item" data-target="savitzky">Savitzky-Golay</div>
+                                <div class="tree-item" data-target="moving-average">Moving Average</div>
+                                <div class="tree-item" data-target="median">Median</div>
+                                <div class="tree-item" data-target="iir-lowpass">IIR Low Pass</div>
+                                <div class="tree-item" data-target="fft-lowpass">FFT Low Pass</div>
+                                <div class="tree-item" data-target="fft-highpass">FFT High Pass</div>
+                                <div class="tree-item" data-target="fft-notch">FFT Notch / Band-Stop</div>
+                            </div>
+                        </div>
+
+                        <div class="tree-node expanded">
+                            <div class="tree-node-header" data-toggle>
+                                <span class="tree-caret">▾</span>
+                                <span class="tree-title">Reference</span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="tree-item" data-target="data-integrity">Data Integrity & Saving</div>
+                                <div class="tree-item" data-target="troubleshooting">Troubleshooting Tips</div>
+                                <div class="tree-item" data-target="license">License</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="help-content">
                     <div id="content-about" class="help-section active">
-                        <h3>About Signal Processor</h3>
-                        <p>This application is designed for engineers and scientists to clean, analyze, and process time-series data, specifically from oscilloscopes and sensors.</p>
-                        <p>It performs signal processing entirely in your browser using JavaScript, meaning your data never leaves your computer.</p>
-                        <h4>Key Features:</h4>
+                        <h3>Signal Processor Overview</h3>
+                        <p>The application is designed for academic and professional engineers who need rapid, transparent analysis of oscilloscope or sensor data directly in the browser.</p>
+                        <p>No uploads are performed; every operation runs locally, making the tool suitable for confidential or pre-publication datasets.</p>
+                        <h4>Key capabilities</h4>
                         <ul>
-                            <li><strong>Pipeline Processing:</strong> Chain multiple filters together (e.g., Median -> Savitzky-Golay).</li>
-                            <li><strong>Frequency Domain:</strong> Visualize FFTs and apply High/Low/Notch filters.</li>
-                            <li><strong>Differential Analysis:</strong> View the derivative (rate of change) of your signal alongside the data.</li>
-                            <li><strong>Math Engine:</strong> Calculate Impedance, Power, or other derived metrics from raw columns.</li>
+                            <li><strong>Configurable pipelines:</strong> Chain multiple filters (for example, Median → Savitzky-Golay → FFT notch) to isolate noise, correct baselines, and highlight features.</li>
+                            <li><strong>Dual-domain analysis:</strong> Switch seamlessly between time and frequency views to validate both waveform fidelity and spectral content.</li>
+                            <li><strong>Differential and derived traces:</strong> Toggle dy/dx for slope inspection or compute custom metrics via the math engine (impedance, power, arbitrary expressions over columns).</li>
+                            <li><strong>Reversible exploration:</strong> Enable or disable individual steps to understand each filter’s contribution without losing the configured parameters.</li>
                         </ul>
                     </div>
 
-                    <div id="content-ui-guide" class="help-section">
-                        <h3>User Interface Guide</h3>
-                        
-                        <h4>1. Loading Data</h4>
-                        <p>Click <strong>"Load"</strong> to open a CSV file. You will see a preview of the file text. Click on the row that contains your headers (e.g., "Time, Voltage") to parse the file.</p>
-
-                        <h4>2. The Graph</h4>
+                    <div id="content-privacy" class="help-section">
+                        <h3>Local Processing & Data Privacy</h3>
                         <ul>
-                            <li><strong>Zoom:</strong> Click and drag a box to zoom in.</li>
-                            <li><strong>Pan:</strong> Hold Shift, then Click and Drag.</li>
-                            <li><strong>Reset:</strong> Double-click the graph background.</li>
-                            <li><strong>Tabs:</strong> Use the tabs above the graph to switch which column is currently being filtered.</li>
-                        </ul>
-
-                        <h4>3. The Filter Pipeline (Sidebar)</h4>
-                        <p>Filters are applied from top to bottom.</p>
-                        <ul>
-                            <li><strong>Add:</strong> Adds a new processing step to the end of the chain.</li>
-                            <li><strong>Arrow Buttons:</strong> Move the selected step up or down.</li>
-                            <li><strong>Trash:</strong> Deletes the selected step.</li>
-                        </ul>
-                        <p>When you select a step, its parameters appear below. Use the sliders for fluid adjustment.</p>
-
-                        <h4>4. Live Toolbar</h4>
-                        <p>Located directly above the plot area.</p>
-                        <ul>
-                            <li><strong>Raw:</strong> Toggle the faint grey original trace.</li>
-                            <li><strong>Diff:</strong> Toggle the derivative plot (dy/dx).</li>
-                            <li><strong>Freq Domain:</strong> Switch to FFT view (Bode Plot style).</li>
+                            <li><strong>In-browser computation:</strong> All CSV parsing, plotting, FFT operations, and math evaluations run in JavaScript on your machine.</li>
+                            <li><strong>No network round trips:</strong> The tool does not transmit loaded datasets or filter parameters to external services.</li>
+                            <li><strong>Session scope:</strong> Loaded data persists only for the current browser tab. Refreshing clears the workspace unless you export results.</li>
                         </ul>
                     </div>
 
-                    <div id="content-filters" class="help-section">
-                        <h3>Filter Wiki</h3>
-                        
-                        <div class="wiki-entry">
-                            <h4>Savitzky-Golay</h4>
-                            <p><strong>Best for:</strong> General purpose smoothing, preserving peak heights/widths.</p>
-                            <p><strong>How it works:</strong> Fits a polynomial to the data window using least-squares. Unlike a moving average, it doesn't just flatten peaks.</p>
-                            <p><strong>Params:</strong>
-                                <ul>
-                                    <li><em>Window:</em> Width of the fit. Larger = smoother but less detail.</li>
-                                    <li><em>Poly Order:</em> Complexity of the curve. 2 or 3 is standard.</li>
-                                    <li><em>Iterations:</em> Running the filter multiple times for aggressive smoothing without distortion.</li>
-                                </ul>
-                            </p>
-                        </div>
+                    <div id="content-loading-data" class="help-section">
+                        <h3>Loading Data</h3>
+                        <ol>
+                            <li>Click <strong>Load</strong> and select a CSV file. The preview shows raw text so header rows are explicit.</li>
+                            <li>Select the header row (e.g., <em>Time, Voltage</em>) to name your columns. Column names become plot tabs and filter targets.</li>
+                            <li>Confirm delimiter detection; most files auto-detect, but you can re-open with corrected headers at any time.</li>
+                            <li>Use the column tabs above the plot to choose which signal is currently processed. Other columns remain available for math expressions.</li>
+                        </ol>
+                    </div>
 
-                        <div class="wiki-entry">
-                            <h4>Moving Average</h4>
-                            <p><strong>Best for:</strong> Reducing white noise (random static).</p>
-                            <p><strong>Limitation:</strong> Tends to flatten sharp peaks and step responses.</p>
-                        </div>
+                    <div id="content-workspace-layout" class="help-section">
+                        <h3>Workspace Layout</h3>
+                        <ul>
+                            <li><strong>Toolbar:</strong> Access loading, saving, undo/redo, and the help menu.</li>
+                            <li><strong>Plot region:</strong> Central area for time-domain and frequency-domain visualizations with optional overlays for raw and derivative traces.</li>
+                            <li><strong>Filter pipeline sidebar:</strong> Ordered list of processing steps with controls to insert, reorder, duplicate, or remove filters.</li>
+                            <li><strong>Parameter panel:</strong> Contextual controls beneath the pipeline that expose sliders and numeric inputs for the selected step.</li>
+                        </ul>
+                    </div>
 
-                        <div class="wiki-entry">
-                            <h4>Median Filter</h4>
-                            <p><strong>Best for:</strong> "Despeckling" or removing shot noise (single wild points).</p>
-                            <p><strong>How it works:</strong> Replaces each point with the median value of its neighbors. Excellent at ignoring outliers completely.</p>
-                        </div>
+                    <div id="content-plot-controls" class="help-section">
+                        <h3>Plot Controls</h3>
+                        <ul>
+                            <li><strong>Zoom:</strong> Drag to select a region. Mouse wheel zoom follows the cursor position for precision.</li>
+                            <li><strong>Pan:</strong> Hold <kbd>Shift</kbd> and drag. Panning is available in both time and frequency views.</li>
+                            <li><strong>Reset view:</strong> Double-click the background to restore full extents.</li>
+                            <li><strong>Series selection:</strong> Tabs above the plot let you focus filtering and math on a specific column.</li>
+                        </ul>
+                    </div>
 
-                        <div class="wiki-entry">
-                            <h4>IIR Low Pass</h4>
-                            <p><strong>Best for:</strong> Simulating an electronic RC circuit.</p>
-                            <p><strong>How it works:</strong> Recursive filter. <em>Alpha</em> controls the cutoff frequency. Lower Alpha = Smoother (lower cutoff).</p>
-                        </div>
+                    <div id="content-pipeline" class="help-section">
+                        <h3>Filter Pipeline Management</h3>
+                        <p>Filters execute from top to bottom. Each step receives the output of the previous one, enabling reproducible, publication-ready transformations.</p>
+                        <ul>
+                            <li><strong>Add:</strong> Insert a new filter at the end of the chain. Configure parameters immediately below.</li>
+                            <li><strong>Reorder:</strong> Use arrow controls to move the selected filter up or down. Order affects results, especially when combining nonlinear steps.</li>
+                            <li><strong>Delete:</strong> Remove the highlighted filter. Other steps remain unchanged.</li>
+                            <li><strong>Bypass:</strong> Toggle the visibility icon to temporarily disable a step without discarding settings.</li>
+                            <li><strong>Parameter tuning:</strong> Use sliders for quick exploration; numeric entry supports exact values for reproducibility.</li>
+                        </ul>
+                    </div>
 
-                        <div class="wiki-entry">
-                            <h4>FFT Filters (High/Low/Notch)</h4>
-                            <p><strong>Best for:</strong> Removing specific frequency components (e.g., 50Hz mains hum).</p>
-                            <p><strong>How it works:</strong> Converts data to Frequency Domain, multiplies by a mask, and converts back. Note that this assumes the signal is periodic or windowed, so edge artifacts may occur.</p>
-                        </div>
+                    <div id="content-live-toolbar" class="help-section">
+                        <h3>Live Toolbar & Views</h3>
+                        <ul>
+                            <li><strong>Raw trace:</strong> Overlay the unprocessed signal to validate that key morphology is preserved.</li>
+                            <li><strong>Derivative (dy/dx):</strong> Inspect slope changes, rising-edge rates, and inflection points without exporting to another tool.</li>
+                            <li><strong>Frequency domain:</strong> Switch to FFT view to inspect harmonics, noise floors, and the effect of spectral filters.</li>
+                            <li><strong>Math engine:</strong> Compute expressions across columns (e.g., <code>V*I</code> for power or <code>V/I</code> for impedance) and feed the results into the pipeline.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-filter-overview" class="help-section">
+                        <h3>Filter Library Overview</h3>
+                        <p>Combine filters to match the structure of your signal. Linear filters are order-sensitive when paired with nonlinear steps like median filters.</p>
+                        <ul>
+                            <li><strong>Windowed smoothers:</strong> Moving Average and Savitzky-Golay reduce stochastic noise with minimal phase shift.</li>
+                            <li><strong>Outlier rejection:</strong> Median filtering removes impulsive spikes before downstream smoothing.</li>
+                            <li><strong>Recursive response:</strong> IIR Low Pass approximates analog RC behavior with adjustable cutoff.</li>
+                            <li><strong>Spectral shaping:</strong> FFT-based high/low/notch filters target specific bands when the sample rate and periodicity are known.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-savitzky" class="help-section">
+                        <h3>Savitzky-Golay Filter</h3>
+                        <p><strong>Ideal for:</strong> Preserving peak heights and widths while reducing broadband noise in spectroscopy, vibration, or transient capture.</p>
+                        <p><strong>Mechanism:</strong> Fits a polynomial to each window using least squares and evaluates the central point. The fit respects curvature instead of averaging it away.</p>
+                        <p><strong>Parameters:</strong></p>
+                        <ul>
+                            <li><em>Window size:</em> Odd number of samples used for each fit. Larger windows smooth more aggressively but can obscure rapid transitions.</li>
+                            <li><em>Polynomial order:</em> Degree of the fitted curve. Orders 2–3 balance fidelity and stability; higher orders require wider windows.</li>
+                            <li><em>Iterations:</em> Optional repeated passes to further suppress noise without the heavy distortion of broad windows.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-moving-average" class="help-section">
+                        <h3>Moving Average</h3>
+                        <p><strong>Ideal for:</strong> Quick reduction of white noise when preserving only low-frequency trends.</p>
+                        <p><strong>Mechanism:</strong> Replaces each point with the arithmetic mean of its neighbors.</p>
+                        <p><strong>Considerations:</strong></p>
+                        <ul>
+                            <li>Expect peak flattening and edge lag proportional to the window size.</li>
+                            <li>Use as an early-stage smoother before applying curve-preserving filters.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-median" class="help-section">
+                        <h3>Median Filter</h3>
+                        <p><strong>Ideal for:</strong> Removing isolated spikes, shot noise, or defective samples without attenuating steady-state values.</p>
+                        <p><strong>Mechanism:</strong> Replaces each sample with the median of the surrounding window, which ignores extreme outliers entirely.</p>
+                        <p><strong>Considerations:</strong> Median filters are nonlinear; place them early in the chain to avoid contaminating later linear filters with impulsive noise.</p>
+                    </div>
+
+                    <div id="content-iir-lowpass" class="help-section">
+                        <h3>IIR Low Pass</h3>
+                        <p><strong>Ideal for:</strong> Emulating analog single-pole RC smoothing and reducing high-frequency noise while retaining slow trends.</p>
+                        <p><strong>Mechanism:</strong> Recursive filter where each output depends on the previous output and current input.</p>
+                        <p><strong>Parameters:</strong></p>
+                        <ul>
+                            <li><em>Alpha:</em> Blend factor controlling the cutoff. Smaller alpha lowers the cutoff for heavier smoothing; larger alpha increases responsiveness.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-fft-lowpass" class="help-section">
+                        <h3>FFT Low Pass</h3>
+                        <p><strong>Ideal for:</strong> Removing broadband high-frequency noise while keeping low-frequency content such as drift, envelopes, or slow oscillations.</p>
+                        <p><strong>Mechanism:</strong> Applies a frequency-domain mask that attenuates bins above the selected cutoff before performing the inverse FFT.</p>
+                        <p><strong>Considerations:</strong></p>
+                        <ul>
+                            <li>Requires appropriate sampling frequency to interpret the cutoff accurately.</li>
+                            <li>Use windowing or trimmed segments to minimize edge artifacts on non-periodic signals.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-fft-highpass" class="help-section">
+                        <h3>FFT High Pass</h3>
+                        <p><strong>Ideal for:</strong> Suppressing DC offsets and slow drift to emphasize transient or high-frequency components.</p>
+                        <p><strong>Mechanism:</strong> Zeros or attenuates frequency bins below the selected cutoff in the FFT, then reconstructs the waveform.</p>
+                        <p><strong>Considerations:</strong></p>
+                        <ul>
+                            <li>Verify that important low-frequency content is not removed when selecting the cutoff.</li>
+                            <li>Edge effects may introduce ringing; validate with the raw overlay.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-fft-notch" class="help-section">
+                        <h3>FFT Notch / Band-Stop</h3>
+                        <p><strong>Ideal for:</strong> Removing narrow interference such as mains hum (50/60 Hz) or mechanical tones without affecting nearby spectrum.</p>
+                        <p><strong>Mechanism:</strong> Attenuates a user-defined band (center frequency and width) in the FFT before inversion.</p>
+                        <p><strong>Considerations:</strong></p>
+                        <ul>
+                            <li>Use the frequency-domain view to confirm the notch fully captures the interference.</li>
+                            <li>For wide-band suppression, prefer paired high-pass and low-pass filters instead of an excessively broad notch.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-data-integrity" class="help-section">
+                        <h3>Data Integrity & Saving</h3>
+                        <ul>
+                            <li><strong>Non-destructive preview:</strong> The raw trace overlay remains unchanged, enabling direct comparison to processed results.</li>
+                            <li><strong>Export options:</strong> Use export to download processed series or intermediate results for archival, publication figures, or external simulation.</li>
+                            <li><strong>Reproducibility:</strong> Save filter chains with their parameters to rebuild the analysis sequence in subsequent sessions.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-troubleshooting" class="help-section">
+                        <h3>Troubleshooting Tips</h3>
+                        <ul>
+                            <li><strong>Empty plots after loading:</strong> Re-confirm the header row and ensure the selected column contains numeric data.</li>
+                            <li><strong>Unexpected oscillations:</strong> Reduce aggressive FFT cutoffs or shrink Savitzky-Golay window sizes to avoid ringing.</li>
+                            <li><strong>Slow interactions:</strong> Shorten window sizes or temporarily bypass expensive filters while iterating.</li>
+                            <li><strong>Baseline drift after filtering:</strong> Apply Median first to remove spikes, then use IIR Low Pass or Savitzky-Golay with a modest window.</li>
+                        </ul>
                     </div>
 
                     <div id="content-license" class="help-section">
@@ -132,21 +274,30 @@ SOFTWARE.
         `;
 
         const modalContent = createModal(html);
-        
-        // Add Tab Logic
-        const tabs = modalContent.querySelectorAll('.help-tab');
-        const sections = modalContent.querySelectorAll('.help-section');
 
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                // Deactivate all
-                tabs.forEach(t => t.classList.remove('active'));
+        // Tree behavior
+        const treeItems = modalContent.querySelectorAll('.tree-item');
+        const sections = modalContent.querySelectorAll('.help-section');
+        const toggles = modalContent.querySelectorAll('[data-toggle]');
+
+        treeItems.forEach(item => {
+            item.addEventListener('click', () => {
+                treeItems.forEach(i => i.classList.remove('active'));
                 sections.forEach(s => s.classList.remove('active'));
-                
-                // Activate clicked
-                tab.classList.add('active');
-                const targetId = `content-${tab.getAttribute('data-target')}`;
-                modalContent.querySelector(`#${targetId}`).classList.add('active');
+
+                item.classList.add('active');
+                const targetId = `content-${item.getAttribute('data-target')}`;
+                const targetSection = modalContent.querySelector(`#${targetId}`);
+                if (targetSection) {
+                    targetSection.classList.add('active');
+                }
+            });
+        });
+
+        toggles.forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                const parent = toggle.closest('.tree-node');
+                parent.classList.toggle('expanded');
             });
         });
         
