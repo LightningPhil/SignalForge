@@ -28,7 +28,7 @@ export const elements = {
     chkApplyEnd: document.getElementById('param-apply-end'),
     inputStartOffset: document.getElementById('param-start-offset'),
     inputAutoOffsetPoints: document.getElementById('param-offset-points'),
-    btnAutoOffset: document.getElementById('btn-auto-offset'),
+    chkAutoOffset: document.getElementById('param-auto-offset'),
     inputFreq: document.getElementById('param-freq'),
     selFreqUnit: document.getElementById('unit-freq'),
     inputSlope: document.getElementById('param-slope'),
@@ -63,5 +63,6 @@ export const elements = {
     liveFreqDomain: document.getElementById('live-freq-domain'),
     liveStatus: document.getElementById('live-status'),
 
-    tabContainer: document.getElementById('column-tabs')
+    tabContainer: document.getElementById('column-tabs'),
+    chkSyncTabs: document.getElementById('chk-sync-tabs')
 };

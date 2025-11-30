@@ -33,20 +33,22 @@ export const Exporter = {
 
         // 1. Identify Numeric Columns to Filter
         const numericCols = headers.filter(h => {
-            if (h === xCol) return false; 
+            if (h === xCol) return false;
             const val = rawData[0][h];
             return !isNaN(parseFloat(val));
         });
 
+        const rawTime = rawData.map((r) => parseFloat(r[xCol]));
+
         // 2. Pre-calculate Pipeline Data for ALL numeric columns
-        const pipeline = State.config.pipeline;
-        const processedDataMap = {}; 
+        const processedDataMap = {};
 
         console.time("Export Pipeline");
         numericCols.forEach(col => {
             const rawCol = rawData.map(r => parseFloat(r[col]));
             // Apply full pipeline
-            processedDataMap[col] = Filter.applyPipeline(rawCol, pipeline);
+            const pipeline = State.getPipelineForColumn(col);
+            processedDataMap[col] = Filter.applyPipeline(rawCol, rawTime, pipeline);
         });
         console.timeEnd("Export Pipeline");
 

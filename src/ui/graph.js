@@ -213,7 +213,7 @@ export const Graph = {
 
         // Trace 3: Transfer Function (Filter Shape)
         // Only if we have active FFT filters
-        const pipeline = State.config.pipeline;
+        const pipeline = State.getPipeline();
         const hasFFTFilters = pipeline.some(p => p.enabled && ['lowPassFFT','highPassFFT','notchFFT'].includes(p.type));
         
         if (hasFFTFilters) {

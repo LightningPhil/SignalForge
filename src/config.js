@@ -25,8 +25,12 @@ export const Config = {
         
         // Performance
         enableDownsampling: false, 
-        maxDisplayPoints: 20000    
+        maxDisplayPoints: 20000
     },
+
+    // Pipeline Scope
+    pipelineScope: true, // true = Global/Sync All Tabs, false = Per-Tab
+    columnPipelines: {},
 
     // Default Pipeline (Updated per request)
     pipeline: [
@@ -51,6 +55,7 @@ export const Config = {
             startLength: 50,
             endLength: 50,
             startOffset: 0,
+            autoOffset: false,
             autoOffsetPoints: 100,
             applyStart: true,
             applyEnd: true

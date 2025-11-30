@@ -23,6 +23,7 @@ const {
     chkApplyEnd,
     inputStartOffset,
     inputAutoOffsetPoints,
+    chkAutoOffset,
     sliderStartDecay,
     sliderEndDecay,
     inputFreq,
@@ -70,6 +71,7 @@ function updateParamsFromUI() {
     if (chkApplyStart) params.applyStart = !!chkApplyStart.checked;
     if (chkApplyEnd) params.applyEnd = !!chkApplyEnd.checked;
     if (inputStartOffset) params.startOffset = parseFloat(inputStartOffset.value) || 0;
+    if (chkAutoOffset) params.autoOffset = !!chkAutoOffset.checked;
     if (inputAutoOffsetPoints) params.autoOffsetPoints = clamp(inputAutoOffsetPoints, 1, 100000);
 
     const fMult = parseFloat(selFreqUnit.value);
@@ -96,7 +98,13 @@ function renderPipelineList() {
     if (!pipelineList) return;
     pipelineList.innerHTML = '';
 
-    State.config.pipeline.forEach((step, index) => {
+    const pipeline = State.getPipeline();
+
+    if (pipeline.length > 0 && !pipeline.some((p) => p.id === State.ui.selectedStepId)) {
+        State.ui.selectedStepId = pipeline[0].id;
+    }
+
+    pipeline.forEach((step, index) => {
         const el = document.createElement('div');
         el.className = 'pipeline-step';
         if (step.id === State.ui.selectedStepId) el.classList.add('selected');
@@ -117,7 +125,8 @@ function renderPipelineList() {
         if (step.type === 'startStopNorm') {
             const startLabel = step.applyStart === false ? 'Off' : (step.startLength ?? 0);
             const endLabel = step.applyEnd === false ? 'Off' : (step.endLength ?? 0);
-            desc = `Norm (Start: ${startLabel}, End: ${endLabel})`;
+            const autoLabel = step.autoOffset ? 'Auto' : `Offset ${step.startOffset ?? 0}`;
+            desc = `Norm (${autoLabel}, Start: ${startLabel}, End: ${endLabel})`;
         }
 
         if (step.type === 'lowPassFFT') desc = `Low Pass (${fmtHz(step.cutoffFreq)}Hz)`;
@@ -202,7 +211,9 @@ function updateParamEditor() {
     if (endLen !== undefined) setVal(inputEndDecay, sliderEndDecay, endLen);
     if (chkApplyStart) chkApplyStart.checked = step.applyStart !== false;
     if (chkApplyEnd) chkApplyEnd.checked = step.applyEnd !== false;
+    if (chkAutoOffset) chkAutoOffset.checked = step.autoOffset ?? false;
     if (inputStartOffset) inputStartOffset.value = step.startOffset ?? 0;
+    if (inputStartOffset && chkAutoOffset) inputStartOffset.disabled = chkAutoOffset.checked;
     if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = step.autoOffsetPoints ?? 100;
     if (step.slope) setVal(inputSlope, sliderSlope, step.slope);
     if (step.qFactor) setVal(inputQ, sliderQ, step.qFactor);

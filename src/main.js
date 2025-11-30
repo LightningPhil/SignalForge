@@ -12,8 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
     Theme.init(elements.btnThemeToggle);
     Graph.init();
 
-    if (State.config.pipeline.length > 0) {
-        State.ui.selectedStepId = State.config.pipeline[0].id;
+    const initialPipeline = State.getPipeline();
+    if (initialPipeline.length > 0) {
+        State.ui.selectedStepId = initialPipeline[0].id;
     }
 
     const settingsLoaded = SettingsManager.loadFromBrowser();
