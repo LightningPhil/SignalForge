@@ -35,6 +35,8 @@ function setupEventListeners() {
         sliderIters,
         inputStartDecay,
         inputEndDecay,
+        chkApplyStart,
+        chkApplyEnd,
         inputStartOffset,
         inputAutoOffsetPoints,
         btnAutoOffset,
@@ -115,7 +117,7 @@ function setupEventListeners() {
     bindInput(inputSlope, sliderSlope);
     bindInput(inputQ, sliderQ);
 
-    [inputFreq, selFreqUnit, inputBW, selBWUnit, inputStartOffset, inputAutoOffsetPoints].forEach((el) => {
+    [inputFreq, selFreqUnit, inputBW, selBWUnit, inputStartOffset, inputAutoOffsetPoints, chkApplyStart, chkApplyEnd].forEach((el) => {
         el?.addEventListener('input', updateParamsFromUI);
     });
 

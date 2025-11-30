@@ -100,6 +100,17 @@
 
                         <!-- Decay Length -->
                         <div id="group-decay" style="display:none;">
+                            <div class="checkbox-row" style="display:flex; gap:10px; margin-bottom:10px;">
+                                <label style="display:flex; align-items:center; gap:6px;">
+                                    <input type="checkbox" id="param-apply-start" checked>
+                                    Apply Start Taper
+                                </label>
+                                <label style="display:flex; align-items:center; gap:6px;">
+                                    <input type="checkbox" id="param-apply-end" checked>
+                                    Apply End Taper
+                                </label>
+                            </div>
+
                             <label for="param-start-decay">Start Fade Length</label>
                             <input type="number" id="param-start-decay" value="50" min="0">
                             <div class="slider-group">
