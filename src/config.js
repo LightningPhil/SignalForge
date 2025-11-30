@@ -97,7 +97,12 @@ export const Config = {
     },
 
     limits: {
-        previewLines: 50,         
-        maxGridRows: 1000         
+        previewLines: 50,
+        maxGridRows: 1000
+    },
+
+    // Display calibration (pixels per centimeter)
+    displayCalibration: {
+        pixelsPerCm: 96 / 2.54
     }
 };

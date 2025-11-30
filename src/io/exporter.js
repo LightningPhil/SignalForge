@@ -1,5 +1,6 @@
 import { State } from '../state.js';
 import { Filter } from '../processing/filter.js';
+import { getPixelsPerCm } from '../ui/displayCalibration.js';
 
 const THEME_STYLES = {
     light: {
@@ -188,13 +189,13 @@ export const Exporter = {
             layout.yaxis2 = { ...layout.yaxis2, gridcolor: themeStyles.gridColor, zerolinecolor: themeStyles.gridColor };
         }
 
-        const CM_TO_PX = 37.8;
+        const pixelsPerCm = getPixelsPerCm();
         let targetWidth = graphDiv.clientWidth || 1000;
         let targetHeight = graphDiv.clientHeight || 600;
 
         if (!useWindowSize) {
-            if (widthCm && !isNaN(widthCm)) targetWidth = Math.max(1, widthCm * CM_TO_PX);
-            if (heightCm && !isNaN(heightCm)) targetHeight = Math.max(1, heightCm * CM_TO_PX);
+            if (widthCm && !isNaN(widthCm)) targetWidth = Math.max(1, widthCm * pixelsPerCm);
+            if (heightCm && !isNaN(heightCm)) targetHeight = Math.max(1, heightCm * pixelsPerCm);
         }
 
         Plotly.toImage({ data: themedData, layout: layout }, { format: format, height: targetHeight, width: targetWidth })
