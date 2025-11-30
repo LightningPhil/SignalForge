@@ -38,6 +38,31 @@ export const GraphConfig = {
 
         const xFormat = config.xAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
         const yFormat = config.yAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
+        const currencySymbol = config.currencySymbol || '£';
+
+        const currencyOptions = [
+            { label: 'British Pound (£)', value: '£' },
+            { label: 'US Dollar ($)', value: '$' },
+            { label: 'Euro (€)', value: '€' },
+            { label: 'Japanese Yen (¥)', value: '¥' },
+            { label: 'Chinese Yuan (¥)', value: '¥' },
+            { label: 'Indian Rupee (₹)', value: '₹' },
+            { label: 'South Korean Won (₩)', value: '₩' },
+            { label: 'Russian Ruble (₽)', value: '₽' },
+            { label: 'Australian Dollar (A$)', value: 'A$' },
+            { label: 'Canadian Dollar (C$)', value: 'C$' },
+            { label: 'Swiss Franc (CHF)', value: 'CHF' },
+            { label: 'Hong Kong Dollar (HK$)', value: 'HK$' },
+            { label: 'New Zealand Dollar (NZ$)', value: 'NZ$' },
+            { label: 'Singapore Dollar (S$)', value: 'S$' },
+            { label: 'Brazilian Real (R$)', value: 'R$' },
+            { label: 'Turkish Lira (₺)', value: '₺' },
+            { label: 'Thai Baht (฿)', value: '฿' }
+        ];
+
+        const createCurrencyOptions = () => currencyOptions.map(opt =>
+            `<option value="${opt.value}" ${opt.value === currencySymbol ? 'selected' : ''}>${opt.label}</option>`
+        ).join('');
 
         const createOptions = (selectedVal) => {
             return headers.map(h =>
@@ -106,6 +131,11 @@ export const GraphConfig = {
                         <label> Y-Axis Format</label>
                         <select id="gc-y-format">${createFormatOptions(yFormat)}</select>
 
+                        <div id="gc-currency-wrapper" style="display:none;">
+                            <label>Currency Symbol</label>
+                            <select id="gc-currency-symbol">${createCurrencyOptions()}</select>
+                        </div>
+
                         <label style="display:flex; align-items:center;">
                             <input type="checkbox" id="gc-log" style="width:auto; margin-right:10px;" ${config.logScaleY ? 'checked' : ''}>
                             Logarithmic Y-Scale
@@ -126,6 +156,17 @@ export const GraphConfig = {
 
         const modal = createModal(html);
 
+        const currencyWrapper = modal.querySelector('#gc-currency-wrapper');
+        const toggleCurrencyVisibility = () => {
+            const shouldShow = ['currency'].includes(modal.querySelector('#gc-x-format').value) || ['currency'].includes(modal.querySelector('#gc-y-format').value);
+            currencyWrapper.style.display = shouldShow ? 'block' : 'none';
+        };
+
+        toggleCurrencyVisibility();
+
+        modal.querySelector('#gc-x-format').addEventListener('change', toggleCurrencyVisibility);
+        modal.querySelector('#gc-y-format').addEventListener('change', toggleCurrencyVisibility);
+
         // Save Action
         modal.querySelector('#btn-save-gc').addEventListener('click', () => {
             // Data
@@ -138,6 +179,7 @@ export const GraphConfig = {
             cfg.yAxisTitle = modal.querySelector('#gc-ylabel').value;
             cfg.xAxisFormat = modal.querySelector('#gc-x-format').value;
             cfg.yAxisFormat = modal.querySelector('#gc-y-format').value;
+            cfg.currencySymbol = modal.querySelector('#gc-currency-symbol').value;
             cfg.logScaleY = modal.querySelector('#gc-log').checked;
             cfg.enableDownsampling = modal.querySelector('#gc-downsample').checked;
 

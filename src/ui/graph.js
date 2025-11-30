@@ -121,12 +121,12 @@ export const Graph = {
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     },
 
-    getAxisFormat(format, axisType = 'linear') {
+    getAxisFormat(format, axisType = 'linear', currencySymbol = '£') {
         const presets = {
-            decimal: { exponentformat: 'none' },
-            scientific: { exponentformat: 'e', showexponent: 'all' },
-            integer: { tickformat: 'd', exponentformat: 'none' },
-            currency: { tickprefix: '$', tickformat: ',.2f', exponentformat: 'none' },
+            decimal: { tickformat: ',.6~f', exponentformat: 'none' },
+            scientific: { tickformat: '.6e', exponentformat: 'e', showexponent: 'all' },
+            integer: { tickformat: ',d', exponentformat: 'none' },
+            currency: { tickprefix: currencySymbol || '', tickformat: ',.2f', exponentformat: 'none' },
             percentage: { tickformat: '.0%', exponentformat: 'none' },
             datetime: { type: 'date', hoverformat: '%Y-%m-%d %H:%M' },
             engineering: { tickformat: 's', exponentformat: 'SI' }
@@ -352,10 +352,10 @@ export const Graph = {
             }
         }
 
-        const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear');
+        const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear', config.currencySymbol);
         const yAxisBaseType = config.logScaleY ? 'log' : 'linear';
-        const yAxisFormat = this.getAxisFormat(config.yAxisFormat, yAxisBaseType);
-        const secondaryYAxisFormat = this.getAxisFormat(config.yAxisFormat, 'linear');
+        const yAxisFormat = this.getAxisFormat(config.yAxisFormat, yAxisBaseType, config.currencySymbol);
+        const secondaryYAxisFormat = this.getAxisFormat(config.yAxisFormat, 'linear', config.currencySymbol);
 
         const layout = {
             title: config.title,
