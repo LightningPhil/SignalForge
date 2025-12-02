@@ -166,7 +166,7 @@ export const Graph = {
         if (!rawX || rawX.length === 0) return;
 
         const composerTrace = getComposerTrace(State.ui.activeMultiViewId || null, State.data.dataColumn);
-        const { adjustedRawY, adjustedFilteredY } = applyComposerOffsets(rawX, rawY, filteredY, composerTrace);
+        const { adjustedRawY, adjustedFilteredY } = applyComposerOffsets(rawY, filteredY, composerTrace);
 
         const config = State.config.graph;
 
@@ -769,10 +769,10 @@ export const Graph = {
                 const series = this.getSeriesForColumn(col, rawX);
                 if (!series) return null;
 
-                const composerTrace = composer?.traces?.find((t) => t.columnId === col) || { timeOffset: 0, yOffset: 0 };
+                const composerTrace = composer?.traces?.find((t) => t.columnId === col) || { columnId: col };
                 const waterfallOffset = waterfallMode ? waterfallSpacing * idx : 0;
-                const aligned = applyComposerOffsets(rawX, series.rawY, series.filteredY, {
-                    timeOffset: composerTrace.timeOffset || 0,
+                const aligned = applyComposerOffsets(series.rawY, series.filteredY, {
+                    columnId: composerTrace.columnId,
                     yOffset: (composerTrace.yOffset || 0) + waterfallOffset
                 });
 

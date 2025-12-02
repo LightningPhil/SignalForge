@@ -1,5 +1,4 @@
 import { State } from '../state.js';
-import { computeTimeStep, quantizeTimeOffset } from '../processing/composer.js';
 import { elements } from './domElements.js';
 import { triggerGraphUpdateOnly } from './dataPipeline.js';
 
@@ -24,10 +23,6 @@ function renderComposerPanel() {
 
     composerList.innerHTML = '';
 
-    const timeColumn = State.data.timeColumn;
-    const rawX = timeColumn ? State.data.raw.map((r) => parseFloat(r[timeColumn])) : [];
-    const timeStep = computeTimeStep(rawX) || 0.000001;
-
     composer.traces.forEach((trace, index) => {
         const row = document.createElement('div');
         row.className = 'composer-row';
@@ -40,43 +35,25 @@ function renderComposerPanel() {
         const controls = document.createElement('div');
         controls.className = 'composer-controls';
 
-        const timeGroup = document.createElement('label');
-        timeGroup.className = 'composer-control';
-        timeGroup.textContent = 'Time Offset';
-        const timeInput = document.createElement('input');
-        timeInput.type = 'number';
-        timeInput.step = timeStep;
-        const quantizedInitial = quantizeTimeOffset(trace.timeOffset ?? 0, timeStep);
-        timeInput.value = quantizedInitial;
-        timeInput.setAttribute('data-col', trace.columnId);
-        timeGroup.appendChild(timeInput);
-        controls.appendChild(timeGroup);
-
-        const yGroup = document.createElement('label');
-        yGroup.className = 'composer-control';
-        yGroup.textContent = 'Y Offset';
-        const yInput = document.createElement('input');
-        yInput.type = 'number';
-        yInput.step = '0.1';
-        yInput.value = trace.yOffset ?? 0;
-        yInput.setAttribute('data-col', trace.columnId);
-        yGroup.appendChild(yInput);
-        controls.appendChild(yGroup);
+        const xGroup = document.createElement('label');
+        xGroup.className = 'composer-control';
+        xGroup.textContent = 'X Offset (Samples)';
+        const xInput = document.createElement('input');
+        xInput.type = 'number';
+        xInput.step = '1';
+        const config = State.getTraceConfig(trace.columnId);
+        xInput.value = config?.xOffset ?? 0;
+        xInput.setAttribute('data-col', trace.columnId);
+        xGroup.appendChild(xInput);
+        controls.appendChild(xGroup);
 
         row.appendChild(controls);
         composerList.appendChild(row);
 
-        timeInput.addEventListener('input', () => {
-            const val = parseFloat(timeInput.value) || 0;
-            const quantized = quantizeTimeOffset(val, timeStep);
-            timeInput.value = quantized;
-            State.updateComposerTrace(activeViewId, trace.columnId, { timeOffset: quantized });
-            triggerGraphUpdateOnly();
-        });
-
-        yInput.addEventListener('input', () => {
-            const val = parseFloat(yInput.value) || 0;
-            State.updateComposerTrace(activeViewId, trace.columnId, { yOffset: val });
+        xInput.addEventListener('input', () => {
+            const val = Number.isFinite(parseFloat(xInput.value)) ? Math.round(parseFloat(xInput.value)) : 0;
+            xInput.value = val;
+            State.updateTraceConfig(trace.columnId, { xOffset: val });
             triggerGraphUpdateOnly();
         });
     });

@@ -352,3 +352,26 @@ export const Filter = {
         return A.map(r => r.slice(n));
     }
 };
+
+export function applyXOffset(data = [], offset = 0) {
+    const source = Array.isArray(data) || ArrayBuffer.isView(data) ? data : [];
+    const len = source.length;
+    const intOffset = Math.round(offset || 0);
+
+    if (len === 0) return [];
+    if (intOffset === 0) return Array.isArray(source) ? [...source] : source.slice();
+
+    const shifted = Array.isArray(source) ? new Array(len) : new source.constructor(len);
+
+    for (let i = 0; i < len; i++) {
+        const sourceIdx = i - intOffset;
+
+        if (sourceIdx >= 0 && sourceIdx < len) {
+            shifted[i] = source[sourceIdx];
+        } else {
+            shifted[i] = sourceIdx < 0 ? source[0] : source[len - 1];
+        }
+    }
+
+    return shifted;
+}
