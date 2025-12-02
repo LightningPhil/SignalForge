@@ -4,6 +4,7 @@ import { lttb } from '../processing/lttb.js';
 import { FFT } from '../processing/fft.js';
 import { Filter } from '../processing/filter.js';
 import { MathEngine } from '../processing/math.js';
+import { applyComposerOffsets, getComposerTrace } from '../processing/composer.js';
 
 const PLOT_ID = 'main-plot';
 const STATUS_ID = 'graph-status';
@@ -164,13 +165,16 @@ export const Graph = {
     render(rawX, rawY, filteredY = null, range = null) {
         if (!rawX || rawX.length === 0) return;
 
+        const composerTrace = getComposerTrace(State.ui.activeMultiViewId || null, State.data.dataColumn);
+        const { adjustedRawY, adjustedFilteredY } = applyComposerOffsets(rawX, rawY, filteredY, composerTrace);
+
         const config = State.config.graph;
 
         // --- Mode Switching ---
         if (config.showFreqDomain) {
-            this.renderFreqDomain(rawX, rawY, filteredY);
+            this.renderFreqDomain(rawX, adjustedRawY, adjustedFilteredY);
         } else {
-            this.renderTimeDomain(rawX, rawY, filteredY, range);
+            this.renderTimeDomain(rawX, adjustedRawY, adjustedFilteredY, range);
         }
     },
 
@@ -207,16 +211,13 @@ export const Graph = {
         seriesList.forEach((series) => {
             if (!series || !series.rawY || series.rawY.length === 0) return;
             const name = series.columnId || 'Series';
-            const timeOffset = series.timeOffset || 0;
-            const yOffset = series.yOffset || 0;
             let seriesX = rawX;
             let seriesY = series.rawY;
             let seriesF = series.filteredY || [];
 
             if (xRange) {
-                const rangeForSeries = xRange.map((val) => val - timeOffset);
-                const startIndex = rawX.findIndex((val) => val >= rangeForSeries[0]);
-                let endIndex = rawX.findIndex((val) => val > rangeForSeries[1]);
+                const startIndex = rawX.findIndex((val) => val >= xRange[0]);
+                let endIndex = rawX.findIndex((val) => val > xRange[1]);
 
                 if (startIndex !== -1) {
                     if (endIndex === -1) endIndex = rawX.length;
@@ -244,36 +245,32 @@ export const Graph = {
                 }
             }
 
-            const adjustedX = seriesX.map((x) => x + timeOffset);
-            const adjustedY = seriesY.map((y) => y + yOffset);
-            const adjustedF = seriesF.map((y) => y + yOffset);
-
             if (showRaw) {
                 traces.push({
-                    x: adjustedX, y: adjustedY, mode: 'lines', name: `${name} (Raw)`,
+                    x: seriesX, y: seriesY, mode: 'lines', name: `${name} (Raw)`,
                     line: { width: 1 }, xaxis: 'x', yaxis: 'y'
                 });
             }
 
             if (seriesF && seriesF.length > 0) {
                 traces.push({
-                    x: adjustedX, y: adjustedF, mode: 'lines', name: `${name} (Filtered)`,
+                    x: seriesX, y: seriesF, mode: 'lines', name: `${name} (Filtered)`,
                     line: { width: 2 }, xaxis: 'x', yaxis: 'y'
                 });
             }
 
             if (showDiff) {
                 if (showRaw) {
-                    const dRaw = this.calculateDerivative(adjustedX, adjustedY);
+                    const dRaw = this.calculateDerivative(seriesX, seriesY);
                     traces.push({
-                        x: adjustedX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
+                        x: seriesX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
                         line: { width: 1 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
                 if (seriesF && seriesF.length > 0) {
-                    const dF = this.calculateDerivative(adjustedX, adjustedF);
+                    const dF = this.calculateDerivative(seriesX, seriesF);
                     traces.push({
-                        x: adjustedX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
+                        x: seriesX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
                         line: { width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
@@ -519,12 +516,6 @@ export const Graph = {
         const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
 
-        const composer = State.getComposer(State.ui.activeMultiViewId || null);
-        const activeCol = State.data.dataColumn;
-        const composerTrace = composer?.traces?.find((t) => t.columnId === activeCol) || { timeOffset: 0, yOffset: 0 };
-        const timeOffset = composerTrace.timeOffset || 0;
-        const yOffset = composerTrace.yOffset || 0;
-
         const showDiff = config.showDifferential;
         const showRaw = (config.showRaw !== false);
         const allowDownsample = config.enableDownsampling;
@@ -536,8 +527,6 @@ export const Graph = {
         let displayY = rawY;
         let displayF = filteredY || [];
 
-        const normalizedRange = xRange ? xRange.map((val) => val - timeOffset) : null;
-
         if (range === null) {
             this.lastRanges = { x: null, y: null };
         } else {
@@ -547,9 +536,9 @@ export const Graph = {
         // Slicing
         let sliceStart = 0;
         let sliceEnd = rawX.length;
-        if (normalizedRange) {
-            const startIndex = rawX.findIndex(val => val >= normalizedRange[0]);
-            let endIndex = rawX.findIndex(val => val > normalizedRange[1]);
+        if (xRange) {
+            const startIndex = rawX.findIndex(val => val >= xRange[0]);
+            let endIndex = rawX.findIndex(val => val > xRange[1]);
 
             if (startIndex !== -1) {
                 if (endIndex === -1) endIndex = rawX.length;
@@ -588,36 +577,32 @@ export const Graph = {
         const diffRawColor = colors.diffRaw || colors.raw;
         const diffFiltColor = colors.diffFilt || colors.filtered;
 
-        const adjustedX = displayX.map((x) => x + timeOffset);
-        const adjustedY = displayY.map((y) => y + yOffset);
-        const adjustedF = displayF.map((y) => y + yOffset);
-
         if (showRaw) {
             traces.push({
-                x: adjustedX, y: adjustedY, mode: 'lines', name: 'Raw Data',
+                x: displayX, y: displayY, mode: 'lines', name: 'Raw Data',
                 line: { color: rawColor, width: 1 }, xaxis: 'x', yaxis: 'y'
             });
         }
 
         if (filteredY && displayF.length > 0) {
             traces.push({
-                x: adjustedX, y: adjustedF, mode: 'lines', name: 'Filtered',
+                x: displayX, y: displayF, mode: 'lines', name: 'Filtered',
                 line: { color: filtColor, width: 2 }, xaxis: 'x', yaxis: 'y'
             });
         }
 
         if (showDiff) {
             if (showRaw) {
-                const dRaw = this.calculateDerivative(adjustedX, adjustedY);
+                const dRaw = this.calculateDerivative(displayX, displayY);
                 traces.push({
-                    x: adjustedX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
+                    x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
                     line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
             if (filteredY && displayF.length > 0) {
-                const dF = this.calculateDerivative(adjustedX, adjustedF);
+                const dF = this.calculateDerivative(displayX, displayF);
                 traces.push({
-                    x: adjustedX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
+                    x: displayX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
                     line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
@@ -786,11 +771,15 @@ export const Graph = {
 
                 const composerTrace = composer?.traces?.find((t) => t.columnId === col) || { timeOffset: 0, yOffset: 0 };
                 const waterfallOffset = waterfallMode ? waterfallSpacing * idx : 0;
-
-                return {
-                    ...series,
+                const aligned = applyComposerOffsets(rawX, series.rawY, series.filteredY, {
                     timeOffset: composerTrace.timeOffset || 0,
                     yOffset: (composerTrace.yOffset || 0) + waterfallOffset
+                });
+
+                return {
+                    columnId: col,
+                    rawY: aligned.adjustedRawY,
+                    filteredY: aligned.adjustedFilteredY
                 };
             })
             .filter(Boolean);
