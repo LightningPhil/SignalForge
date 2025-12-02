@@ -1,129 +1,135 @@
 import { State } from '../state.js';
 
+// Ensure math.js is available globally
+const mathLib = (typeof math !== 'undefined') ? math : null;
+
 /**
- * Math Engine
- * Performs dynamic calculations between columns (Virtual Traces).
+ * Advanced Math Engine powered by math.js
  */
 export const MathEngine = {
-    
-    /**
-     * Calculates the data array for a virtual column definition.
-     * @param {Object} def - The math definition { name, colA, op, colB, offset, scalar, ... }
-     * @param {Array} rawTime - Array of time values (for integration/differentiation)
-     * @returns {Array} The computed Y-values
-     */
-    calculateVirtualColumn(def, rawTime) {
-        const rawData = State.data.raw;
-        if (!rawData || rawData.length === 0) return [];
 
-        // Helper to get array from column name
-        const getCol = (name) => rawData.map(r => parseFloat(r[name]) || 0);
-
-        let dataA = getCol(def.colA);
-        let result = [...dataA]; // Start with A
-
-        // --- 1. Basic Operations (A op B or A op Scalar) ---
-        if (['add','sub','mul','div'].includes(def.op)) {
-            
-            let dataB;
-            if (def.isScalar) {
-                // Scalar Operation
-                const val = parseFloat(def.scalarValue) || 0;
-                dataB = new Array(dataA.length).fill(val);
-            } else {
-                // Column Operation
-                dataB = getCol(def.colB);
-                
-                // Apply Time Offset to B (shift indices)
-                if (def.offsetSamples && def.offsetSamples !== 0) {
-                    dataB = this.shiftArray(dataB, def.offsetSamples);
-                }
+    customFunctions: {
+        diff: (arr) => {
+            const values = Array.isArray(arr) ? arr : [arr];
+            if (values.length === 0) return [];
+            const out = new Array(values.length).fill(values[0]);
+            for (let i = 1; i < values.length; i++) {
+                out[i] = values[i] - values[i - 1];
             }
+            return out;
+        },
 
-            for(let i=0; i<result.length; i++) {
-                const a = dataA[i];
-                const b = dataB[i];
-                
-                switch(def.op) {
-                    case 'add': result[i] = a + b; break;
-                    case 'sub': result[i] = a - b; break;
-                    case 'mul': result[i] = a * b; break;
-                    case 'div': result[i] = (b !== 0) ? a / b : 0; break;
-                }
-            }
+        cumsum: (arr) => {
+            const values = Array.isArray(arr) ? arr : [arr];
+            let sum = 0;
+            return values.map((v) => {
+                sum += v;
+                return sum;
+            });
         }
-        else if (def.op === 'sq') {
-            result = result.map(v => v * v);
-        }
-        else if (def.op === 'sqrt') {
-            result = result.map(v => (v > 0) ? Math.sqrt(v) : 0);
-        }
-
-        // --- 2. Post-Process Calculus ---
-        // These can be chained onto the result of Step 1
-        if (def.postCalc === 'diff') {
-            result = this.derivative(result, rawTime);
-        } 
-        else if (def.postCalc === 'int') {
-            result = this.integrate(result, rawTime);
-        }
-
-        return result;
     },
 
-    /**
-     * Shifts array by N samples.
-     * Positive N = Lag (Right shift). Fill with 0.
-     */
-    shiftArray(data, n) {
-        const len = data.length;
-        const result = new Array(len).fill(0);
-        
-        for(let i=0; i<len; i++) {
-            const srcIdx = i - n;
-            if(srcIdx >= 0 && srcIdx < len) {
-                result[i] = data[srcIdx];
-            }
-        }
-        return result;
+    getDt(timeArray) {
+        if (!Array.isArray(timeArray) || timeArray.length < 2) return 1;
+        const span = timeArray[timeArray.length - 1] - timeArray[0];
+        return span !== 0 ? span / (timeArray.length - 1) : 1;
     },
 
-    /**
-     * Calculate Derivative (dy/dx)
-     */
-    derivative(y, x) {
-        const dY = [];
-        for (let i = 0; i < y.length - 1; i++) {
-            const slope = (x[i+1] - x[i] !== 0) 
-                ? (y[i+1] - y[i]) / (x[i+1] - x[i]) 
-                : 0;
-            dY.push(slope);
-        }
-        dY.push(dY[dY.length-1]); // Pad
-        return dY;
-    },
-
-    /**
-     * Calculate Integral (Trapezoidal Rule)
-     * Accumulates area under curve.
-     */
-    integrate(y, x) {
-        const integ = [];
-        let sum = 0;
-        integ.push(0); // Start at 0
-
-        for (let i = 0; i < y.length - 1; i++) {
-            const dt = x[i+1] - x[i];
-            const area = 0.5 * (y[i] + y[i+1]) * dt;
-            sum += area;
-            integ.push(sum);
-        }
-        return integ;
-    },
-
-    // --- Helpers used by UI ---
     getAvailableMathColumns() {
-        if(!State.config.mathDefinitions) return [];
-        return State.config.mathDefinitions.map(d => d.name);
+        if (!State.config.mathDefinitions) return [];
+        return State.config.mathDefinitions.map((d) => d.name);
+    },
+
+    getColumnData(columnId, rawTime, visited = new Set()) {
+        if (!columnId) return [];
+        if (visited.has(columnId)) {
+            console.warn(`Circular math reference detected for ${columnId}.`);
+            return [];
+        }
+
+        const mathDef = State.getMathDefinition(columnId);
+        if (mathDef) {
+            visited.add(columnId);
+            const result = this.calculateVirtualColumn(mathDef, rawTime, visited);
+            return result.values;
+        }
+
+        if (!State.data.headers.includes(columnId)) return [];
+        return State.data.raw.map((r) => parseFloat(r[columnId]));
+    },
+
+    normalizeResult(result, targetLength) {
+        const toPlainArray = (val) => {
+            if (Array.isArray(val)) return [...val];
+            if (mathLib && typeof mathLib.isMatrix === 'function' && mathLib.isMatrix(val)) return val.toArray();
+            if (ArrayBuffer.isView(val)) return Array.from(val);
+            return val;
+        };
+
+        const plain = toPlainArray(result);
+
+        if (typeof plain === 'number') {
+            return new Array(targetLength).fill(plain);
+        }
+
+        if (!Array.isArray(plain)) return [];
+
+        if (plain.length === 0) return [];
+
+        const finalLength = Math.min(targetLength, plain.length);
+        return plain.slice(0, finalLength);
+    },
+
+    calculateVirtualColumn(def, rawTime = [], visited = new Set()) {
+        if (!mathLib || typeof mathLib.evaluate !== 'function') {
+            console.error('math.js is not available.');
+            return { values: [], time: [] };
+        }
+
+        if (!def || !Array.isArray(def.variables) || !def.expression) {
+            return { values: [], time: [] };
+        }
+
+        const scope = { ...this.customFunctions };
+        const variableData = {};
+        let minLen = Array.isArray(rawTime) && rawTime.length > 0 ? rawTime.length : Infinity;
+
+        const visitedWithCurrent = new Set(visited);
+        if (def.name) visitedWithCurrent.add(def.name);
+
+        def.variables.forEach(({ columnId, symbol }) => {
+            const sym = (symbol || '').trim();
+            if (!sym || !columnId) return;
+            const data = this.getColumnData(columnId, rawTime, visitedWithCurrent);
+            if (data.length === 0) return;
+            variableData[sym] = data;
+            minLen = Math.min(minLen, data.length);
+        });
+
+        if (!Number.isFinite(minLen) || minLen === Infinity || minLen <= 0) {
+            return { values: [], time: [] };
+        }
+
+        Object.entries(variableData).forEach(([symbol, data]) => {
+            scope[symbol] = data.slice(0, minLen);
+        });
+
+        if (Array.isArray(rawTime) && rawTime.length > 0) {
+            scope.t = rawTime.slice(0, minLen);
+            scope.dt = this.getDt(scope.t);
+        }
+
+        let evaluated;
+        try {
+            evaluated = mathLib.evaluate(def.expression, scope);
+        } catch (err) {
+            console.error('Math evaluation failed', err);
+            return { values: [], time: rawTime.slice(0, minLen) };
+        }
+
+        const values = this.normalizeResult(evaluated, minLen);
+        const time = Array.isArray(rawTime) && rawTime.length > 0 ? rawTime.slice(0, values.length) : [];
+
+        return { values, time };
     }
 };

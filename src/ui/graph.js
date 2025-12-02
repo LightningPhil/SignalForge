@@ -734,19 +734,23 @@ export const Graph = {
         if (!columnId) return null;
         const mathDef = State.getMathDefinition(columnId);
         let rawY = [];
+        let time = rawX;
 
         if (mathDef) {
-            rawY = MathEngine.calculateVirtualColumn(mathDef, rawX);
+            const result = MathEngine.calculateVirtualColumn(mathDef, rawX);
+            rawY = result.values;
+            time = result.time.length ? result.time : rawX.slice(0, rawY.length);
         } else if (State.data.headers.includes(columnId)) {
             rawY = State.data.raw.map((r) => parseFloat(r[columnId]));
+            time = rawX.slice(0, rawY.length);
         } else {
             return null;
         }
 
         const pipeline = State.getPipelineForColumn(columnId);
-        const filteredY = Filter.applyPipeline(rawY, rawX, pipeline);
+        const filteredY = Filter.applyPipeline(rawY, time, pipeline);
 
-        return { columnId, rawY, filteredY };
+        return { columnId, rawY, filteredY, time };
     },
 
     renderMultiViewFromState(range = null) {
@@ -776,11 +780,30 @@ export const Graph = {
                 return {
                     columnId: col,
                     rawY: aligned.adjustedRawY,
-                    filteredY: aligned.adjustedFilteredY
+                    filteredY: aligned.adjustedFilteredY,
+                    time: series.time
                 };
             })
             .filter(Boolean);
 
-        this.renderMultiView(rawX, seriesList, range);
+        let commonLength = rawX.length;
+        let referenceTime = rawX;
+
+        seriesList.forEach((series) => {
+            const timeArray = series.time && series.time.length ? series.time : referenceTime;
+            commonLength = Math.min(commonLength, timeArray.length, series.rawY.length, series.filteredY ? series.filteredY.length : series.rawY.length);
+            if (series.time && series.time.length) {
+                referenceTime = series.time;
+            }
+        });
+
+        const finalTime = referenceTime.slice(0, commonLength);
+        const trimmedSeries = seriesList.map((series) => ({
+            ...series,
+            rawY: series.rawY.slice(0, commonLength),
+            filteredY: series.filteredY ? series.filteredY.slice(0, commonLength) : null
+        }));
+
+        this.renderMultiView(finalTime, trimmedSeries, range);
     }
 };

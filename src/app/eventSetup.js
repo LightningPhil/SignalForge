@@ -6,7 +6,6 @@ import { elements } from './domElements.js';
 import { handleFileSelection } from './dataImport.js';
 import { renderPipelineList, updateParamEditor, showAddStepMenu, updateParamsFromUI } from './pipelineUi.js';
 import { runPipelineAndRender, hasData } from './dataPipeline.js';
-import { showMathModal } from './mathModal.js';
 import { showExportModal } from './exportModal.js';
 import { bindToolbarEvents } from './toolbar.js';
 import { MathEngine } from '../processing/math.js';
@@ -20,7 +19,6 @@ function setupEventListeners() {
         btnGraphConfig,
         btnExport,
         btnHelp,
-        btnMath,
         btnAddStep,
         btnRemoveStep,
         btnMoveUp,
@@ -69,7 +67,6 @@ function setupEventListeners() {
 
     btnViewGrid?.addEventListener('click', () => GridView.show());
     btnGraphConfig?.addEventListener('click', () => { if (hasData()) GraphConfig.show(); });
-    btnMath?.addEventListener('click', () => { if (hasData()) showMathModal(); });
     btnExport?.addEventListener('click', showExportModal);
     btnHelp?.addEventListener('click', () => HelpSystem.show());
 

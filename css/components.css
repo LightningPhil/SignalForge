@@ -151,7 +151,7 @@
 }
 
 /* Inputs inside Modals */
-.modal-content input, .modal-content select {
+.modal-content input, .modal-content select, .modal-content textarea {
     background: var(--input-bg);
     border: 1px solid var(--border-color);
     color: var(--text-main);
@@ -166,6 +166,52 @@
     margin-bottom: 5px;
     font-size: 0.9em;
     color: var(--text-muted);
+}
+
+.math-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.math-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.math-row select,
+.math-row input {
+    width: 100%;
+}
+
+.math-label {
+    margin-top: 14px;
+}
+
+.add-tab-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.add-tab-actions button {
+    flex: 1;
+}
+
+.icon-button {
+    background: var(--button-bg);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.icon-button:hover {
+    background: var(--button-hover);
 }
 
 .calibration-status {
