@@ -4,10 +4,13 @@ import { FFT } from './fft.js';
  * Filter Processing Engine
  */
 export const Filter = {
-    
+
     applyPipeline(dataArray, timeArray, pipeline) {
         if (!dataArray || dataArray.length === 0) return [];
-        if (!pipeline || pipeline.length === 0) return dataArray; 
+
+        const normalizedPipeline = (pipeline && pipeline.length > 0)
+            ? pipeline
+            : [{ id: 'null-filter', type: 'nullFilter', enabled: true }];
 
         let currentData = [...dataArray];
 
@@ -21,10 +24,13 @@ export const Filter = {
             if(avgDt > 0) fs = 1.0 / avgDt;
         }
 
-        pipeline.forEach(step => {
+        normalizedPipeline.forEach(step => {
             if (!step.enabled) return;
 
             switch(step.type) {
+                case 'nullFilter':
+                    currentData = [...currentData];
+                    break;
                 // Time Domain
                 case 'movingAverage':
                     currentData = this.movingAverage(currentData, step.windowSize);
