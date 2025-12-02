@@ -761,8 +761,6 @@ export const Graph = {
 
         const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
         const composer = State.getComposer(activeId);
-        const waterfallMode = composer?.waterfallMode;
-        const waterfallSpacing = composer?.waterfallSpacing || 0;
 
         const seriesList = view.activeColumnIds
             .map((col, idx) => {
@@ -770,10 +768,9 @@ export const Graph = {
                 if (!series) return null;
 
                 const composerTrace = composer?.traces?.find((t) => t.columnId === col) || { columnId: col };
-                const waterfallOffset = waterfallMode ? waterfallSpacing * idx : 0;
                 const aligned = applyComposerOffsets(series.rawY, series.filteredY, {
                     columnId: composerTrace.columnId,
-                    yOffset: (composerTrace.yOffset || 0) + waterfallOffset
+                    yOffset: composerTrace.yOffset || 0
                 });
 
                 return {

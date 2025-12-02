@@ -70,7 +70,5 @@ export const elements = {
     traceSelectorList: document.getElementById('trace-selector-list'),
 
     composerPanel: document.getElementById('composer-panel'),
-    composerList: document.getElementById('composer-list'),
-    chkWaterfall: document.getElementById('composer-waterfall'),
-    inputWaterfallSpacing: document.getElementById('composer-waterfall-spacing')
+    composerList: document.getElementById('composer-list')
 };

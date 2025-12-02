@@ -295,7 +295,7 @@ export const State = {
 
         const key = this.getComposerKey(viewId);
         if (!this.composer.views[key]) {
-            this.composer.views[key] = { traces: [], waterfallMode: false, waterfallSpacing: 0 };
+            this.composer.views[key] = { traces: [] };
         }
 
         const composer = this.composer.views[key];
@@ -327,16 +327,6 @@ export const State = {
         } else if (trace) {
             Object.assign(trace, params);
         }
-    },
-
-    setComposerWaterfall(viewId, enabled) {
-        const composer = this.syncComposerForView(viewId, this.getActiveComposerColumns());
-        composer.waterfallMode = !!enabled;
-    },
-
-    setComposerWaterfallSpacing(viewId, spacing) {
-        const composer = this.syncComposerForView(viewId, this.getActiveComposerColumns());
-        composer.waterfallSpacing = Number.isFinite(spacing) ? spacing : 0;
     },
 
     getComposer(viewId = null) {
