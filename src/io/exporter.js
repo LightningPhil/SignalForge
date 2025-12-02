@@ -1,5 +1,6 @@
 import { State } from '../state.js';
 import { Filter } from '../processing/filter.js';
+import { applyComposerOffsets, getComposerTrace } from '../processing/composer.js';
 import { getPixelsPerCm } from '../ui/displayCalibration.js';
 
 const THEME_STYLES = {
@@ -40,6 +41,9 @@ export const Exporter = {
         });
 
         const rawTime = rawData.map((r) => parseFloat(r[xCol]));
+        const activeViewId = State.ui.activeMultiViewId || null;
+        const activeView = activeViewId ? State.multiViews.find((v) => v.id === activeViewId) : null;
+        const activeComposer = State.getComposer(activeViewId);
 
         // 2. Pre-calculate Pipeline Data for ALL numeric columns
         const processedDataMap = {};
@@ -49,7 +53,24 @@ export const Exporter = {
             const rawCol = rawData.map(r => parseFloat(r[col]));
             // Apply full pipeline
             const pipeline = State.getPipelineForColumn(col);
-            processedDataMap[col] = Filter.applyPipeline(rawCol, rawTime, pipeline);
+            const filtered = Filter.applyPipeline(rawCol, rawTime, pipeline);
+
+            let alignedRaw = rawCol;
+            let alignedFiltered = filtered;
+
+            if (activeView && activeView.activeColumnIds.includes(col)) {
+                const trace = activeComposer?.traces?.find((t) => t.columnId === col) || { timeOffset: 0, yOffset: 0 };
+                const aligned = applyComposerOffsets(rawTime, rawCol, filtered, trace);
+                alignedRaw = aligned.adjustedRawY;
+                alignedFiltered = aligned.adjustedFilteredY;
+            } else if (!activeViewId && State.data.dataColumn === col) {
+                const trace = getComposerTrace(null, col);
+                const aligned = applyComposerOffsets(rawTime, rawCol, filtered, trace);
+                alignedRaw = aligned.adjustedRawY;
+                alignedFiltered = aligned.adjustedFilteredY;
+            }
+
+            processedDataMap[col] = { raw: alignedRaw, filtered: alignedFiltered };
         });
         console.timeEnd("Export Pipeline");
 
@@ -70,14 +91,14 @@ export const Exporter = {
         // 4. Construct Rows
         for (let i = 0; i < rawData.length; i++) {
             let rowData = [];
-            
+
             // Time
             rowData.push(rawData[i][xCol]);
 
             // Original
             if (includeOriginal) {
                 numericCols.forEach(col => {
-                    let val = rawData[i][col];
+                    let val = processedDataMap[col].raw[i];
                     if (typeof val === 'string' && val.includes(',')) val = `"${val}"`;
                     rowData.push(val);
                 });
@@ -85,7 +106,7 @@ export const Exporter = {
 
             // Filtered
             numericCols.forEach(col => {
-                const val = processedDataMap[col][i];
+                const val = processedDataMap[col].filtered[i];
                 rowData.push(val);
             });
 

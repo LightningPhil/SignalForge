@@ -1,4 +1,5 @@
 import { State } from '../state.js';
+import { computeTimeStep, quantizeTimeOffset } from '../processing/composer.js';
 import { elements } from './domElements.js';
 import { triggerGraphUpdateOnly } from './dataPipeline.js';
 
@@ -23,6 +24,10 @@ function renderComposerPanel() {
 
     composerList.innerHTML = '';
 
+    const timeColumn = State.data.timeColumn;
+    const rawX = timeColumn ? State.data.raw.map((r) => parseFloat(r[timeColumn])) : [];
+    const timeStep = computeTimeStep(rawX) || 0.000001;
+
     composer.traces.forEach((trace, index) => {
         const row = document.createElement('div');
         row.className = 'composer-row';
@@ -40,8 +45,9 @@ function renderComposerPanel() {
         timeGroup.textContent = 'Time Offset';
         const timeInput = document.createElement('input');
         timeInput.type = 'number';
-        timeInput.step = '0.000001';
-        timeInput.value = trace.timeOffset ?? 0;
+        timeInput.step = timeStep;
+        const quantizedInitial = quantizeTimeOffset(trace.timeOffset ?? 0, timeStep);
+        timeInput.value = quantizedInitial;
         timeInput.setAttribute('data-col', trace.columnId);
         timeGroup.appendChild(timeInput);
         controls.appendChild(timeGroup);
@@ -62,7 +68,9 @@ function renderComposerPanel() {
 
         timeInput.addEventListener('input', () => {
             const val = parseFloat(timeInput.value) || 0;
-            State.updateComposerTrace(activeViewId, trace.columnId, { timeOffset: val });
+            const quantized = quantizeTimeOffset(val, timeStep);
+            timeInput.value = quantized;
+            State.updateComposerTrace(activeViewId, trace.columnId, { timeOffset: quantized });
             triggerGraphUpdateOnly();
         });
 
