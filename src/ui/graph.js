@@ -52,6 +52,48 @@ export const Graph = {
         return defaults;
     },
 
+    snapTimeOffset(timeOffset = 0, rawX = []) {
+        const step = State.estimateTimeStep(rawX);
+        if (!step || step === 0) {
+            return { steps: 0, appliedOffset: timeOffset, step: null };
+        }
+        const steps = Math.round(timeOffset / step);
+        return { steps, appliedOffset: steps * step, step };
+    },
+
+    shiftArrayBySteps(values = [], steps = 0) {
+        if (!Array.isArray(values) || values.length === 0 || steps === 0) return [...values];
+
+        const length = values.length;
+
+        if (steps > 0) {
+            const pad = Array(Math.min(steps, length)).fill(values[0]);
+            const trimmed = values.slice(0, length - pad.length);
+            return pad.concat(trimmed);
+        }
+
+        const abs = Math.min(Math.abs(steps), length);
+        const padTail = Array(abs).fill(values[length - 1]);
+        const trimmedHead = values.slice(abs);
+        return trimmedHead.concat(padTail);
+    },
+
+    applyComposerShift(rawX, rawY, filteredY, composerTrace = null, extraYOffset = 0) {
+        const timeOffset = composerTrace?.timeOffset || 0;
+        const yOffset = (composerTrace?.yOffset || 0) + extraYOffset;
+        const { steps, appliedOffset } = this.snapTimeOffset(timeOffset, rawX);
+
+        const shiftedRawY = this.shiftArrayBySteps(rawY, steps);
+        const shiftedFilteredY = filteredY ? this.shiftArrayBySteps(filteredY, steps) : [];
+
+        return {
+            rawY: shiftedRawY,
+            filteredY: shiftedFilteredY,
+            appliedTimeOffset: appliedOffset,
+            yOffset
+        };
+    },
+
     init() {
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
         const config = {
@@ -164,13 +206,18 @@ export const Graph = {
     render(rawX, rawY, filteredY = null, range = null) {
         if (!rawX || rawX.length === 0) return;
 
+        const composer = State.getComposer(State.ui.activeMultiViewId || null);
+        const activeCol = State.data.dataColumn;
+        const composerTrace = composer?.traces?.find((t) => t.columnId === activeCol) || { timeOffset: 0, yOffset: 0 };
+        const { rawY: adjustedRawY, filteredY: adjustedFilteredY, yOffset } = this.applyComposerShift(rawX, rawY, filteredY, composerTrace);
+
         const config = State.config.graph;
 
         // --- Mode Switching ---
         if (config.showFreqDomain) {
-            this.renderFreqDomain(rawX, rawY, filteredY);
+            this.renderFreqDomain(rawX, adjustedRawY, adjustedFilteredY);
         } else {
-            this.renderTimeDomain(rawX, rawY, filteredY, range);
+            this.renderTimeDomain(rawX, adjustedRawY, adjustedFilteredY, range, yOffset);
         }
     },
 
@@ -201,35 +248,30 @@ export const Graph = {
             this.lastRanges = { x: xRange ? [...xRange] : null, y: yRange ? [...yRange] : null };
         }
 
-        let displayX = rawX;
-        let sliceStart = 0;
-        let sliceEnd = rawX.length;
-        if (xRange) {
-            const startIndex = rawX.findIndex(val => val >= xRange[0]);
-            let endIndex = rawX.findIndex(val => val > xRange[1]);
-
-            if (startIndex !== -1) {
-                if (endIndex === -1) endIndex = rawX.length;
-                const buffer = 5;
-                sliceStart = Math.max(0, startIndex - buffer);
-                sliceEnd = Math.min(rawX.length, endIndex + buffer);
-                displayX = rawX.slice(sliceStart, sliceEnd);
-            }
-        }
-
         const traces = [];
         let isDownsampled = false;
 
         seriesList.forEach((series) => {
             if (!series || !series.rawY || series.rawY.length === 0) return;
             const name = series.columnId || 'Series';
-            let seriesX = displayX;
+            const yOffset = series.yOffset || 0;
+            let seriesX = rawX;
             let seriesY = series.rawY;
             let seriesF = series.filteredY || [];
 
-            if (sliceStart !== 0 || sliceEnd !== rawX.length) {
-                seriesY = seriesY.slice(sliceStart, sliceEnd);
-                if (seriesF.length > 0) seriesF = seriesF.slice(sliceStart, sliceEnd);
+            if (xRange) {
+                const startIndex = rawX.findIndex((val) => val >= xRange[0]);
+                let endIndex = rawX.findIndex((val) => val > xRange[1]);
+
+                if (startIndex !== -1) {
+                    if (endIndex === -1) endIndex = rawX.length;
+                    const buffer = 5;
+                    const sliceStart = Math.max(0, startIndex - buffer);
+                    const sliceEnd = Math.min(rawX.length, endIndex + buffer);
+                    seriesX = rawX.slice(sliceStart, sliceEnd);
+                    seriesY = seriesY.slice(sliceStart, sliceEnd);
+                    if (seriesF.length > 0) seriesF = seriesF.slice(sliceStart, sliceEnd);
+                }
             }
 
             if (allowDownsample && seriesX.length > config.maxDisplayPoints) {
@@ -247,32 +289,36 @@ export const Graph = {
                 }
             }
 
+            const adjustedX = seriesX;
+            const adjustedY = seriesY.map((y) => y + yOffset);
+            const adjustedF = seriesF.map((y) => y + yOffset);
+
             if (showRaw) {
                 traces.push({
-                    x: seriesX, y: seriesY, mode: 'lines', name: `${name} (Raw)`,
+                    x: adjustedX, y: adjustedY, mode: 'lines', name: `${name} (Raw)`,
                     line: { width: 1 }, xaxis: 'x', yaxis: 'y'
                 });
             }
 
             if (seriesF && seriesF.length > 0) {
                 traces.push({
-                    x: seriesX, y: seriesF, mode: 'lines', name: `${name} (Filtered)`,
+                    x: adjustedX, y: adjustedF, mode: 'lines', name: `${name} (Filtered)`,
                     line: { width: 2 }, xaxis: 'x', yaxis: 'y'
                 });
             }
 
             if (showDiff) {
                 if (showRaw) {
-                    const dRaw = this.calculateDerivative(seriesX, seriesY);
+                    const dRaw = this.calculateDerivative(adjustedX, adjustedY);
                     traces.push({
-                        x: seriesX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
+                        x: adjustedX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
                         line: { width: 1 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
                 if (seriesF && seriesF.length > 0) {
-                    const dF = this.calculateDerivative(seriesX, seriesF);
+                    const dF = this.calculateDerivative(adjustedX, adjustedF);
                     traces.push({
-                        x: seriesX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
+                        x: adjustedX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
                         line: { width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
@@ -513,7 +559,7 @@ export const Graph = {
     },
 
     // --- Time Domain Renderer (Existing Logic) ---
-    renderTimeDomain(rawX, rawY, filteredY, range) {
+    renderTimeDomain(rawX, rawY, filteredY, range, yOffset = 0) {
         const config = State.config.graph;
         const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
@@ -529,6 +575,8 @@ export const Graph = {
         let displayY = rawY;
         let displayF = filteredY || [];
 
+        const normalizedRange = xRange || null;
+
         if (range === null) {
             this.lastRanges = { x: null, y: null };
         } else {
@@ -538,9 +586,9 @@ export const Graph = {
         // Slicing
         let sliceStart = 0;
         let sliceEnd = rawX.length;
-        if (xRange) {
-            const startIndex = rawX.findIndex(val => val >= xRange[0]);
-            let endIndex = rawX.findIndex(val => val > xRange[1]);
+        if (normalizedRange) {
+            const startIndex = rawX.findIndex(val => val >= normalizedRange[0]);
+            let endIndex = rawX.findIndex(val => val > normalizedRange[1]);
 
             if (startIndex !== -1) {
                 if (endIndex === -1) endIndex = rawX.length;
@@ -579,32 +627,36 @@ export const Graph = {
         const diffRawColor = colors.diffRaw || colors.raw;
         const diffFiltColor = colors.diffFilt || colors.filtered;
 
+        const adjustedX = displayX;
+        const adjustedY = displayY.map((y) => y + yOffset);
+        const adjustedF = displayF.map((y) => y + yOffset);
+
         if (showRaw) {
             traces.push({
-                x: displayX, y: displayY, mode: 'lines', name: 'Raw Data',
+                x: adjustedX, y: adjustedY, mode: 'lines', name: 'Raw Data',
                 line: { color: rawColor, width: 1 }, xaxis: 'x', yaxis: 'y'
             });
         }
 
         if (filteredY && displayF.length > 0) {
             traces.push({
-                x: displayX, y: displayF, mode: 'lines', name: 'Filtered',
+                x: adjustedX, y: adjustedF, mode: 'lines', name: 'Filtered',
                 line: { color: filtColor, width: 2 }, xaxis: 'x', yaxis: 'y'
             });
         }
 
         if (showDiff) {
             if (showRaw) {
-                const dRaw = this.calculateDerivative(displayX, displayY);
+                const dRaw = this.calculateDerivative(adjustedX, adjustedY);
                 traces.push({
-                    x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
+                    x: adjustedX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
                     line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
             if (filteredY && displayF.length > 0) {
-                const dF = this.calculateDerivative(displayX, displayF);
+                const dF = this.calculateDerivative(adjustedX, adjustedF);
                 traces.push({
-                    x: displayX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
+                    x: adjustedX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
                     line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
@@ -762,8 +814,27 @@ export const Graph = {
         if (!xCol) return;
 
         const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
+        const composer = State.getComposer(activeId);
+        const waterfallMode = composer?.waterfallMode;
+        const waterfallSpacing = composer?.waterfallSpacing || 0;
+
         const seriesList = view.activeColumnIds
-            .map((col) => this.getSeriesForColumn(col, rawX))
+            .map((col, idx) => {
+                const series = this.getSeriesForColumn(col, rawX);
+                if (!series) return null;
+
+                const composerTrace = composer?.traces?.find((t) => t.columnId === col) || { timeOffset: 0, yOffset: 0 };
+                const waterfallOffset = waterfallMode ? waterfallSpacing * idx : 0;
+                const adjusted = this.applyComposerShift(rawX, series.rawY, series.filteredY, composerTrace, waterfallOffset);
+
+                return {
+                    columnId: series.columnId,
+                    rawY: adjusted.rawY,
+                    filteredY: adjusted.filteredY,
+                    yOffset: adjusted.yOffset,
+                    appliedTimeOffset: adjusted.appliedTimeOffset
+                };
+            })
             .filter(Boolean);
 
         this.renderMultiView(rawX, seriesList, range);

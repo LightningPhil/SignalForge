@@ -3,6 +3,7 @@ import { MathEngine } from '../processing/math.js';
 import { elements } from './domElements.js';
 import { runPipelineAndRender } from './dataPipeline.js';
 import { renderPipelineList, updateParamEditor } from './pipelineUi.js';
+import { renderComposerPanel } from './composerUi.js';
 
 function showPipelinePanels() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
@@ -43,6 +44,7 @@ function renderTraceSelector(view) {
         chk.addEventListener('change', () => {
             const colId = chk.getAttribute('data-col');
             State.toggleColumnInMultiView(view.id, colId);
+            renderComposerPanel();
             runPipelineAndRender();
         });
     });
@@ -95,6 +97,7 @@ function renderColumnTabs() {
             tab.classList.add('active');
             State.ui.activeMultiViewId = null;
             State.data.dataColumn = tab.getAttribute('data-col');
+            State.syncComposerForView(null, [State.data.dataColumn].filter(Boolean));
 
             const pipeline = State.getPipeline();
             const selectionExists = pipeline.some((s) => s.id === State.ui.selectedStepId);
@@ -105,6 +108,7 @@ function renderColumnTabs() {
             showPipelinePanels();
             renderPipelineList();
             updateParamEditor();
+            renderComposerPanel();
             runPipelineAndRender();
         });
     });
@@ -122,6 +126,7 @@ function renderColumnTabs() {
                 runPipelineAndRender();
             }
             renderColumnTabs();
+            renderComposerPanel();
         });
 
         tab.addEventListener('click', () => {
@@ -131,7 +136,9 @@ function renderColumnTabs() {
             State.ui.activeMultiViewId = viewId;
             const view = State.multiViews.find((v) => v.id === viewId);
             if (view) {
+                State.syncComposerForView(viewId, view.activeColumnIds);
                 renderTraceSelector(view);
+                renderComposerPanel();
                 runPipelineAndRender();
             }
         });
@@ -148,9 +155,12 @@ function renderColumnTabs() {
             State.ui.activeMultiViewId = view.id;
             renderColumnTabs();
             renderTraceSelector(view);
+            renderComposerPanel();
             runPipelineAndRender();
         };
     }
+
+    renderComposerPanel();
 }
 
 export { renderColumnTabs };

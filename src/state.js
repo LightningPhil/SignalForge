@@ -13,8 +13,36 @@ export const State = {
         dataColumn: null
     },
 
+    estimateTimeStep(rawXOverride = null) {
+        const xValues = Array.isArray(rawXOverride)
+            ? rawXOverride
+            : (this.data.timeColumn && Array.isArray(this.data.raw)
+                ? this.data.raw.map((row) => parseFloat(row[this.data.timeColumn]))
+                : []);
+
+        if (!xValues || xValues.length < 2) return null;
+
+        const limit = Math.min(xValues.length - 1, 1000);
+        const deltas = [];
+        for (let i = 0; i < limit; i++) {
+            const diff = parseFloat(xValues[i + 1]) - parseFloat(xValues[i]);
+            if (Number.isFinite(diff) && diff !== 0) deltas.push(Math.abs(diff));
+        }
+
+        if (deltas.length === 0) return null;
+
+        deltas.sort((a, b) => a - b);
+        const mid = Math.floor(deltas.length / 2);
+        return deltas.length % 2 !== 0
+            ? deltas[mid]
+            : (deltas[mid - 1] + deltas[mid]) / 2;
+    },
+
     // Multi-View tabs
     multiViews: [],
+
+    // Composer views (per tab/multi-view)
+    composer: { views: {} },
 
     // Configuration
     config: JSON.parse(JSON.stringify(Config)),
@@ -37,6 +65,8 @@ export const State = {
 
         this.multiViews = [];
         this.ui.activeMultiViewId = null;
+
+        this.composer = { views: {} };
         
         // Reset Math definitions on new file load? 
         // Usually yes, as columns might change.
@@ -218,6 +248,7 @@ export const State = {
             activeColumnIds: [...new Set(activeColumnIds)]
         };
         this.multiViews.push(view);
+        this.syncComposerForView(view.id, view.activeColumnIds);
         return view;
     },
 
@@ -226,6 +257,7 @@ export const State = {
         if (this.ui.activeMultiViewId === id) {
             this.ui.activeMultiViewId = null;
         }
+        this.removeComposerView(id);
     },
 
     toggleColumnInMultiView(viewId, columnId) {
@@ -238,6 +270,73 @@ export const State = {
         } else {
             view.activeColumnIds.splice(idx, 1);
         }
+
+        this.syncComposerForView(viewId, view.activeColumnIds);
+    },
+
+    // --- Composer Management ---
+
+    getComposerKey(viewId = null) {
+        if (viewId) return `mv:${viewId}`;
+        const activeCol = this.data.dataColumn || 'default';
+        return `single:${activeCol}`;
+    },
+
+    getActiveComposerColumns() {
+        if (this.ui.activeMultiViewId) {
+            const view = this.multiViews.find((v) => v.id === this.ui.activeMultiViewId);
+            return view ? [...view.activeColumnIds] : [];
+        }
+        return this.data.dataColumn ? [this.data.dataColumn] : [];
+    },
+
+    syncComposerForView(viewId = null, columns = []) {
+        if (!Array.isArray(columns)) columns = [];
+        if (!this.composer || !this.composer.views) this.composer = { views: {} };
+
+        const key = this.getComposerKey(viewId);
+        if (!this.composer.views[key]) {
+            this.composer.views[key] = { traces: [], waterfallMode: false, waterfallSpacing: 0 };
+        }
+
+        const composer = this.composer.views[key];
+        const uniqueCols = [...new Set(columns)];
+        if (uniqueCols.length === 0 && composer.traces.length === 0) return composer;
+
+        composer.traces = uniqueCols.map((col) => {
+            const existing = composer.traces.find((t) => t.columnId === col);
+            return existing ? { ...existing } : { columnId: col, timeOffset: 0, yOffset: 0 };
+        });
+
+        return composer;
+    },
+
+    removeComposerView(viewId = null) {
+        if (!this.composer || !this.composer.views) return;
+        const key = this.getComposerKey(viewId);
+        delete this.composer.views[key];
+    },
+
+    updateComposerTrace(viewId, columnId, params = {}) {
+        if (!columnId) return;
+        const columns = viewId ? (this.multiViews.find((v) => v.id === viewId)?.activeColumnIds || []) : this.getActiveComposerColumns();
+        const composer = this.syncComposerForView(viewId, columns);
+        const trace = composer.traces.find((t) => t.columnId === columnId);
+        if (trace) Object.assign(trace, params);
+    },
+
+    setComposerWaterfall(viewId, enabled) {
+        const composer = this.syncComposerForView(viewId, this.getActiveComposerColumns());
+        composer.waterfallMode = !!enabled;
+    },
+
+    setComposerWaterfallSpacing(viewId, spacing) {
+        const composer = this.syncComposerForView(viewId, this.getActiveComposerColumns());
+        composer.waterfallSpacing = Number.isFinite(spacing) ? spacing : 0;
+    },
+
+    getComposer(viewId = null) {
+        return this.syncComposerForView(viewId, this.getActiveComposerColumns());
     },
 
     // --- Math Management ---
