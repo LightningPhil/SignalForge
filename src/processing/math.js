@@ -40,6 +40,97 @@ export const MathEngine = {
         return State.config.mathDefinitions.map((d) => d.name);
     },
 
+    validateDefinition(def, rawTime = [], visited = new Set()) {
+        const errors = [];
+
+        if (!mathLib || typeof mathLib.evaluate !== 'function') {
+            errors.push('math.js is not available in the current session.');
+            return { ok: false, errors };
+        }
+
+        if (!def) {
+            errors.push('Missing math definition.');
+            return { ok: false, errors };
+        }
+
+        const expression = (def.expression || '').trim();
+        if (!expression) {
+            errors.push('Enter an expression to compute.');
+        }
+
+        if (!Array.isArray(def.variables) || def.variables.length === 0) {
+            errors.push('Assign at least one variable.');
+        }
+
+        const scope = { ...this.customFunctions };
+        const variableData = {};
+        let minLen = Array.isArray(rawTime) && rawTime.length > 0 ? rawTime.length : Infinity;
+
+        const visitedWithCurrent = new Set(visited);
+        if (def.name) visitedWithCurrent.add(def.name);
+
+        (def.variables || []).forEach(({ columnId, symbol }) => {
+            const sym = (symbol || '').trim();
+            if (!sym) {
+                errors.push('Each mapped column needs a symbol (e.g., V or I).');
+                return;
+            }
+
+            if (!columnId) {
+                errors.push(`Select a column for symbol ${sym}.`);
+                return;
+            }
+
+            const data = this.getColumnData(columnId, rawTime, visitedWithCurrent);
+            if (!data || data.length === 0) {
+                errors.push(`No numeric samples found for column "${columnId}" mapped to ${sym}.`);
+                return;
+            }
+
+            variableData[sym] = data;
+            minLen = Math.min(minLen, data.length);
+        });
+
+        if (errors.length > 0) return { ok: false, errors };
+
+        if (!Number.isFinite(minLen) || minLen === Infinity || minLen <= 0) {
+            errors.push('No aligned samples available to evaluate the expression.');
+            return { ok: false, errors };
+        }
+
+        Object.entries(variableData).forEach(([symbol, data]) => {
+            scope[symbol] = data.slice(0, minLen);
+        });
+
+        if (Array.isArray(rawTime) && rawTime.length > 0) {
+            scope.t = rawTime.slice(0, minLen);
+            scope.dt = this.getDt(scope.t);
+        }
+
+        try {
+            mathLib.parse(expression);
+        } catch (err) {
+            errors.push(`Syntax error: ${err.message}`);
+            return { ok: false, errors };
+        }
+
+        let evaluated;
+        try {
+            evaluated = mathLib.evaluate(expression, scope);
+        } catch (err) {
+            errors.push(`Evaluation error: ${err.message}`);
+            return { ok: false, errors };
+        }
+
+        const normalized = this.normalizeResult(evaluated, minLen);
+        if (!normalized || normalized.length === 0) {
+            errors.push('The expression returned no values. Ensure it outputs a scalar or array.');
+            return { ok: false, errors };
+        }
+
+        return { ok: true, errors: [] };
+    },
+
     getColumnData(columnId, rawTime, visited = new Set()) {
         if (!columnId) return [];
         if (visited.has(columnId)) {

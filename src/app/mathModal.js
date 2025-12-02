@@ -63,6 +63,22 @@ function validateVariables(rows) {
     return variables;
 }
 
+function showValidationErrors(errors = []) {
+    const listItems = errors.map((err) => `<li>${err}</li>`).join('');
+    const html = `
+        <h3>Math Expression Errors</h3>
+        <p>Please address the following issues before creating the trace:</p>
+        <ul class="error-list">${listItems}</ul>
+        <div class="modal-actions">
+            <button class="primary" id="btn-close-validation" type="button">Close</button>
+        </div>
+    `;
+
+    const modal = createModal(html);
+    const overlay = modal.parentElement;
+    modal.querySelector('#btn-close-validation')?.addEventListener('click', () => overlay.remove());
+}
+
 function showMathModal() {
     const headers = State.data.headers || [];
     const timeCol = State.data.timeColumn;
@@ -122,6 +138,18 @@ function showMathModal() {
         const variables = validateVariables(rows);
         const expression = exprInput.value.trim();
         const name = nameInput.value.trim() || defaultName;
+
+        const rawTime = timeCol ? State.data.raw.map((r) => parseFloat(r[timeCol])) : [];
+        const validation = MathEngine.validateDefinition({
+            name,
+            expression,
+            variables
+        }, rawTime);
+
+        if (!validation.ok) {
+            showValidationErrors(validation.errors);
+            return;
+        }
 
         if (variables.length === 0) {
             alert('Assign at least one variable.');
