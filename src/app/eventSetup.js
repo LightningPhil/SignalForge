@@ -10,6 +10,7 @@ import { showMathModal } from './mathModal.js';
 import { showExportModal } from './exportModal.js';
 import { bindToolbarEvents } from './toolbar.js';
 import { MathEngine } from '../processing/math.js';
+import { bindComposerEvents } from './composerUi.js';
 
 function setupEventListeners() {
     const {
@@ -167,6 +168,7 @@ function setupEventListeners() {
     });
 
     bindToolbarEvents();
+    bindComposerEvents();
 }
 
 export { setupEventListeners };
