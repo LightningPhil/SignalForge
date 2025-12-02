@@ -3,7 +3,7 @@ import { elements } from './domElements.js';
 import { triggerGraphUpdateOnly } from './dataPipeline.js';
 
 function renderComposerPanel() {
-    const { composerPanel, composerList, chkWaterfall, inputWaterfallSpacing } = elements;
+    const { composerPanel, composerList } = elements;
     if (!composerPanel || !composerList) return;
 
     const activeColumns = State.getActiveComposerColumns();
@@ -17,9 +17,6 @@ function renderComposerPanel() {
     const composer = State.getComposer(activeViewId);
 
     composerPanel.style.display = 'block';
-
-    if (chkWaterfall) chkWaterfall.checked = !!composer.waterfallMode;
-    if (inputWaterfallSpacing) inputWaterfallSpacing.value = composer.waterfallSpacing ?? 0;
 
     composerList.innerHTML = '';
 
@@ -60,20 +57,6 @@ function renderComposerPanel() {
 }
 
 function bindComposerEvents() {
-    const { chkWaterfall, inputWaterfallSpacing } = elements;
-
-    chkWaterfall?.addEventListener('change', () => {
-        State.setComposerWaterfall(State.ui.activeMultiViewId || null, !!chkWaterfall.checked);
-        renderComposerPanel();
-        triggerGraphUpdateOnly();
-    });
-
-    inputWaterfallSpacing?.addEventListener('input', () => {
-        const spacing = parseFloat(inputWaterfallSpacing.value);
-        State.setComposerWaterfallSpacing(State.ui.activeMultiViewId || null, Number.isFinite(spacing) ? spacing : 0);
-        renderComposerPanel();
-        triggerGraphUpdateOnly();
-    });
 }
 
 export { renderComposerPanel, bindComposerEvents };
