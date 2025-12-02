@@ -173,7 +173,7 @@ export const HelpSystem = {
                         <ol>
                             <li><strong>Open the builder:</strong> Choose <em>Add New View → Math Trace Tab</em> to map symbols to columns and author an expression.</li>
                             <li><strong>Map variables:</strong> Assign symbols (e.g., <code>V</code>, <code>I</code>, <code>REF</code>) to any combination of raw or math traces so expressions stay readable.</li>
-                            <li><strong>Use built-ins:</strong> Available helpers include <code>diff(x)</code> for discrete derivatives, <code>cumsum(x)</code> for running totals, and <code>mean(...)</code> for averaging arrays or scalars.</li>
+                            <li><strong>Use built-ins:</strong> Available helpers include <code>diff(x)</code> for discrete derivatives, <code>cumsum(x)</code> for running totals, and <code>mean(...)</code> for averaging arrays or scalars. Common math.js functions work too: square a trace with <code>pow(V, 2)</code> or <code>V .* V</code>, take square roots with <code>sqrt(V)</code>, and keep magnitudes with <code>abs(V)</code>.</li>
                             <li><strong>Time aliases:</strong> Reference <code>t</code> for the aligned time vector and <code>dt</code> for sample spacing, ideal for slope estimates or integrals.</li>
                         </ol>
                         <h4>Examples</h4>
