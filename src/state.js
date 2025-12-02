@@ -19,6 +19,9 @@ export const State = {
     // Composer views (per tab/multi-view)
     composer: { views: {} },
 
+    // Trace-level configuration shared across tabs/views
+    traceConfigs: {},
+
     // Configuration
     config: JSON.parse(JSON.stringify(Config)),
 
@@ -42,6 +45,7 @@ export const State = {
         this.ui.activeMultiViewId = null;
 
         this.composer = { views: {} };
+        this.traceConfigs = {};
         
         // Reset Math definitions on new file load? 
         // Usually yes, as columns might change.
@@ -104,6 +108,26 @@ export const State = {
 
     getPipeline() {
         return this.getPipelineForColumn(this.getActiveColumnId());
+    },
+
+    getTraceConfig(columnId = null) {
+        if (!columnId) columnId = this.getActiveColumnId();
+        if (!columnId) return { xOffset: 0 };
+
+        if (!this.traceConfigs) this.traceConfigs = {};
+        if (!this.traceConfigs[columnId]) {
+            this.traceConfigs[columnId] = { xOffset: 0 };
+        }
+
+        return this.traceConfigs[columnId];
+    },
+
+    updateTraceConfig(columnId, params = {}) {
+        if (!columnId) columnId = this.getActiveColumnId();
+        if (!columnId) return;
+
+        const cfg = this.getTraceConfig(columnId);
+        Object.assign(cfg, params);
     },
 
     setPipelineForColumn(columnId, pipeline) {
@@ -280,7 +304,8 @@ export const State = {
 
         composer.traces = uniqueCols.map((col) => {
             const existing = composer.traces.find((t) => t.columnId === col);
-            return existing ? { ...existing } : { columnId: col, timeOffset: 0, yOffset: 0 };
+            this.getTraceConfig(col);
+            return existing ? { ...existing } : { columnId: col };
         });
 
         return composer;
@@ -297,7 +322,11 @@ export const State = {
         const columns = viewId ? (this.multiViews.find((v) => v.id === viewId)?.activeColumnIds || []) : this.getActiveComposerColumns();
         const composer = this.syncComposerForView(viewId, columns);
         const trace = composer.traces.find((t) => t.columnId === columnId);
-        if (trace) Object.assign(trace, params);
+        if (trace && Object.prototype.hasOwnProperty.call(params, 'xOffset')) {
+            this.updateTraceConfig(columnId, { xOffset: params.xOffset });
+        } else if (trace) {
+            Object.assign(trace, params);
+        }
     },
 
     setComposerWaterfall(viewId, enabled) {

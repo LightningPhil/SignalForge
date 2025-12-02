@@ -59,13 +59,13 @@ export const Exporter = {
             let alignedFiltered = filtered;
 
             if (activeView && activeView.activeColumnIds.includes(col)) {
-                const trace = activeComposer?.traces?.find((t) => t.columnId === col) || { timeOffset: 0, yOffset: 0 };
-                const aligned = applyComposerOffsets(rawTime, rawCol, filtered, trace);
+                const trace = activeComposer?.traces?.find((t) => t.columnId === col) || { columnId: col };
+                const aligned = applyComposerOffsets(rawCol, filtered, { columnId: col, yOffset: trace.yOffset || 0 });
                 alignedRaw = aligned.adjustedRawY;
                 alignedFiltered = aligned.adjustedFilteredY;
             } else if (!activeViewId && State.data.dataColumn === col) {
                 const trace = getComposerTrace(null, col);
-                const aligned = applyComposerOffsets(rawTime, rawCol, filtered, trace);
+                const aligned = applyComposerOffsets(rawCol, filtered, trace);
                 alignedRaw = aligned.adjustedRawY;
                 alignedFiltered = aligned.adjustedFilteredY;
             }
