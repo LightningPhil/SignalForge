@@ -201,35 +201,32 @@ export const Graph = {
             this.lastRanges = { x: xRange ? [...xRange] : null, y: yRange ? [...yRange] : null };
         }
 
-        let displayX = rawX;
-        let sliceStart = 0;
-        let sliceEnd = rawX.length;
-        if (xRange) {
-            const startIndex = rawX.findIndex(val => val >= xRange[0]);
-            let endIndex = rawX.findIndex(val => val > xRange[1]);
-
-            if (startIndex !== -1) {
-                if (endIndex === -1) endIndex = rawX.length;
-                const buffer = 5;
-                sliceStart = Math.max(0, startIndex - buffer);
-                sliceEnd = Math.min(rawX.length, endIndex + buffer);
-                displayX = rawX.slice(sliceStart, sliceEnd);
-            }
-        }
-
         const traces = [];
         let isDownsampled = false;
 
         seriesList.forEach((series) => {
             if (!series || !series.rawY || series.rawY.length === 0) return;
             const name = series.columnId || 'Series';
-            let seriesX = displayX;
+            const timeOffset = series.timeOffset || 0;
+            const yOffset = series.yOffset || 0;
+            let seriesX = rawX;
             let seriesY = series.rawY;
             let seriesF = series.filteredY || [];
 
-            if (sliceStart !== 0 || sliceEnd !== rawX.length) {
-                seriesY = seriesY.slice(sliceStart, sliceEnd);
-                if (seriesF.length > 0) seriesF = seriesF.slice(sliceStart, sliceEnd);
+            if (xRange) {
+                const rangeForSeries = xRange.map((val) => val - timeOffset);
+                const startIndex = rawX.findIndex((val) => val >= rangeForSeries[0]);
+                let endIndex = rawX.findIndex((val) => val > rangeForSeries[1]);
+
+                if (startIndex !== -1) {
+                    if (endIndex === -1) endIndex = rawX.length;
+                    const buffer = 5;
+                    const sliceStart = Math.max(0, startIndex - buffer);
+                    const sliceEnd = Math.min(rawX.length, endIndex + buffer);
+                    seriesX = rawX.slice(sliceStart, sliceEnd);
+                    seriesY = seriesY.slice(sliceStart, sliceEnd);
+                    if (seriesF.length > 0) seriesF = seriesF.slice(sliceStart, sliceEnd);
+                }
             }
 
             if (allowDownsample && seriesX.length > config.maxDisplayPoints) {
@@ -247,32 +244,36 @@ export const Graph = {
                 }
             }
 
+            const adjustedX = seriesX.map((x) => x + timeOffset);
+            const adjustedY = seriesY.map((y) => y + yOffset);
+            const adjustedF = seriesF.map((y) => y + yOffset);
+
             if (showRaw) {
                 traces.push({
-                    x: seriesX, y: seriesY, mode: 'lines', name: `${name} (Raw)`,
+                    x: adjustedX, y: adjustedY, mode: 'lines', name: `${name} (Raw)`,
                     line: { width: 1 }, xaxis: 'x', yaxis: 'y'
                 });
             }
 
             if (seriesF && seriesF.length > 0) {
                 traces.push({
-                    x: seriesX, y: seriesF, mode: 'lines', name: `${name} (Filtered)`,
+                    x: adjustedX, y: adjustedF, mode: 'lines', name: `${name} (Filtered)`,
                     line: { width: 2 }, xaxis: 'x', yaxis: 'y'
                 });
             }
 
             if (showDiff) {
                 if (showRaw) {
-                    const dRaw = this.calculateDerivative(seriesX, seriesY);
+                    const dRaw = this.calculateDerivative(adjustedX, adjustedY);
                     traces.push({
-                        x: seriesX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
+                        x: adjustedX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
                         line: { width: 1 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
                 if (seriesF && seriesF.length > 0) {
-                    const dF = this.calculateDerivative(seriesX, seriesF);
+                    const dF = this.calculateDerivative(adjustedX, adjustedF);
                     traces.push({
-                        x: seriesX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
+                        x: adjustedX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
                         line: { width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
@@ -518,6 +519,12 @@ export const Graph = {
         const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
 
+        const composer = State.getComposer(State.ui.activeMultiViewId || null);
+        const activeCol = State.data.dataColumn;
+        const composerTrace = composer?.traces?.find((t) => t.columnId === activeCol) || { timeOffset: 0, yOffset: 0 };
+        const timeOffset = composerTrace.timeOffset || 0;
+        const yOffset = composerTrace.yOffset || 0;
+
         const showDiff = config.showDifferential;
         const showRaw = (config.showRaw !== false);
         const allowDownsample = config.enableDownsampling;
@@ -529,6 +536,8 @@ export const Graph = {
         let displayY = rawY;
         let displayF = filteredY || [];
 
+        const normalizedRange = xRange ? xRange.map((val) => val - timeOffset) : null;
+
         if (range === null) {
             this.lastRanges = { x: null, y: null };
         } else {
@@ -538,9 +547,9 @@ export const Graph = {
         // Slicing
         let sliceStart = 0;
         let sliceEnd = rawX.length;
-        if (xRange) {
-            const startIndex = rawX.findIndex(val => val >= xRange[0]);
-            let endIndex = rawX.findIndex(val => val > xRange[1]);
+        if (normalizedRange) {
+            const startIndex = rawX.findIndex(val => val >= normalizedRange[0]);
+            let endIndex = rawX.findIndex(val => val > normalizedRange[1]);
 
             if (startIndex !== -1) {
                 if (endIndex === -1) endIndex = rawX.length;
@@ -579,32 +588,36 @@ export const Graph = {
         const diffRawColor = colors.diffRaw || colors.raw;
         const diffFiltColor = colors.diffFilt || colors.filtered;
 
+        const adjustedX = displayX.map((x) => x + timeOffset);
+        const adjustedY = displayY.map((y) => y + yOffset);
+        const adjustedF = displayF.map((y) => y + yOffset);
+
         if (showRaw) {
             traces.push({
-                x: displayX, y: displayY, mode: 'lines', name: 'Raw Data',
+                x: adjustedX, y: adjustedY, mode: 'lines', name: 'Raw Data',
                 line: { color: rawColor, width: 1 }, xaxis: 'x', yaxis: 'y'
             });
         }
 
         if (filteredY && displayF.length > 0) {
             traces.push({
-                x: displayX, y: displayF, mode: 'lines', name: 'Filtered',
+                x: adjustedX, y: adjustedF, mode: 'lines', name: 'Filtered',
                 line: { color: filtColor, width: 2 }, xaxis: 'x', yaxis: 'y'
             });
         }
 
         if (showDiff) {
             if (showRaw) {
-                const dRaw = this.calculateDerivative(displayX, displayY);
+                const dRaw = this.calculateDerivative(adjustedX, adjustedY);
                 traces.push({
-                    x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
+                    x: adjustedX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
                     line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
             if (filteredY && displayF.length > 0) {
-                const dF = this.calculateDerivative(displayX, displayF);
+                const dF = this.calculateDerivative(adjustedX, adjustedF);
                 traces.push({
-                    x: displayX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
+                    x: adjustedX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
                     line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                 });
             }
@@ -762,8 +775,24 @@ export const Graph = {
         if (!xCol) return;
 
         const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
+        const composer = State.getComposer(activeId);
+        const waterfallMode = composer?.waterfallMode;
+        const waterfallSpacing = composer?.waterfallSpacing || 0;
+
         const seriesList = view.activeColumnIds
-            .map((col) => this.getSeriesForColumn(col, rawX))
+            .map((col, idx) => {
+                const series = this.getSeriesForColumn(col, rawX);
+                if (!series) return null;
+
+                const composerTrace = composer?.traces?.find((t) => t.columnId === col) || { timeOffset: 0, yOffset: 0 };
+                const waterfallOffset = waterfallMode ? waterfallSpacing * idx : 0;
+
+                return {
+                    ...series,
+                    timeOffset: composerTrace.timeOffset || 0,
+                    yOffset: (composerTrace.yOffset || 0) + waterfallOffset
+                };
+            })
             .filter(Boolean);
 
         this.renderMultiView(rawX, seriesList, range);

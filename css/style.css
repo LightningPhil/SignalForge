@@ -214,6 +214,60 @@ input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; }
 
+/* --- Composer Panel --- */
+.composer-options {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.composer-spacing {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 140px;
+}
+
+.composer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.composer-row {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.composer-label {
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 6px;
+}
+
+.composer-controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.composer-control {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.9em;
+    color: var(--text-muted);
+}
+
+.composer-control input {
+    width: 140px;
+}
+
 button.primary {
     width: 100%; margin-top: 20px; background-color: var(--accent); color: white; border: none; padding: 10px; font-weight: bold;
     cursor: pointer; border-radius: 6px;

@@ -67,5 +67,10 @@ export const elements = {
     btnAddMultiView: document.getElementById('btn-add-multiview'),
     chkSyncTabs: document.getElementById('chk-sync-tabs'),
     traceSelectorPanel: document.getElementById('trace-selector-panel'),
-    traceSelectorList: document.getElementById('trace-selector-list')
+    traceSelectorList: document.getElementById('trace-selector-list'),
+
+    composerPanel: document.getElementById('composer-panel'),
+    composerList: document.getElementById('composer-list'),
+    chkWaterfall: document.getElementById('composer-waterfall'),
+    inputWaterfallSpacing: document.getElementById('composer-waterfall-spacing')
 };
