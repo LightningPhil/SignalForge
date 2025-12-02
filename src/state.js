@@ -342,6 +342,27 @@ export const State = {
         this.config.mathDefinitions.push(def);
     },
 
+    removeMathDefinition(name) {
+        if (!this.config.mathDefinitions) this.config.mathDefinitions = [];
+        this.config.mathDefinitions = this.config.mathDefinitions.filter((d) => d.name !== name);
+
+        if (this.config.columnPipelines && this.config.columnPipelines[name]) {
+            delete this.config.columnPipelines[name];
+        }
+
+        if (this.traceConfigs && this.traceConfigs[name]) {
+            delete this.traceConfigs[name];
+        }
+
+        if (this.composer?.views && this.composer.views[name]) {
+            delete this.composer.views[name];
+        }
+
+        if (this.data.dataColumn === name) {
+            this.data.dataColumn = null;
+        }
+    },
+
     getMathDefinition(name) {
         if(!this.config.mathDefinitions) return null;
         return this.config.mathDefinitions.find(d => d.name === name);

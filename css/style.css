@@ -268,11 +268,33 @@ button.primary:hover { background-color: var(--accent-hover); }
     box-shadow: var(--tabs-shadow);
 }
 
-.tab {
+.tab { 
     padding: 0 15px; display: flex; align-items: center; cursor: pointer; border-right: 1px solid var(--border-color); font-size: 0.9rem; color: var(--text-muted); transition: background 0.2s, color 0.2s; user-select: none;
 }
 .tab:hover { background-color: var(--button-hover); color: var(--text-main); }
 .tab.active { background-color: var(--tab-active-bg); color: var(--text-main); font-weight: bold; border-bottom: 2px solid var(--accent); }
+
+.tab .tab-close {
+    margin-left: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-panel);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.tab .tab-close:hover {
+    background: var(--button-hover);
+    color: var(--text-main);
+    border-color: var(--accent);
+}
 
 /* Virtual Tabs (Math Traces) */
 .tab.virtual {

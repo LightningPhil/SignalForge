@@ -3,6 +3,7 @@ import { State } from '../state.js';
 import { MathEngine } from '../processing/math.js';
 import { renderColumnTabs } from './tabs.js';
 import { runPipelineAndRender } from './dataPipeline.js';
+import { HelpSystem } from '../ui/helpSystem.js';
 
 const SUGGESTED_SYMBOLS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
@@ -79,6 +80,7 @@ function showMathModal() {
     const html = `
         <h3>Create Advanced Math Trace</h3>
         <p class="hint">Map variables to traces, then enter a math.js expression. Helpers: <code>diff(x)</code>, <code>cumsum(x)</code>, <code>mean(...)</code>. Time arrays are available as <code>t</code> and timestep as <code>dt</code>.</p>
+        <div class="inline-help-row"><button class="inline-help-button" id="btn-open-math-help" type="button">Open math help</button></div>
         <div class="math-grid" id="math-var-grid"></div>
         <button class="secondary" id="btn-add-var">Add Variable</button>
         <label for="math-expression" class="math-label">Expression</label>
@@ -99,6 +101,7 @@ function showMathModal() {
     const nameInput = modal.querySelector('#math-name');
     const cancelBtn = modal.querySelector('#btn-cancel-math');
     const createBtn = modal.querySelector('#btn-create-math');
+    const helpBtn = modal.querySelector('#btn-open-math-help');
 
     const addRow = (symbol = '', column = '') => {
         const row = buildVariableRow(availableColumns, symbol, column || availableColumns[0]);
@@ -113,6 +116,7 @@ function showMathModal() {
 
     addBtn.addEventListener('click', () => addRow());
     cancelBtn.addEventListener('click', () => overlay.remove());
+    helpBtn?.addEventListener('click', () => HelpSystem.show('math-trace-tabs'));
     createBtn.addEventListener('click', () => {
         const rows = Array.from(grid.querySelectorAll('.math-row'));
         const variables = validateVariables(rows);
