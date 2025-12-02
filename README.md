@@ -85,12 +85,11 @@ These convert the signal to the frequency domain, apply a mask, and convert back
 *   **Notch:** Removes a specific frequency band (defined by Center Freq and Bandwidth). Ideal for removing 50Hz/60Hz mains hum.
 
 ### 3. Using the Math Engine
-1.  Click **"Configure Math..."** in the sidebar.
-2.  **Name:** Give your new trace a name (e.g., "Power").
-3.  **Operation:** Select columns (e.g., `Col A * Col B`).
-4.  **Offset:** If `Col B` lags behind `Col A` (e.g., current probe delay), enter a positive sample offset to align them.
-5.  **Post-Process:** Optionally differentiate or integrate the result immediately.
-6.  Click **Create Trace**. A new Blue Tab will appear above the graph.
+1.  Click the **➕** button next to the column tabs and choose **Math Trace**.
+2.  **Assign variables:** Map each source trace to a short symbol (e.g., `V`, `I`, `D+`).
+3.  **Expression:** Enter any [math.js](https://mathjs.org/docs/expressions/parsing.html) expression. Helpers include `diff(x)`, `cumsum(x)`, `mean(...)`, and the time aliases `t` and `dt`.
+4.  **Name:** Give the output trace a label.
+5.  Click **Create Trace**. The virtual trace appears as a new tab that can be filtered and combined with other signals.
 
 ### 4. Exporting
 *   **CSV:** Downloads the processed data.

@@ -8,6 +8,7 @@
     <!-- Libraries -->
     <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.3.0/math.min.js"></script>
     
     <!-- Styles -->
     <link rel="stylesheet" href="css/style.css">
@@ -196,11 +197,6 @@
                     </div>
                 </div>
 
-                <div class="panel">
-                    <h3>Math & Offset</h3>
-                    <button id="btn-math-settings">Configure Math...</button>
-                </div>
-
                 <div class="panel" id="composer-panel" style="display:none;">
                     <h3>Jitter Correction</h3>
                     <div id="composer-list" class="composer-list"></div>
@@ -212,7 +208,7 @@
                     <div id="column-tabs" class="tabs-container">
                         <div class="tab-placeholder">Load data to see columns</div>
                     </div>
-                    <button id="btn-add-multiview" class="tab add-tab" title="Add Multi-View" aria-label="Add Multi-View">➕</button>
+                    <button id="btn-add-multiview" class="tab add-tab" title="Add Multi-View or Math Trace" aria-label="Add Multi-View or Math Trace">➕</button>
                 </div>
 
                 <div class="graph-toolbar">

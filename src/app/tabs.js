@@ -4,6 +4,8 @@ import { elements } from './domElements.js';
 import { runPipelineAndRender } from './dataPipeline.js';
 import { renderPipelineList, updateParamEditor } from './pipelineUi.js';
 import { renderComposerPanel } from './composerUi.js';
+import { showMathModal } from './mathModal.js';
+import { createModal } from '../ui/uiHelpers.js';
 
 function showPipelinePanels() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
@@ -147,16 +149,39 @@ function renderColumnTabs() {
     if (btnAddMultiView) {
         btnAddMultiView.onclick = () => {
             if (yCols.length === 0 && virtualCols.length === 0) {
-                alert('Load a dataset before creating a multi-view tab.');
+                alert('Load a dataset before adding a new tab.');
                 return;
             }
-            const defaultCol = activeCol || yCols[0] || virtualCols[0];
-            const view = State.addMultiView(null, defaultCol ? [defaultCol] : []);
-            State.ui.activeMultiViewId = view.id;
-            renderColumnTabs();
-            renderTraceSelector(view);
-            renderComposerPanel();
-            runPipelineAndRender();
+
+            const html = `
+                <h3>Add New View</h3>
+                <p class="hint">Choose whether to stack multiple traces or build a math-derived trace.</p>
+                <div class="add-tab-actions">
+                    <button class="primary" id="btn-create-multiview">Multi-View Tab</button>
+                    <button class="secondary" id="btn-create-math">Math Trace</button>
+                </div>
+            `;
+
+            const modal = createModal(html);
+            const overlay = modal.parentElement;
+
+            const closeModal = () => overlay.remove();
+
+            modal.querySelector('#btn-create-multiview')?.addEventListener('click', () => {
+                const defaultCol = activeCol || yCols[0] || virtualCols[0];
+                const view = State.addMultiView(null, defaultCol ? [defaultCol] : []);
+                State.ui.activeMultiViewId = view.id;
+                renderColumnTabs();
+                renderTraceSelector(view);
+                renderComposerPanel();
+                runPipelineAndRender();
+                closeModal();
+            });
+
+            modal.querySelector('#btn-create-math')?.addEventListener('click', () => {
+                closeModal();
+                showMathModal();
+            });
         };
     }
 

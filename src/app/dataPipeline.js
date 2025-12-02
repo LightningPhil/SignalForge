@@ -19,13 +19,16 @@ function getRawSeries(columnId = null) {
     if (!yCol || !xCol) return { rawX: [], rawY: [] };
 
     const mathDef = State.getMathDefinition(yCol);
-    const rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
+    let rawX = State.data.raw.map((r) => parseFloat(r[xCol]));
     let rawY = [];
 
     if (mathDef) {
-        rawY = MathEngine.calculateVirtualColumn(mathDef, rawX);
+        const mathResult = MathEngine.calculateVirtualColumn(mathDef, rawX);
+        rawY = mathResult.values;
+        rawX = mathResult.time.length ? mathResult.time : rawX.slice(0, rawY.length);
     } else {
         rawY = State.data.raw.map((r) => parseFloat(r[yCol]));
+        rawX = rawX.slice(0, rawY.length);
     }
 
     return { rawX, rawY };
