@@ -117,6 +117,7 @@ function renderPipelineList() {
             return hz.toFixed(0);
         };
 
+        if (step.type === 'nullFilter') desc = 'Pass-through (Raw)';
         if (step.type === 'movingAverage') desc = `Mov. Avg (Win: ${step.windowSize})`;
         if (step.type === 'savitzkyGolay') desc = `Sav-Gol (Win: ${step.windowSize}, x${step.iterations || 1})`;
         if (step.type === 'median') desc = `Median (Win: ${step.windowSize})`;
@@ -170,7 +171,8 @@ function updateParamEditor() {
         startStopNorm: 'Start/Stop Normalisation',
         lowPassFFT: 'FFT Low Pass',
         highPassFFT: 'FFT High Pass',
-        notchFFT: 'FFT Notch'
+        notchFFT: 'FFT Notch',
+        nullFilter: 'Null Filter (Pass-through)'
     };
     if (filterTypeDisplay) filterTypeDisplay.textContent = niceNames[step.type];
 
@@ -178,6 +180,14 @@ function updateParamEditor() {
     const isTime = ['movingAverage', 'savitzkyGolay', 'median', 'gaussian'].includes(type);
     const isFreq = ['lowPassFFT', 'highPassFFT'].includes(type);
     const isNotch = type === 'notchFFT';
+
+    if (type === 'nullFilter') {
+        [grpWindow, grpPoly, grpIters, grpAlpha, grpSigma, grpDecay, grpFreq, grpSlope, grpQ, grpBW]
+            .forEach(group => { if (group) group.style.display = 'none'; });
+        paramPanel.style.opacity = '0.3';
+        paramPanel.style.pointerEvents = 'none';
+        return;
+    }
 
     if (grpWindow) grpWindow.style.display = isTime ? 'block' : 'none';
     if (grpPoly) grpPoly.style.display = type === 'savitzkyGolay' ? 'block' : 'none';

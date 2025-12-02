@@ -45,6 +45,29 @@ export const State = {
 
     // --- Pipeline Management ---
 
+    createNullFilterStep() {
+        return { id: 'null-filter', type: 'nullFilter', enabled: true };
+    },
+
+    normalizePipeline(pipeline) {
+        const steps = Array.isArray(pipeline) ? pipeline : [];
+        if (steps.length === 0) return [this.createNullFilterStep()];
+        return steps;
+    },
+
+    ensurePipelineStored(columnId, pipelineRef) {
+        const normalized = this.normalizePipeline(pipelineRef);
+        if (normalized !== pipelineRef) {
+            if (this.isGlobalScope() || !columnId) {
+                this.config.pipeline = normalized;
+            } else {
+                if (!this.config.columnPipelines) this.config.columnPipelines = {};
+                this.config.columnPipelines[columnId] = normalized;
+            }
+        }
+        return normalized;
+    },
+
     isGlobalScope() {
         return this.config.pipelineScope !== false;
     },
@@ -59,19 +82,19 @@ export const State = {
 
     getPipelineForColumn(columnId) {
         if (this.isGlobalScope()) {
-            return this.config.pipeline;
+            return this.ensurePipelineStored(null, this.config.pipeline);
         }
 
         if (!this.config.columnPipelines) this.config.columnPipelines = {};
 
         if (!columnId) columnId = this.getActiveColumnId();
-        if (!columnId) return this.config.pipeline;
+        if (!columnId) return this.ensurePipelineStored(null, this.config.pipeline);
 
         if (!this.config.columnPipelines[columnId]) {
             this.config.columnPipelines[columnId] = this.clonePipeline(this.config.pipeline);
         }
 
-        return this.config.columnPipelines[columnId];
+        return this.ensurePipelineStored(columnId, this.config.columnPipelines[columnId]);
     },
 
     getPipeline() {
@@ -79,7 +102,8 @@ export const State = {
     },
 
     setPipelineForColumn(columnId, pipeline) {
-        const cloned = this.clonePipeline(pipeline);
+        const normalized = this.normalizePipeline(pipeline);
+        const cloned = this.clonePipeline(normalized);
 
         if (this.isGlobalScope()) {
             this.config.pipeline = cloned;
@@ -134,6 +158,11 @@ export const State = {
 
     addStep(type) {
         const pipeline = this.getPipeline();
+
+        if (pipeline.length === 1 && pipeline[0].type === 'nullFilter') {
+            pipeline.pop();
+        }
+
         const newStep = {
             id: 'step-' + Date.now(),
             type: type,
