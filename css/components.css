@@ -191,6 +191,26 @@
     margin-top: 14px;
 }
 
+.inline-help-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: -6px 0 6px;
+}
+
+.inline-help-button {
+    background: none;
+    border: none;
+    color: var(--math-accent);
+    cursor: pointer;
+    font-weight: 700;
+    text-decoration: underline;
+    padding: 4px 0;
+}
+
+.inline-help-button:hover {
+    color: var(--accent);
+}
+
 .add-tab-actions {
     display: flex;
     gap: 10px;
@@ -199,6 +219,19 @@
 
 .add-tab-actions button {
     flex: 1;
+}
+
+.math-tab-btn {
+    background: linear-gradient(135deg, var(--math-accent), #35d6e4);
+    color: #0b1b2b;
+    border-color: transparent;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.math-tab-btn:hover {
+    background: linear-gradient(135deg, #2ec3d4, #6fe8f4);
+    color: #061019;
 }
 
 .icon-button {

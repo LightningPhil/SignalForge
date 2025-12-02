@@ -5,7 +5,7 @@ import { createModal } from './uiHelpers.js';
  */
 export const HelpSystem = {
     
-    show() {
+    show(targetSection = null) {
         const html = `
             <div class="help-container">
                 <div class="help-sidebar">
@@ -30,8 +30,11 @@ export const HelpSystem = {
                                 <div class="tree-item" data-target="loading-data">Loading Data</div>
                                 <div class="tree-item" data-target="workspace-layout">Workspace Layout</div>
                                 <div class="tree-item" data-target="plot-controls">Plot Controls</div>
+                                <div class="tree-item" data-target="cursor-functions">Cursor Functions & Measurements</div>
                                 <div class="tree-item" data-target="pipeline">Filter Pipeline Management</div>
                                 <div class="tree-item" data-target="live-toolbar">Live Toolbar & Views</div>
+                                <div class="tree-item" data-target="multi-view-tabs">Multi-View Tabs</div>
+                                <div class="tree-item" data-target="math-trace-tabs">Math Trace Tabs</div>
                             </div>
                         </div>
 
@@ -119,6 +122,18 @@ export const HelpSystem = {
                         </ul>
                     </div>
 
+                    <div id="content-cursor-functions" class="help-section">
+                        <h3>Cursor Functions & Measurements</h3>
+                        <p>Use oscilloscope-style cursors to take quick measurements directly on the plotted data without exporting.</p>
+                        <ul>
+                            <li><strong>Add & manage cursors:</strong> Drop X or Y cursors from the live toolbar, drag them along the trace, and delete inactive cursors to keep the view clean.</li>
+                            <li><strong>Snap-to-trace:</strong> Enable snapping so cursor positions lock to the nearest sample instead of free pixels, ensuring reproducible ΔX/ΔY readouts.</li>
+                            <li><strong>Measurements:</strong> Two X cursors report period/frequency and elapsed time. Two Y cursors report amplitude difference and can mark baseline vs. peak. Mixed X/Y cursors provide slope estimates for rise/fall analysis.</li>
+                            <li><strong>Annotations:</strong> Cursor labels ride on the axes so you always see exact coordinates after zooming or panning.</li>
+                        </ul>
+                        <p class="hint">Tips: use zoom to isolate the feature of interest before placing cursors, and keep snapping on when aligning to noisy waveforms.</p>
+                    </div>
+
                     <div id="content-pipeline" class="help-section">
                         <h3>Filter Pipeline Management</h3>
                         <p>Filters execute from top to bottom. Each step receives the output of the previous one, enabling reproducible, publication-ready transformations.</p>
@@ -139,6 +154,36 @@ export const HelpSystem = {
                             <li><strong>Frequency domain:</strong> Switch to FFT view to inspect harmonics, noise floors, and the effect of spectral filters.</li>
                             <li><strong>Math engine:</strong> Compute expressions across columns (e.g., <code>V*I</code> for power or <code>V/I</code> for impedance) and feed the results into the pipeline.</li>
                         </ul>
+                    </div>
+
+                    <div id="content-multi-view-tabs" class="help-section">
+                        <h3>Multi-View Tabs</h3>
+                        <p>Create stacked composite views when you need to compare multiple traces side by side.</p>
+                        <ul>
+                            <li><strong>Creating:</strong> Click <em>Add New View</em> then choose <em>Multi-View Tab</em>. The new tab inherits the active column so you can start with a meaningful trace.</li>
+                            <li><strong>Selecting traces:</strong> Inside the Multi-View tab, use the column checklist to toggle which raw or math traces render together.</li>
+                            <li><strong>Managing:</strong> Each tab shows a small boxed <strong>×</strong> icon. Click it to remove the Multi-View entirely without touching your filters or data.</li>
+                            <li><strong>Why use it:</strong> Perfect for overlaying filtered vs. raw data, comparing channels with shared timing, or keeping reference and experiment traces visible together.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-math-trace-tabs" class="help-section">
+                        <h3>Math Trace Tabs</h3>
+                        <p>Math Trace tabs generate new series using the built-in math engine and place them alongside recorded columns.</p>
+                        <ol>
+                            <li><strong>Open the builder:</strong> Choose <em>Add New View → Math Trace Tab</em> to map symbols to columns and author an expression.</li>
+                            <li><strong>Map variables:</strong> Assign symbols (e.g., <code>V</code>, <code>I</code>, <code>REF</code>) to any combination of raw or math traces so expressions stay readable.</li>
+                            <li><strong>Use built-ins:</strong> Available helpers include <code>diff(x)</code> for discrete derivatives, <code>cumsum(x)</code> for running totals, and <code>mean(...)</code> for averaging arrays or scalars.</li>
+                            <li><strong>Time aliases:</strong> Reference <code>t</code> for the aligned time vector and <code>dt</code> for sample spacing, ideal for slope estimates or integrals.</li>
+                        </ol>
+                        <h4>Examples</h4>
+                        <ul>
+                            <li><code>diff(V)</code> — instantaneous slope of voltage over time.</li>
+                            <li><code>cumsum(I) * dt</code> — numeric integration of current to estimate charge.</li>
+                            <li><code>mean(V1, V2, V3)</code> — quick ensemble average across three probes.</li>
+                            <li><code>(V - REF) / 10</code> — simple offset and scaling for calibration traces.</li>
+                        </ul>
+                        <p class="hint">Math traces appear as tabs with their own boxed <strong>×</strong> icon. Click the box to delete the virtual column without affecting the original data. See the <a href="https://mathjs.org/docs/index.html" target="_blank" rel="noopener">math.js documentation</a> for additional functions and syntax.</p>
                     </div>
 
                     <div id="content-filter-overview" class="help-section">
@@ -314,6 +359,26 @@ SOFTWARE.
                 parent.classList.toggle('expanded');
             });
         });
+
+        const setActiveSection = (targetName) => {
+            if (!targetName) return;
+            const targetItem = Array.from(treeItems).find((i) => i.getAttribute('data-target') === targetName);
+            const targetContent = modalContent.querySelector(`#content-${targetName}`);
+            if (!targetItem || !targetContent) return;
+
+            treeItems.forEach((i) => i.classList.remove('active'));
+            sections.forEach((s) => s.classList.remove('active'));
+
+            targetItem.classList.add('active');
+            targetContent.classList.add('active');
+
+            const parent = targetItem.closest('.tree-node');
+            if (parent) parent.classList.add('expanded');
+        };
+
+        if (targetSection) {
+            setActiveSection(targetSection);
+        }
         
         // Adjust modal styling for this specific one
         modalContent.style.width = '800px';

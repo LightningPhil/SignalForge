@@ -77,7 +77,7 @@ function renderColumnTabs() {
         virtualCols.forEach((col) => {
             const isActive = (!activeMulti && col === activeCol) ? 'active' : '';
             const safeCol = col.replace(/"/g, '&quot;');
-            html += `<div class="tab virtual ${isActive}" data-col="${safeCol}">${safeCol}</div>`;
+            html += `<div class="tab virtual ${isActive}" data-col="${safeCol}">${safeCol}<span class="tab-close" data-remove-math="${safeCol}" aria-label="Remove math trace">×</span></div>`;
         });
     }
 
@@ -86,7 +86,7 @@ function renderColumnTabs() {
         State.multiViews.forEach((view) => {
             const isActive = view.id === activeMulti ? 'active' : '';
             const safeName = view.name.replace(/"/g, '&quot;');
-            html += `<div class="tab multi ${isActive}" data-view="${view.id}">${safeName} <span class="tab-close" data-remove="${view.id}">×</span></div>`;
+            html += `<div class="tab multi ${isActive}" data-view="${view.id}">${safeName}<span class="tab-close" data-remove="${view.id}" aria-label="Remove multi-view tab">×</span></div>`;
         });
     }
 
@@ -146,6 +146,32 @@ function renderColumnTabs() {
         });
     });
 
+    const mathCloseButtons = tabContainer.querySelectorAll('.tab-close[data-remove-math]');
+    mathCloseButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mathName = btn.getAttribute('data-remove-math');
+            State.removeMathDefinition(mathName);
+
+            const headers = State.data.headers || [];
+            const xCol = State.data.timeColumn;
+            const yCols = headers.filter((h) => h !== xCol);
+            const remainingVirtual = MathEngine.getAvailableMathColumns();
+            const fallback = State.data.dataColumn === mathName
+                ? (yCols[0] || remainingVirtual[0] || null)
+                : State.data.dataColumn;
+
+            State.data.dataColumn = fallback;
+            State.ui.activeMultiViewId = null;
+
+            renderColumnTabs();
+            renderComposerPanel();
+            renderPipelineList();
+            updateParamEditor();
+            runPipelineAndRender();
+        });
+    });
+
     if (btnAddMultiView) {
         btnAddMultiView.onclick = () => {
             if (yCols.length === 0 && virtualCols.length === 0) {
@@ -158,7 +184,7 @@ function renderColumnTabs() {
                 <p class="hint">Choose whether to stack multiple traces or build a math-derived trace.</p>
                 <div class="add-tab-actions">
                     <button class="primary" id="btn-create-multiview">Multi-View Tab</button>
-                    <button class="secondary" id="btn-create-math">Math Trace</button>
+                    <button class="secondary math-tab-btn" id="btn-create-math">Math Trace Tab</button>
                 </div>
             `;
 
