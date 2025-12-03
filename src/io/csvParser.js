@@ -51,24 +51,29 @@ export const CsvParser = {
     parseFullFile(file, skipLines, onComplete) {
         Papa.parse(file, {
             header: true,
-            dynamicTyping: true, 
+            dynamicTyping: true,
             skipEmptyLines: true,
-            comments: "#", 
+            comments: "#",
             
             beforeFirstChunk: (chunk) => {
                 if (skipLines === 0) return chunk;
                 const lines = chunk.split('\n');
                 return lines.slice(skipLines).join('\n');
             },
-            
+
             complete: (results) => {
                 if(!results.meta.fields || results.meta.fields.length === 0) {
                     alert("Could not detect columns. Check your delimiter.");
                     return;
                 }
-                
+
                 if(results.errors.length > 0) {
                     console.warn("CSV Parse Warnings:", results.errors);
+                }
+
+                const replacements = this.sanitizeClippedData(results.data, results.meta.fields);
+                if (replacements > 0) {
+                    console.info(`Sanitized ${replacements} clipped data points by forward-filling last numeric values.`);
                 }
 
                 onComplete(results);
@@ -78,5 +83,49 @@ export const CsvParser = {
                 alert("Parse Error: " + err.message);
             }
         });
+    },
+
+    sanitizeClippedData(rows, headers) {
+        if (!Array.isArray(rows) || !Array.isArray(headers)) return 0;
+
+        const lastNumeric = {};
+        headers.forEach((h) => { lastNumeric[h] = null; });
+
+        let replacements = 0;
+
+        rows.forEach((row) => {
+            headers.forEach((col) => {
+                const normalized = this.normalizeNumericValue(row[col]);
+
+                if (normalized !== null) {
+                    lastNumeric[col] = normalized;
+                    row[col] = normalized;
+                } else if (lastNumeric[col] !== null) {
+                    row[col] = lastNumeric[col];
+                    replacements += 1;
+                }
+            });
+        });
+
+        return replacements;
+    },
+
+    normalizeNumericValue(value) {
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : null;
+        }
+
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed === '') return null;
+
+            const numericPattern = /^[+-]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][+-]?\d+)?$/;
+            if (!numericPattern.test(trimmed)) return null;
+
+            const parsed = parseFloat(trimmed);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        return null;
     }
 };
