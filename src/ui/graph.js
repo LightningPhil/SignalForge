@@ -162,12 +162,13 @@ export const Graph = {
         return selected;
     },
 
-    getReferenceTracesInRange(xRange = null) {
+    getReferenceTracesInRange(xRange = null, viewId = null, allowDownsample = false, maxPoints = 0) {
         const refs = State.referenceTraces || [];
         if (!refs.length) return [];
 
         return refs
             .map((ref, idx) => {
+                if (!State.isReferenceVisible(viewId, ref.id)) return null;
                 const points = (ref.x || [])
                     .map((xVal, i) => ({ x: xVal, y: ref.y?.[i] }))
                     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
@@ -177,10 +178,17 @@ export const Graph = {
 
                 if (!filtered.length) return null;
 
+                let displayPoints = filtered;
+                if (allowDownsample && maxPoints > 0 && filtered.length > maxPoints) {
+                    const sampled = lttb(filtered.map((p) => [p.x, p.y]), maxPoints);
+                    displayPoints = sampled.map(([x, y]) => ({ x, y }));
+                }
+
                 return {
+                    id: ref.id,
                     name: ref.name || `Reference ${idx + 1}`,
-                    x: filtered.map((p) => p.x),
-                    y: filtered.map((p) => p.y),
+                    x: displayPoints.map((p) => p.x),
+                    y: displayPoints.map((p) => p.y),
                     color: ref.color || '#e4572e'
                 };
             })
@@ -203,18 +211,18 @@ export const Graph = {
         }
     },
 
-    renderMultiView(rawX, seriesList, ranges = null) {
+    renderMultiView(rawX, seriesList, ranges = null, viewId = null) {
         if (!rawX || rawX.length === 0) return;
         const config = State.config.graph;
 
         if (config.showFreqDomain) {
             this.renderMultiFreqDomain(rawX, seriesList);
         } else {
-            this.renderMultiTimeDomain(rawX, seriesList, ranges);
+            this.renderMultiTimeDomain(rawX, seriesList, ranges, viewId);
         }
     },
 
-    renderMultiTimeDomain(rawX, seriesList, ranges) {
+    renderMultiTimeDomain(rawX, seriesList, ranges, viewId = null) {
         const config = State.config.graph;
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
         const showDiff = config.showDifferential;
@@ -302,7 +310,12 @@ export const Graph = {
             }
         });
 
-        const referenceTraces = this.getReferenceTracesInRange(xRange);
+        const referenceTraces = this.getReferenceTracesInRange(
+            xRange,
+            viewId,
+            allowDownsample,
+            config.maxDisplayPoints
+        );
         referenceTraces.forEach((ref) => {
             traces.push({
                 x: ref.x,
@@ -647,7 +660,12 @@ export const Graph = {
             }
         }
 
-        const referenceTraces = this.getReferenceTracesInRange(xRange);
+        const referenceTraces = this.getReferenceTracesInRange(
+            xRange,
+            null,
+            allowDownsample,
+            config.maxDisplayPoints
+        );
         referenceTraces.forEach((ref) => {
             traces.push({
                 x: ref.x,
@@ -857,6 +875,6 @@ export const Graph = {
             filteredY: series.filteredY ? series.filteredY.slice(0, commonLength) : null
         }));
 
-        this.renderMultiView(finalTime, trimmedSeries, range);
+        this.renderMultiView(finalTime, trimmedSeries, range, activeId);
     }
 };

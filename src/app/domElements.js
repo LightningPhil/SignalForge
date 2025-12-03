@@ -70,5 +70,8 @@ export const elements = {
     traceSelectorList: document.getElementById('trace-selector-list'),
 
     composerPanel: document.getElementById('composer-panel'),
-    composerList: document.getElementById('composer-list')
+    composerList: document.getElementById('composer-list'),
+
+    referencePanel: document.getElementById('reference-panel'),
+    referenceList: document.getElementById('reference-list')
 };

@@ -1,6 +1,7 @@
 import { State } from '../state.js';
 import { createModal } from './uiHelpers.js';
 import { runPipelineAndRender } from '../app/dataPipeline.js';
+import { renderReferencePanel } from '../app/referenceUi.js';
 
 function parseCsvFile(file, onComplete) {
     if (!file) return;
@@ -25,23 +26,32 @@ export const ReferenceGrid = {
         const modal = createModal(`
             <h3>Reference Curve</h3>
             <p class="hint">Enter X/Y coordinates or import from CSV. Only two columns are supported.</p>
-            <div class="reference-grid-actions">
-                <button id="ref-add-row">Add Row</button>
-                <button id="ref-import">Import CSV</button>
-                <button id="ref-clear-rows">Clear</button>
+            <div class="reference-grid-toolbar">
+                <div class="reference-name-field">
+                    <label for="ref-name">Name</label>
+                    <input type="text" id="ref-name" value="Reference ${State.referenceTraces.length + 1}">
+                </div>
+                <div class="reference-grid-actions">
+                    <button id="ref-add-row">Add Row</button>
+                    <button id="ref-import">Import CSV</button>
+                    <button id="ref-clear-rows">Clear</button>
+                    <button class="primary" id="ref-apply">Save Reference</button>
+                    <button id="ref-cancel">Close</button>
+                </div>
             </div>
-            <label for="ref-name">Name</label>
-            <input type="text" id="ref-name" value="Reference ${State.referenceTraces.length + 1}">
-            <table class="data-grid-table reference-grid-table">
-                <thead>
-                    <tr><th>X</th><th>Y</th></tr>
-                </thead>
-                <tbody id="ref-grid-body"></tbody>
-            </table>
-            <div class="reference-grid-actions">
-                <button class="primary" id="ref-apply">Add to Plot</button>
-                <button id="ref-cancel">Close</button>
+            <div class="virtual-grid-shell reference-grid-shell">
+                <table class="data-grid-table data-grid-header">
+                    <thead>
+                        <tr><th>X</th><th>Y</th></tr>
+                    </thead>
+                </table>
+                <div class="data-grid-viewport reference-grid-viewport">
+                    <table class="data-grid-table reference-grid-table">
+                        <tbody id="ref-grid-body"></tbody>
+                    </table>
+                </div>
             </div>
+            <p class="hint">You can paste two columns or import a CSV. Invalid rows are skipped.</p>
             <input type="file" id="ref-file-input" accept=".csv,.txt" style="display:none;">
         `);
 
@@ -115,6 +125,7 @@ export const ReferenceGrid = {
             const y = points.map((p) => p.y);
 
             State.addReferenceTrace({ name, x, y });
+            renderReferencePanel();
             runPipelineAndRender();
             overlay.remove();
         });
