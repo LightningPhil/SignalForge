@@ -1,7 +1,6 @@
 import { State } from '../state.js';
 import { GraphConfig } from '../ui/graphConfig.js';
 import { GridView } from '../ui/gridView.js';
-import { ReferenceGrid } from '../ui/referenceGrid.js';
 import { HelpSystem } from '../ui/helpSystem.js';
 import { elements } from './domElements.js';
 import { handleFileSelection } from './dataImport.js';
@@ -18,7 +17,6 @@ function setupEventListeners() {
         fileInput,
         btnLoad,
         btnViewGrid,
-        btnReferenceGrid,
         btnGraphConfig,
         btnExport,
         btnHelp,
@@ -70,7 +68,6 @@ function setupEventListeners() {
 
     btnViewGrid?.addEventListener('click', () => GridView.show());
     btnGraphConfig?.addEventListener('click', () => { if (hasData()) GraphConfig.show(); });
-    btnReferenceGrid?.addEventListener('click', () => { if (hasData()) ReferenceGrid.show(); });
     btnExport?.addEventListener('click', showExportModal);
     btnHelp?.addEventListener('click', () => HelpSystem.show());
 

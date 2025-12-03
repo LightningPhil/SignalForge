@@ -2,7 +2,6 @@ export const elements = {
     fileInput: document.getElementById('file-input'),
     btnLoad: document.getElementById('btn-load-file'),
     btnViewGrid: document.getElementById('btn-view-grid'),
-    btnReferenceGrid: document.getElementById('btn-reference-grid'),
     btnGraphConfig: document.getElementById('btn-graph-config'),
     btnExport: document.getElementById('btn-export'),
     btnHelp: document.getElementById('btn-help'),
@@ -70,8 +69,5 @@ export const elements = {
     traceSelectorList: document.getElementById('trace-selector-list'),
 
     composerPanel: document.getElementById('composer-panel'),
-    composerList: document.getElementById('composer-list'),
-
-    referencePanel: document.getElementById('reference-panel'),
-    referenceList: document.getElementById('reference-list')
+    composerList: document.getElementById('composer-list')
 };

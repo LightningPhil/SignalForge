@@ -31,10 +31,6 @@ export const State = {
         activeMultiViewId: null
     },
 
-    // Reference / static traces
-    referenceTraces: [],
-    referenceVisibility: {},
-
     // Methods
     setData(raw, headers) {
         this.data.raw = raw;
@@ -50,58 +46,10 @@ export const State = {
 
         this.composer = { views: {} };
         this.traceConfigs = {};
-
-        this.referenceTraces = [];
-        this.referenceVisibility = {};
         
         // Reset Math definitions on new file load?
         // Usually yes, as columns might change.
         this.config.mathDefinitions = [];
-    },
-
-    addReferenceTrace({ name, x, y }) {
-        if (!Array.isArray(x) || !Array.isArray(y) || x.length === 0 || y.length === 0) return null;
-        const length = Math.min(x.length, y.length);
-        const trace = {
-            id: `ref-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            name: name || 'Reference',
-            x: x.slice(0, length),
-            y: y.slice(0, length)
-        };
-        this.referenceTraces.push(trace);
-
-        const viewId = this.ui.activeMultiViewId || null;
-        this.setReferenceVisibility(viewId, trace.id, true);
-        return trace;
-    },
-
-    clearReferenceTraces() {
-        this.referenceTraces = [];
-        this.referenceVisibility = {};
-    },
-
-    getReferenceVisibilityKey(viewId = null) {
-        return viewId ? `mv:${viewId}` : 'main';
-    },
-
-    ensureReferenceVisibility(viewId = null) {
-        const key = this.getReferenceVisibilityKey(viewId);
-        if (!this.referenceVisibility[key]) this.referenceVisibility[key] = [];
-        return this.referenceVisibility[key];
-    },
-
-    isReferenceVisible(viewId = null, refId = '') {
-        if (!refId) return false;
-        const list = this.referenceVisibility[this.getReferenceVisibilityKey(viewId)];
-        return Array.isArray(list) ? list.includes(refId) : false;
-    },
-
-    setReferenceVisibility(viewId = null, refId = '', enabled = true) {
-        if (!refId) return;
-        const list = this.ensureReferenceVisibility(viewId);
-        const idx = list.indexOf(refId);
-        if (enabled && idx === -1) list.push(refId);
-        if (!enabled && idx !== -1) list.splice(idx, 1);
     },
 
     // --- Pipeline Management ---
