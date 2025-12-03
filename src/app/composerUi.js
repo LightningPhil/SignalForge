@@ -47,27 +47,10 @@ function renderComposerPanel() {
         row.appendChild(controls);
         composerList.appendChild(row);
 
-        let pendingNegativeTimer = null;
-
-        const clearPendingNegative = () => {
-            if (pendingNegativeTimer) {
-                clearTimeout(pendingNegativeTimer);
-                pendingNegativeTimer = null;
-            }
-        };
-
         xInput.addEventListener('input', () => {
-            clearPendingNegative();
-
             const rawValue = xInput.value;
 
             if (rawValue === '-') {
-                pendingNegativeTimer = setTimeout(() => {
-                    xInput.value = 0;
-                    State.updateTraceConfig(trace.columnId, { xOffset: 0 });
-                    triggerGraphUpdateOnly();
-                    pendingNegativeTimer = null;
-                }, 1000);
                 return;
             }
 
@@ -76,6 +59,16 @@ function renderComposerPanel() {
             xInput.value = val;
             State.updateTraceConfig(trace.columnId, { xOffset: val });
             triggerGraphUpdateOnly();
+        });
+
+        xInput.addEventListener('blur', () => {
+            if (xInput.value === '-') {
+                setTimeout(() => {
+                    xInput.value = 0;
+                    State.updateTraceConfig(trace.columnId, { xOffset: 0 });
+                    triggerGraphUpdateOnly();
+                }, 1000);
+            }
         });
     });
 }
