@@ -47,8 +47,32 @@ function renderComposerPanel() {
         row.appendChild(controls);
         composerList.appendChild(row);
 
+        let pendingNegativeTimer = null;
+
+        const clearPendingNegative = () => {
+            if (pendingNegativeTimer) {
+                clearTimeout(pendingNegativeTimer);
+                pendingNegativeTimer = null;
+            }
+        };
+
         xInput.addEventListener('input', () => {
-            const val = Number.isFinite(parseFloat(xInput.value)) ? Math.round(parseFloat(xInput.value)) : 0;
+            clearPendingNegative();
+
+            const rawValue = xInput.value;
+
+            if (rawValue === '-') {
+                pendingNegativeTimer = setTimeout(() => {
+                    xInput.value = 0;
+                    State.updateTraceConfig(trace.columnId, { xOffset: 0 });
+                    triggerGraphUpdateOnly();
+                    pendingNegativeTimer = null;
+                }, 1000);
+                return;
+            }
+
+            const parsed = parseFloat(rawValue);
+            const val = Number.isFinite(parsed) ? Math.round(parsed) : 0;
             xInput.value = val;
             State.updateTraceConfig(trace.columnId, { xOffset: val });
             triggerGraphUpdateOnly();
