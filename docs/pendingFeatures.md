@@ -3,7 +3,7 @@
 This document outlines the planned feature set for **FilterPro**. It serves as a technical specification, detailing functionality, architectural implementation strategies, and concrete use cases to guide development.
 
 ## 1. Advanced Cursor & Analysis Suite
-**Status:** Planned  
+**Status:** Done  
 **Priority:** High  
 **Complexity:** High
 
@@ -25,7 +25,7 @@ Moving beyond simple visual inspection, this feature implements "Oscilloscope-st
 ---
 
 ## 2. Pipeline Consistency: The "Null" Filter
-**Status:** Planned  
+**Status:** Done  
 **Priority:** Critical (Prerequisite for Math)  
 **Complexity:** Low
 
@@ -47,7 +47,7 @@ Currently, the "Filtered Data" array only exists if a filter is active. This cre
 ---
 
 ## 3. Advanced Waveform Math Engine
-**Status:** Planned  
+**Status:** Done  
 **Priority:** High  
 **Complexity:** Very High
 
@@ -66,16 +66,19 @@ A scripting engine allowing users to create new traces based on algebraic combin
 3.  **Sensor Fusion (Averaging):** A user has 4 noisy sensors ($S1..S4$). They create a "Master Trace" defined as `mean(S1, S2, S3, S4)` to statistically reduce the noise floor by factor $\sqrt{N}$.
 4.  **Differential Signaling:** A user captures `D+` and `D-` from a USB line. They define a new trace `(D+) - (D-)` to view the actual differential signal the microcontroller sees.
 5.  **Power Factor Correction:** The user computes Instantaneous Power `P = V * I`. They then integrate this over one 50Hz cycle and divide by time to find the Real Power (Watts), comparing it to Apparent Power ($V_{rms} \times I_{rms}$).
+6.  **Inductive compoent analysis:** The user desires to find the inductive component of a voltage signal. They have both V and I as a finction of t and know the system inductance. Thus the inductive component can be found from V_ind = L * dI/dt. The user may then wish to subtract the inductive component from the overall waveform to reveal the voltage dropped across the resistive part of the load as a new trace.
 
 ---
 
 ## 4. Multi-Waveform Composer (Visuals)
-**Status:** Planned  
+**Status:** Done  
 **Priority:** Medium  
 **Complexity:** Medium
 
 ### Description
 Allows composition of multiple datasets into a single view with independent time-shifting.
+
+Note the app already allows multi waveform views well. This feature is to add time offset controls to that AND the normal tabs.
 
 ### Architectural & Technical Strategy
 *   **The "Composer" Object:** A new state object that lists which traces are visible.
