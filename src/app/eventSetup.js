@@ -1,6 +1,7 @@
 import { State } from '../state.js';
 import { GraphConfig } from '../ui/graphConfig.js';
 import { GridView } from '../ui/gridView.js';
+import { ReferenceGrid } from '../ui/referenceGrid.js';
 import { HelpSystem } from '../ui/helpSystem.js';
 import { elements } from './domElements.js';
 import { handleFileSelection } from './dataImport.js';
@@ -9,6 +10,7 @@ import { runPipelineAndRender, hasData } from './dataPipeline.js';
 import { showExportModal } from './exportModal.js';
 import { bindToolbarEvents } from './toolbar.js';
 import { MathEngine } from '../processing/math.js';
+import { debounce } from './utils.js';
 import { bindComposerEvents } from './composerUi.js';
 
 function setupEventListeners() {
@@ -16,6 +18,7 @@ function setupEventListeners() {
         fileInput,
         btnLoad,
         btnViewGrid,
+        btnReferenceGrid,
         btnGraphConfig,
         btnExport,
         btnHelp,
@@ -67,6 +70,7 @@ function setupEventListeners() {
 
     btnViewGrid?.addEventListener('click', () => GridView.show());
     btnGraphConfig?.addEventListener('click', () => { if (hasData()) GraphConfig.show(); });
+    btnReferenceGrid?.addEventListener('click', () => { if (hasData()) ReferenceGrid.show(); });
     btnExport?.addEventListener('click', showExportModal);
     btnHelp?.addEventListener('click', () => HelpSystem.show());
 
@@ -94,17 +98,19 @@ function setupEventListeners() {
         runPipelineAndRender();
     });
 
+    const debouncedUpdateParams = debounce(updateParamsFromUI, 300);
+
     const bindInput = (numInput, sliderInput) => {
         if (numInput) {
             numInput.addEventListener('input', () => {
                 if (sliderInput) sliderInput.value = numInput.value;
-                updateParamsFromUI();
+                debouncedUpdateParams();
             });
         }
         if (sliderInput) {
             sliderInput.addEventListener('input', () => {
                 if (numInput) numInput.value = sliderInput.value;
-                updateParamsFromUI();
+                debouncedUpdateParams();
             });
         }
     };
@@ -120,7 +126,7 @@ function setupEventListeners() {
     bindInput(inputQ, sliderQ);
 
     [inputFreq, selFreqUnit, inputBW, selBWUnit, inputStartOffset, inputAutoOffsetPoints, chkApplyStart, chkApplyEnd, chkAutoOffset].forEach((el) => {
-        el?.addEventListener('input', updateParamsFromUI);
+        el?.addEventListener('input', debouncedUpdateParams);
     });
 
     const updateAutoOffsetInputs = () => {
@@ -129,7 +135,7 @@ function setupEventListeners() {
     };
 
     chkAutoOffset?.addEventListener('change', () => {
-        updateParamsFromUI();
+        debouncedUpdateParams();
         updateAutoOffsetInputs();
     });
 

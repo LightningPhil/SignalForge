@@ -46,9 +46,18 @@ const {
     grpBW
 } = elements;
 
+function getNumericValue(inputEl) {
+    if (!inputEl) return null;
+    const raw = (inputEl.value || '').trim();
+    if (raw === '' || raw === '-' || raw === '-.' || raw === '.') return null;
+    const val = parseFloat(raw);
+    return Number.isNaN(val) ? null : val;
+}
+
 function clamp(inputEl, min, max) {
-    let val = parseFloat(inputEl.value);
-    if (isNaN(val)) return min;
+    const rawVal = getNumericValue(inputEl);
+    if (rawVal === null) return null;
+    let val = rawVal;
     if (val < min) { val = min; inputEl.value = min; }
     if (val > max) { val = max; inputEl.value = max; }
     return val;
@@ -61,32 +70,45 @@ function updateParamsFromUI() {
     const params = {};
     const step = State.getSelectedStep();
 
-    if (inputWindow) params.windowSize = clamp(inputWindow, 1, 9999);
-    if (inputPoly) params.polyOrder = clamp(inputPoly, 1, 10);
-    if (inputAlpha) params.alpha = clamp(inputAlpha, 0.001, 1.0);
-    if (inputSigma) params.sigma = clamp(inputSigma, 0.1, 100.0);
-    if (inputIters) params.iterations = clamp(inputIters, 1, 16);
-    if (inputStartDecay) params.startLength = clamp(inputStartDecay, 0, 10000);
-    if (inputEndDecay) params.endLength = clamp(inputEndDecay, 0, 10000);
+    const windowVal = clamp(inputWindow, 1, 9999);
+    if (windowVal !== null) params.windowSize = windowVal;
+    const polyVal = clamp(inputPoly, 1, 10);
+    if (polyVal !== null) params.polyOrder = polyVal;
+    const alphaVal = clamp(inputAlpha, 0.001, 1.0);
+    if (alphaVal !== null) params.alpha = alphaVal;
+    const sigmaVal = clamp(inputSigma, 0.1, 100.0);
+    if (sigmaVal !== null) params.sigma = sigmaVal;
+    const iterVal = clamp(inputIters, 1, 16);
+    if (iterVal !== null) params.iterations = iterVal;
+    const startDecayVal = clamp(inputStartDecay, 0, 10000);
+    if (startDecayVal !== null) params.startLength = startDecayVal;
+    const endDecayVal = clamp(inputEndDecay, 0, 10000);
+    if (endDecayVal !== null) params.endLength = endDecayVal;
     if (chkApplyStart) params.applyStart = !!chkApplyStart.checked;
     if (chkApplyEnd) params.applyEnd = !!chkApplyEnd.checked;
-    if (inputStartOffset) params.startOffset = parseFloat(inputStartOffset.value) || 0;
+    const startOffsetVal = getNumericValue(inputStartOffset);
+    if (startOffsetVal !== null) params.startOffset = startOffsetVal;
     if (chkAutoOffset) params.autoOffset = !!chkAutoOffset.checked;
-    if (inputAutoOffsetPoints) params.autoOffsetPoints = clamp(inputAutoOffsetPoints, 1, 100000);
+    const autoOffsetPointsVal = clamp(inputAutoOffsetPoints, 1, 100000);
+    if (autoOffsetPointsVal !== null) params.autoOffsetPoints = autoOffsetPointsVal;
 
     const fMult = parseFloat(selFreqUnit.value);
-    const rawFreq = parseFloat(inputFreq.value) || 0;
-    const hz = rawFreq * fMult;
+    const rawFreq = getNumericValue(inputFreq);
+    const baseFreq = rawFreq !== null ? rawFreq : ((step.centerFreq || step.cutoffFreq || 0) / fMult);
+    const hz = baseFreq * fMult;
 
     if (step.type === 'notchFFT') params.centerFreq = hz;
     else params.cutoffFreq = hz;
 
     const bMult = parseFloat(selBWUnit.value);
-    const rawBW = parseFloat(inputBW.value) || 0;
-    params.bandwidth = rawBW * bMult;
+    const rawBW = getNumericValue(inputBW);
+    const bw = rawBW !== null ? rawBW : ((step.bandwidth || 0) / bMult);
+    params.bandwidth = bw * bMult;
 
-    if (inputSlope) params.slope = clamp(inputSlope, 6, 96);
-    if (inputQ) params.qFactor = clamp(inputQ, 0.1, 20.0);
+    const slopeVal = clamp(inputSlope, 6, 96);
+    if (slopeVal !== null) params.slope = slopeVal;
+    const qVal = clamp(inputQ, 0.1, 20.0);
+    if (qVal !== null) params.qFactor = qVal;
 
     State.updateStepParams(id, params);
 

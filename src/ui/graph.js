@@ -162,6 +162,31 @@ export const Graph = {
         return selected;
     },
 
+    getReferenceTracesInRange(xRange = null) {
+        const refs = State.referenceTraces || [];
+        if (!refs.length) return [];
+
+        return refs
+            .map((ref, idx) => {
+                const points = (ref.x || [])
+                    .map((xVal, i) => ({ x: xVal, y: ref.y?.[i] }))
+                    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+                const filtered = xRange
+                    ? points.filter((p) => p.x >= xRange[0] && p.x <= xRange[1])
+                    : points;
+
+                if (!filtered.length) return null;
+
+                return {
+                    name: ref.name || `Reference ${idx + 1}`,
+                    x: filtered.map((p) => p.x),
+                    y: filtered.map((p) => p.y),
+                    color: ref.color || '#e4572e'
+                };
+            })
+            .filter(Boolean);
+    },
+
     render(rawX, rawY, filteredY = null, range = null) {
         if (!rawX || rawX.length === 0) return;
 
@@ -275,6 +300,20 @@ export const Graph = {
                     });
                 }
             }
+        });
+
+        const referenceTraces = this.getReferenceTracesInRange(xRange);
+        referenceTraces.forEach((ref) => {
+            traces.push({
+                x: ref.x,
+                y: ref.y,
+                mode: 'lines',
+                name: ref.name,
+                line: { color: ref.color, dash: 'dash', width: 2 },
+                xaxis: 'x',
+                yaxis: 'y',
+                hovertemplate: `${ref.name}<br>X:%{x}<br>Y:%{y}<extra></extra>`
+            });
         });
 
         const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear', config.currencySymbol, config.significantFigures);
@@ -607,6 +646,20 @@ export const Graph = {
                 });
             }
         }
+
+        const referenceTraces = this.getReferenceTracesInRange(xRange);
+        referenceTraces.forEach((ref) => {
+            traces.push({
+                x: ref.x,
+                y: ref.y,
+                mode: 'lines',
+                name: ref.name,
+                line: { color: ref.color, dash: 'dash', width: 2 },
+                xaxis: 'x',
+                yaxis: 'y',
+                hovertemplate: `${ref.name}<br>X:%{x}<br>Y:%{y}<extra></extra>`
+            });
+        });
 
         const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear', config.currencySymbol, config.significantFigures);
         const yAxisBaseType = config.logScaleY ? 'log' : 'linear';
