@@ -253,17 +253,21 @@
     flex: 1;
 }
 
-.math-tab-btn {
-    background: linear-gradient(135deg, var(--math-accent), #35d6e4);
-    color: #0b1b2b;
-    border-color: transparent;
+.add-tab-actions .tab-option {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #fff;
     font-weight: 700;
     letter-spacing: 0.01em;
+    padding: 12px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, box-shadow 0.2s;
 }
 
-.math-tab-btn:hover {
-    background: linear-gradient(135deg, #2ec3d4, #6fe8f4);
-    color: #061019;
+.add-tab-actions .tab-option:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .icon-button {

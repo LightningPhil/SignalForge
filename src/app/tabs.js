@@ -183,8 +183,8 @@ function renderColumnTabs() {
                 <h3>Add New View</h3>
                 <p class="hint">Choose whether to stack multiple traces or build a math-derived trace.</p>
                 <div class="add-tab-actions">
-                    <button class="primary" id="btn-create-multiview">Multi-View Tab</button>
-                    <button class="secondary math-tab-btn" id="btn-create-math">Math Trace Tab</button>
+                    <button class="tab-option" id="btn-create-multiview">Multi-View Tab</button>
+                    <button class="tab-option" id="btn-create-math">Math Trace Tab</button>
                 </div>
             `;
 
