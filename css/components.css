@@ -182,49 +182,6 @@
     border-color: var(--accent);
 }
 
-.reference-grid-actions {
-    display: flex;
-    gap: 10px;
-    margin: 10px 0;
-}
-
-.reference-grid-table input {
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.reference-grid-toolbar {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    margin: 12px 0 6px;
-}
-
-.reference-name-field {
-    flex: 1 1 220px;
-    min-width: 220px;
-}
-
-.reference-grid-shell {
-    margin: 0 0 10px;
-}
-
-.reference-grid-viewport {
-    max-height: 320px;
-    border: 1px solid var(--border-color);
-    border-top: none;
-    overflow-y: auto;
-}
-
-.reference-grid-shell .data-grid-header {
-    table-layout: fixed;
-}
-
-.reference-grid-shell .data-grid-header th {
-    width: 50%;
-}
-
 /* Inputs inside Modals */
 .modal-content input, .modal-content select, .modal-content textarea {
     background: var(--input-bg);

@@ -6,7 +6,6 @@ import { renderPipelineList, updateParamEditor } from './pipelineUi.js';
 import { renderComposerPanel } from './composerUi.js';
 import { showMathModal } from './mathModal.js';
 import { createModal } from '../ui/uiHelpers.js';
-import { renderReferencePanel } from './referenceUi.js';
 
 function showPipelinePanels() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
@@ -113,7 +112,6 @@ function renderColumnTabs() {
             updateParamEditor();
             renderComposerPanel();
             runPipelineAndRender();
-            renderReferencePanel();
         });
     });
 
@@ -131,7 +129,6 @@ function renderColumnTabs() {
             }
             renderColumnTabs();
             renderComposerPanel();
-            renderReferencePanel();
         });
 
         tab.addEventListener('click', () => {
@@ -145,7 +142,6 @@ function renderColumnTabs() {
                 renderTraceSelector(view);
                 renderComposerPanel();
                 runPipelineAndRender();
-                renderReferencePanel();
             }
         });
     });
@@ -173,7 +169,6 @@ function renderColumnTabs() {
             renderPipelineList();
             updateParamEditor();
             runPipelineAndRender();
-            renderReferencePanel();
         });
     });
 
@@ -205,7 +200,6 @@ function renderColumnTabs() {
                 renderColumnTabs();
                 renderTraceSelector(view);
                 renderComposerPanel();
-                renderReferencePanel();
                 runPipelineAndRender();
                 closeModal();
             });
@@ -218,7 +212,6 @@ function renderColumnTabs() {
     }
 
     renderComposerPanel();
-    renderReferencePanel();
 }
 
 export { renderColumnTabs };
