@@ -33,6 +33,7 @@ export const State = {
 
     // Reference / static traces
     referenceTraces: [],
+    referenceVisibility: {},
 
     // Methods
     setData(raw, headers) {
@@ -51,6 +52,7 @@ export const State = {
         this.traceConfigs = {};
 
         this.referenceTraces = [];
+        this.referenceVisibility = {};
         
         // Reset Math definitions on new file load?
         // Usually yes, as columns might change.
@@ -67,11 +69,39 @@ export const State = {
             y: y.slice(0, length)
         };
         this.referenceTraces.push(trace);
+
+        const viewId = this.ui.activeMultiViewId || null;
+        this.setReferenceVisibility(viewId, trace.id, true);
         return trace;
     },
 
     clearReferenceTraces() {
         this.referenceTraces = [];
+        this.referenceVisibility = {};
+    },
+
+    getReferenceVisibilityKey(viewId = null) {
+        return viewId ? `mv:${viewId}` : 'main';
+    },
+
+    ensureReferenceVisibility(viewId = null) {
+        const key = this.getReferenceVisibilityKey(viewId);
+        if (!this.referenceVisibility[key]) this.referenceVisibility[key] = [];
+        return this.referenceVisibility[key];
+    },
+
+    isReferenceVisible(viewId = null, refId = '') {
+        if (!refId) return false;
+        const list = this.referenceVisibility[this.getReferenceVisibilityKey(viewId)];
+        return Array.isArray(list) ? list.includes(refId) : false;
+    },
+
+    setReferenceVisibility(viewId = null, refId = '', enabled = true) {
+        if (!refId) return;
+        const list = this.ensureReferenceVisibility(viewId);
+        const idx = list.indexOf(refId);
+        if (enabled && idx === -1) list.push(refId);
+        if (!enabled && idx !== -1) list.splice(idx, 1);
     },
 
     // --- Pipeline Management ---

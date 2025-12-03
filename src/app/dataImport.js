@@ -3,6 +3,7 @@ import { CsvParser } from '../io/csvParser.js';
 import { renderColumnTabs } from './tabs.js';
 import { runPipelineAndRender } from './dataPipeline.js';
 import { renderComposerPanel } from './composerUi.js';
+import { renderReferencePanel } from './referenceUi.js';
 
 function handleFileSelection(file, onStatusChange) {
     if (!file) return;
@@ -16,6 +17,7 @@ function handleFileSelection(file, onStatusChange) {
         State.syncComposerForView(null, State.getActiveComposerColumns());
         renderColumnTabs();
         renderComposerPanel();
+        renderReferencePanel();
         runPipelineAndRender();
         onStatusChange?.('Ready');
     });
