@@ -103,16 +103,17 @@ Note the app already allows multi waveform views well. This feature is to add ti
 Improving how data enters the application and how users interact with controls.
 
 ### Architectural & Technical Strategy
-*   **Virtual Scrolling:** Rendering a HTML Table for 100k points crashes the DOM. Use a "Virtual List" approach (like `react-window` or custom logic) to only render the 20 rows currently visible on screen.
+*   **Virtual Scrolling:** Rendering a HTML Table for 100k points might crash the DOM. Use a "Virtual List" approach (like `react-window` or custom logic) to only render the 20 rows currently visible on screen.
 *   **Clipboard API:** For pasting data, intercept the `window.onpaste` event. Do not rely on the user clicking a text area. Parse the clipboard text (CSV/TSV) directly into memory strings, then parse to arrays. This bypasses the UI lag entirely.
 *   **Debounced Inputs:** For filter inputs (e.g., Cutoff Frequency), ensure the recalculation triggers 300ms *after* the user stops typing, rather than on every keystroke, to prevent UI freezing.
+*   **Fix Negaive Inputs:** For X Offset (Samples), if I try typing a negative number, the "-" symbol is presently ignored. So I have to type a number and then put the minus sign in front of it. Fix this so I can enter a negative number by typing in whatever I like.
 
 ### Use Cases
-1.  **Rapid Excel Paste:** A user copies a column of thermal data from Excel. They click anywhere in FilterPro and press `Ctrl+V`. The app detects the data, parses it, and immediately graphs it without asking for a filename.
+1.  **Rapid Excel Paste:** A user copies a column of thermal data from Excel. They press the grid button either while there is no data in the system or if there already is. They are presented with an empty spreadsheet like input area or present data. If there is present data, they can then press a clear button and then press `Ctrl+V`. The app detects the data, parses it, and immediately graphs it without asking for a filename. Or if they choose not to clear the data, they can past it into the next right empty set of cells. Or if they click a cell, that acts as the top left most location for pasting their array (as it does in excel).
 2.  **Manual Outlier Correction:** A specific data point is clearly a sensor glitch (reading 9999). The user finds that row in the Grid View, manually edits it to the previous value, and the graph updates to remove the spike.
 3.  **Matlab/Python Interop:** A user processes data in Python and prints the array to the console. They copy the console output and paste it into FilterPro for better interactive zooming than `matplotlib` offers.
-4.  **Precise Parameter Entry:** A slider is too coarse to set a filter to exactly "50.0 Hz". The user types the value into the numeric input. The slider visually jumps to that position, and the filter updates.
-5.  **Reference Curve Entry:** A user wants to compare their data against a limit line. They manually type 5 rows of X/Y data into the grid (e.g., a "Limit Mask") to create a polygon shape on the graph.
+4.  **Precise Parameter Entry:** A slider is too coarse to set a filter to exactly "50.0 Hz". The user types the value into the numeric input. The slider visually jumps to that position, and the filter updates. (The app might already do this)
+5.  **Reference Curve Entry:** A user wants to compare their data against a limit line. They manually type 5 rows of X/Y data into the grid (e.g., a "Limit Mask") to create a polygon shape on the graph. This requires a seperate Grid (which is more or less a spreadsheet) where the user can enter any amount of data to build a reference waveform. Allow them to open a file and import it too just like with the normal grid which is used for the rest of the data. However this grid should be limited to 2 columns - as it should allow only 1 trace. If the user had configured a reference curve, allow them to add it to any plot.
 
 ---
 
