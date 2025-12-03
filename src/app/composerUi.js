@@ -47,28 +47,47 @@ function renderComposerPanel() {
         row.appendChild(controls);
         composerList.appendChild(row);
 
+        let debounceTimer;
+        const commitOffset = (value) => {
+            State.updateTraceConfig(trace.columnId, { xOffset: value });
+            triggerGraphUpdateOnly();
+        };
+
         xInput.addEventListener('input', () => {
             const rawValue = xInput.value;
 
-            if (rawValue === '-') {
+            clearTimeout(debounceTimer);
+
+            if (rawValue === '-' || rawValue === '') {
                 return;
             }
 
             const parsed = parseFloat(rawValue);
-            const val = Number.isFinite(parsed) ? Math.round(parsed) : 0;
-            xInput.value = val;
-            State.updateTraceConfig(trace.columnId, { xOffset: val });
-            triggerGraphUpdateOnly();
+
+            if (!Number.isFinite(parsed)) {
+                return;
+            }
+
+            const val = Math.round(parsed);
+
+            debounceTimer = setTimeout(() => {
+                commitOffset(val);
+            }, 500);
         });
 
         xInput.addEventListener('blur', () => {
-            if (xInput.value === '-') {
-                setTimeout(() => {
-                    xInput.value = 0;
-                    State.updateTraceConfig(trace.columnId, { xOffset: 0 });
-                    triggerGraphUpdateOnly();
-                }, 1000);
+            const rawValue = xInput.value;
+            clearTimeout(debounceTimer);
+
+            const parsed = parseFloat(rawValue);
+            const isInvalid = rawValue === '-' || rawValue === '' || !Number.isFinite(parsed);
+            const val = isInvalid ? 0 : Math.round(parsed);
+
+            if (isInvalid) {
+                xInput.value = '0';
             }
+
+            commitOffset(val);
         });
     });
 }
