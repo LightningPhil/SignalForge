@@ -31,6 +31,9 @@ export const State = {
         activeMultiViewId: null
     },
 
+    // Reference / static traces
+    referenceTraces: [],
+
     // Methods
     setData(raw, headers) {
         this.data.raw = raw;
@@ -46,10 +49,29 @@ export const State = {
 
         this.composer = { views: {} };
         this.traceConfigs = {};
+
+        this.referenceTraces = [];
         
-        // Reset Math definitions on new file load? 
+        // Reset Math definitions on new file load?
         // Usually yes, as columns might change.
         this.config.mathDefinitions = [];
+    },
+
+    addReferenceTrace({ name, x, y }) {
+        if (!Array.isArray(x) || !Array.isArray(y) || x.length === 0 || y.length === 0) return null;
+        const length = Math.min(x.length, y.length);
+        const trace = {
+            id: `ref-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            name: name || 'Reference',
+            x: x.slice(0, length),
+            y: y.slice(0, length)
+        };
+        this.referenceTraces.push(trace);
+        return trace;
+    },
+
+    clearReferenceTraces() {
+        this.referenceTraces = [];
     },
 
     // --- Pipeline Management ---
