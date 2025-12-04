@@ -71,7 +71,7 @@ export const HelpSystem = {
                 </div>
                 <div class="help-content">
                     <div id="content-about" class="help-section active">
-                        <h3>Signal Processor Overview</h3>
+                        <h3>Signal Forge Overview</h3>
                         <p>The application is designed for academic and professional engineers who need rapid, transparent analysis of oscilloscope or sensor data directly in the browser.</p>
                         <p>No uploads are performed; every operation runs locally, making the tool suitable for confidential or pre-publication datasets.</p>
                         <h4>Key capabilities</h4>

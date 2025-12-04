@@ -5,9 +5,9 @@ You can save this as `README.md` in the root of your project folder.
 ***
 
 ```markdown
-# Web-Based Signal Analysis Workstation
+# Signal Forge
 
-A high-performance, client-side application for visualizing, filtering, and analyzing time-series data. Designed specifically for engineers and scientists working with oscilloscope captures, sensor logs, and noisy datasets.
+Signal Forge is a high-performance, client-side application for visualizing, filtering, and analyzing time-series data. Designed specifically for engineers and scientists working with oscilloscope captures, sensor logs, and noisy datasets.
 
 **Current Version:** 6.0
 
