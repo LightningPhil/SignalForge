@@ -1,10 +1,3 @@
-Here is a comprehensive `README.md` file for your project. It covers installation, usage, internal architecture, and detailed explanations of the mathematical and filtering algorithms.
-
-You can save this as `README.md` in the root of your project folder.
-
-***
-
-```markdown
 # Signal Forge
 
 Signal Forge is a high-performance, client-side application for visualizing, filtering, and analyzing time-series data. Designed specifically for engineers and scientists working with oscilloscope captures, sensor logs, and noisy datasets.
@@ -161,4 +154,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
