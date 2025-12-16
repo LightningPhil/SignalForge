@@ -22,6 +22,11 @@ function updateTabsOverflowState() {
     const hasOverflow = tabViewport.scrollWidth > tabViewport.clientWidth + 1;
     tabsWrapper.classList.toggle('no-tab-overflow', !hasOverflow);
 
+    if (!hasOverflow) {
+        tabViewport.scrollLeft = 0;
+        tabsScrollbar.scrollLeft = 0;
+    }
+
     if (!isSyncingScroll) {
         const scrollLeft = tabViewport.scrollLeft;
         if (tabsScrollbar.scrollLeft !== scrollLeft) {
