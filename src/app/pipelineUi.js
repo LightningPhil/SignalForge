@@ -43,7 +43,8 @@ const {
     grpFreq,
     grpSlope,
     grpQ,
-    grpBW
+    grpBW,
+    chkSyncTabs
 } = elements;
 
 function getNumericValue(inputEl) {
@@ -119,6 +120,8 @@ function updateParamsFromUI() {
 function renderPipelineList() {
     if (!pipelineList) return;
     pipelineList.innerHTML = '';
+
+    if (chkSyncTabs) chkSyncTabs.checked = State.isGlobalScope();
 
     const pipeline = State.getPipeline();
 

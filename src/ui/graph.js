@@ -162,8 +162,11 @@ export const Graph = {
         return selected;
     },
 
-    render(rawX, rawY, filteredY = null, range = null) {
+    render(rawX, rawY, filteredY = null, range = null, options = {}) {
         if (!rawX || rawX.length === 0) return;
+
+        const isMath = options.isMath || !!State.getMathDefinition(State.data.dataColumn);
+        const seriesName = options.seriesName || State.data.dataColumn || 'Series';
 
         const composerTrace = getComposerTrace(State.ui.activeMultiViewId || null, State.data.dataColumn);
         const { adjustedRawY, adjustedFilteredY } = applyComposerOffsets(rawY, filteredY, composerTrace);
@@ -172,9 +175,9 @@ export const Graph = {
 
         // --- Mode Switching ---
         if (config.showFreqDomain) {
-            this.renderFreqDomain(rawX, adjustedRawY, adjustedFilteredY);
+            this.renderFreqDomain(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, { isMath, seriesName });
         } else {
-            this.renderTimeDomain(rawX, adjustedRawY, adjustedFilteredY, range);
+            this.renderTimeDomain(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, range, { isMath, seriesName });
         }
     },
 
@@ -211,6 +214,7 @@ export const Graph = {
         seriesList.forEach((series) => {
             if (!series || !series.rawY || series.rawY.length === 0) return;
             const name = series.columnId || 'Series';
+            const isMathSeries = !!series.isMath;
             let seriesX = rawX;
             let seriesY = series.rawY;
             let seriesF = series.filteredY || [];
@@ -238,41 +242,56 @@ export const Graph = {
                 seriesX = sampledRaw.map(p => p[0]);
                 seriesY = sampledRaw.map(p => p[1]);
 
-                if (seriesF.length > 0) {
+                if (!isMathSeries && seriesF.length > 0) {
                     const zippedF = originalX.map((x, i) => [x, seriesF[i]]);
                     const sampledF = lttb(zippedF, config.maxDisplayPoints);
                     seriesF = sampledF.map(p => p[1]);
                 }
             }
 
-            if (showRaw) {
+            if (isMathSeries) {
                 traces.push({
-                    x: seriesX, y: seriesY, mode: 'lines', name: `${name} (Raw)`,
-                    line: { width: 1 }, xaxis: 'x', yaxis: 'y'
-                });
-            }
-
-            if (seriesF && seriesF.length > 0) {
-                traces.push({
-                    x: seriesX, y: seriesF, mode: 'lines', name: `${name} (Filtered)`,
+                    x: seriesX, y: seriesY, mode: 'lines', name: name,
                     line: { width: 2 }, xaxis: 'x', yaxis: 'y'
                 });
-            }
 
-            if (showDiff) {
-                if (showRaw) {
-                    const dRaw = this.calculateDerivative(seriesX, seriesY);
+                if (showDiff) {
+                    const dMath = this.calculateDerivative(seriesX, seriesY);
                     traces.push({
-                        x: seriesX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
-                        line: { width: 1 }, xaxis: 'x', yaxis: 'y2'
-                    });
-                }
-                if (seriesF && seriesF.length > 0) {
-                    const dF = this.calculateDerivative(seriesX, seriesF);
-                    traces.push({
-                        x: seriesX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
+                        x: seriesX, y: dMath, mode: 'lines', name: `${name} Deriv.`,
                         line: { width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                     });
+                }
+            } else {
+                if (showRaw) {
+                    traces.push({
+                        x: seriesX, y: seriesY, mode: 'lines', name: `${name} (Raw)`,
+                        line: { width: 1 }, xaxis: 'x', yaxis: 'y'
+                    });
+                }
+
+                if (seriesF && seriesF.length > 0) {
+                    traces.push({
+                        x: seriesX, y: seriesF, mode: 'lines', name: `${name} (Filtered)`,
+                        line: { width: 2 }, xaxis: 'x', yaxis: 'y'
+                    });
+                }
+
+                if (showDiff) {
+                    if (showRaw) {
+                        const dRaw = this.calculateDerivative(seriesX, seriesY);
+                        traces.push({
+                            x: seriesX, y: dRaw, mode: 'lines', name: `${name} Raw Deriv.`,
+                            line: { width: 1 }, xaxis: 'x', yaxis: 'y2'
+                        });
+                    }
+                    if (seriesF && seriesF.length > 0) {
+                        const dF = this.calculateDerivative(seriesX, seriesF);
+                        traces.push({
+                            x: seriesX, y: dF, mode: 'lines', name: `${name} Filt. Deriv.`,
+                            line: { width: 1.5 }, xaxis: 'x', yaxis: 'y2'
+                        });
+                    }
                 }
             }
         });
@@ -335,10 +354,11 @@ export const Graph = {
     },
 
     // --- Frequency Domain Renderer ---
-    renderFreqDomain(timeX, rawY, filteredY) {
+    renderFreqDomain(timeX, rawY, filteredY, options = {}) {
         const config = State.config.graph;
         const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+        const { isMath = false, seriesName = 'Series' } = options || {};
 
         // 1. Calculate Sampling Rate (Fs) from current view
         // Use average delta of timeX
@@ -362,22 +382,22 @@ export const Graph = {
 
         const traces = [];
 
-        // Trace 1: Raw Spectrum
-        if (config.showRaw !== false) {
+        const showRawSpectrum = isMath ? true : (config.showRaw !== false);
+
+        if (showRawSpectrum) {
             traces.push({
                 x: freqAxis,
                 y: rawMag,
                 mode: 'lines',
-                name: 'Raw Spectrum',
-                line: { color: this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: 1 }
+                name: isMath ? `${seriesName} Spectrum` : 'Raw Spectrum',
+                line: { color: isMath ? colors.filtered : this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: isMath ? 2 : 1 }
             });
         }
 
-        // Trace 2: Filtered Spectrum
-        if (filteredY) {
+        if (!isMath && filteredY) {
             const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
             const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
-            
+
             traces.push({
                 x: freqAxis, // Assumes same length
                 y: filtMag,
@@ -461,7 +481,7 @@ export const Graph = {
         const traces = [];
 
         seriesList.forEach((series) => {
-            const { rawY, filteredY, columnId } = series;
+            const { rawY, filteredY, columnId, isMath } = series;
             if (!rawY || rawY.length === 0) return;
 
             const { re: rawRe, im: rawIm } = FFT.forward(rawY);
@@ -471,26 +491,36 @@ export const Graph = {
             const binWidth = (fs/2) / rawMag.length;
             for(let i=0; i<rawMag.length; i++) freqAxis.push(i * binWidth);
 
-            if (config.showRaw !== false) {
+            if (isMath) {
                 traces.push({
                     x: freqAxis,
                     y: rawMag,
                     mode: 'lines',
-                    name: `${columnId} Raw Spectrum`,
-                    line: { width: 1 }
+                    name: `${columnId} Spectrum`,
+                    line: { width: 2 }
                 });
-            }
+            } else {
+                if (config.showRaw !== false) {
+                    traces.push({
+                        x: freqAxis,
+                        y: rawMag,
+                        mode: 'lines',
+                        name: `${columnId} Raw Spectrum`,
+                        line: { width: 1 }
+                    });
+                }
 
-            if (filteredY && filteredY.length > 0) {
-                const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
-                const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
-                traces.push({
-                    x: freqAxis,
-                    y: filtMag,
-                    mode: 'lines',
-                    name: `${columnId} Filtered Spectrum`,
-                    line: { width: 1.5 }
-                });
+                if (filteredY && filteredY.length > 0) {
+                    const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
+                    const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
+                    traces.push({
+                        x: freqAxis,
+                        y: filtMag,
+                        mode: 'lines',
+                        name: `${columnId} Filtered Spectrum`,
+                        line: { width: 1.5 }
+                    });
+                }
             }
         });
 
@@ -511,10 +541,11 @@ export const Graph = {
     },
 
     // --- Time Domain Renderer (Existing Logic) ---
-    renderTimeDomain(rawX, rawY, filteredY, range) {
+    renderTimeDomain(rawX, rawY, filteredY, range, options = {}) {
         const config = State.config.graph;
         const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+        const { isMath = false, seriesName = 'Series' } = options || {};
 
         const showDiff = config.showDifferential;
         const showRaw = (config.showRaw !== false);
@@ -564,7 +595,7 @@ export const Graph = {
             displayX = sampledRaw.map(p => p[0]);
             displayY = sampledRaw.map(p => p[1]);
 
-            if (filteredY && displayF.length > 0) {
+            if (!isMath && filteredY && displayF.length > 0) {
                 const zippedF = originalX.map((x, i) => [x, displayF[i]]);
                 const sampledF = lttb(zippedF, config.maxDisplayPoints);
                 displayF = sampledF.map(p => p[1]);
@@ -577,34 +608,49 @@ export const Graph = {
         const diffRawColor = colors.diffRaw || colors.raw;
         const diffFiltColor = colors.diffFilt || colors.filtered;
 
-        if (showRaw) {
+        if (isMath) {
             traces.push({
-                x: displayX, y: displayY, mode: 'lines', name: 'Raw Data',
-                line: { color: rawColor, width: 1 }, xaxis: 'x', yaxis: 'y'
-            });
-        }
-
-        if (filteredY && displayF.length > 0) {
-            traces.push({
-                x: displayX, y: displayF, mode: 'lines', name: 'Filtered',
+                x: displayX, y: displayY, mode: 'lines', name: seriesName,
                 line: { color: filtColor, width: 2 }, xaxis: 'x', yaxis: 'y'
             });
-        }
 
-        if (showDiff) {
-            if (showRaw) {
-                const dRaw = this.calculateDerivative(displayX, displayY);
+            if (showDiff) {
+                const dMath = this.calculateDerivative(displayX, displayY);
                 traces.push({
-                    x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
-                    line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
-                });
-            }
-            if (filteredY && displayF.length > 0) {
-                const dF = this.calculateDerivative(displayX, displayF);
-                traces.push({
-                    x: displayX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
+                    x: displayX, y: dMath, mode: 'lines', name: `${seriesName} Deriv.`,
                     line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                 });
+            }
+        } else {
+            if (showRaw) {
+                traces.push({
+                    x: displayX, y: displayY, mode: 'lines', name: 'Raw Data',
+                    line: { color: rawColor, width: 1 }, xaxis: 'x', yaxis: 'y'
+                });
+            }
+
+            if (filteredY && displayF.length > 0) {
+                traces.push({
+                    x: displayX, y: displayF, mode: 'lines', name: 'Filtered',
+                    line: { color: filtColor, width: 2 }, xaxis: 'x', yaxis: 'y'
+                });
+            }
+
+            if (showDiff) {
+                if (showRaw) {
+                    const dRaw = this.calculateDerivative(displayX, displayY);
+                    traces.push({
+                        x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
+                        line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
+                    });
+                }
+                if (filteredY && displayF.length > 0) {
+                    const dF = this.calculateDerivative(displayX, displayF);
+                    traces.push({
+                        x: displayX, y: dF, mode: 'lines', name: 'Filt. Deriv.',
+                        line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
+                    });
+                }
             }
         }
 
@@ -726,8 +772,12 @@ export const Graph = {
         const rawY = State.data.raw.map(r => parseFloat(r[yCol]));
 
         const filteredY = State.data.processed.length > 0 ? State.data.processed : null;
+        const isMath = !!State.getMathDefinition(yCol);
 
-        this.render(rawX, rawY, filteredY, this.lastRanges.x || this.lastRanges.y ? this.lastRanges : range);
+        this.render(rawX, rawY, isMath ? null : filteredY, this.lastRanges.x || this.lastRanges.y ? this.lastRanges : range, {
+            isMath,
+            seriesName: yCol
+        });
     },
 
     getSeriesForColumn(columnId, rawX) {
@@ -740,6 +790,7 @@ export const Graph = {
             const result = MathEngine.calculateVirtualColumn(mathDef, rawX);
             rawY = result.values;
             time = result.time.length ? result.time : rawX.slice(0, rawY.length);
+            return { columnId, rawY, filteredY: null, time, isMath: true };
         } else if (State.data.headers.includes(columnId)) {
             rawY = State.data.raw.map((r) => parseFloat(r[columnId]));
             time = rawX.slice(0, rawY.length);
@@ -750,7 +801,7 @@ export const Graph = {
         const pipeline = State.getPipelineForColumn(columnId);
         const filteredY = Filter.applyPipeline(rawY, time, pipeline);
 
-        return { columnId, rawY, filteredY, time };
+        return { columnId, rawY, filteredY, time, isMath: false };
     },
 
     renderMultiViewFromState(range = null) {
@@ -780,8 +831,9 @@ export const Graph = {
                 return {
                     columnId: col,
                     rawY: aligned.adjustedRawY,
-                    filteredY: aligned.adjustedFilteredY,
-                    time: series.time
+                    filteredY: series.isMath ? null : aligned.adjustedFilteredY,
+                    time: series.time,
+                    isMath: series.isMath
                 };
             })
             .filter(Boolean);

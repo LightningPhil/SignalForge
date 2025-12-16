@@ -10,7 +10,20 @@ import { createModal } from '../ui/uiHelpers.js';
 function showPipelinePanels() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
     if (pipelinePanel) pipelinePanel.style.display = '';
+    if (elements.pipelineList) elements.pipelineList.style.display = '';
+    if (elements.pipelineActions) elements.pipelineActions.style.display = '';
+    if (elements.mathTraceNote) elements.mathTraceNote.style.display = 'none';
     if (elements.paramPanel) elements.paramPanel.style.display = '';
+    if (elements.traceSelectorPanel) elements.traceSelectorPanel.style.display = 'none';
+}
+
+function showMathPipelineNotice() {
+    const pipelinePanel = elements.pipelineList?.closest('.panel');
+    if (pipelinePanel) pipelinePanel.style.display = '';
+    if (elements.pipelineList) elements.pipelineList.style.display = 'none';
+    if (elements.pipelineActions) elements.pipelineActions.style.display = 'none';
+    if (elements.paramPanel) elements.paramPanel.style.display = 'none';
+    if (elements.mathTraceNote) elements.mathTraceNote.style.display = '';
     if (elements.traceSelectorPanel) elements.traceSelectorPanel.style.display = 'none';
 }
 
@@ -101,13 +114,19 @@ function renderColumnTabs() {
             State.data.dataColumn = tab.getAttribute('data-col');
             State.syncComposerForView(null, [State.data.dataColumn].filter(Boolean));
 
+            const isMath = !!State.getMathDefinition(State.data.dataColumn);
+
             const pipeline = State.getPipeline();
             const selectionExists = pipeline.some((s) => s.id === State.ui.selectedStepId);
             if (!selectionExists) {
                 State.ui.selectedStepId = pipeline[0]?.id || null;
             }
 
-            showPipelinePanels();
+            if (isMath) {
+                showMathPipelineNotice();
+            } else {
+                showPipelinePanels();
+            }
             renderPipelineList();
             updateParamEditor();
             renderComposerPanel();

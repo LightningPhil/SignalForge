@@ -8,6 +8,8 @@ export const elements = {
     btnThemeToggle: document.getElementById('btn-theme-toggle'),
 
     pipelineList: document.getElementById('pipeline-list'),
+    pipelineActions: document.querySelector('.pipeline-actions'),
+    mathTraceNote: document.getElementById('math-trace-note'),
     btnAddStep: document.getElementById('btn-add-step'),
     btnRemoveStep: document.getElementById('btn-remove-step'),
     btnMoveUp: document.getElementById('btn-move-up'),
