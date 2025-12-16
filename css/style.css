@@ -24,6 +24,8 @@
     --plot-bg: #1e1e1e;
     --plot-grid: #333;
     --panel-shadow: 0 18px 30px rgba(0,0,0,0.35);
+    --tab-height: 35px;
+    --tabs-scrollbar-height: 12px;
 }
 
 :root[data-theme="light"] {
@@ -52,6 +54,8 @@
     --plot-bg: #ffffff;
     --plot-grid: #d7deea;
     --panel-shadow: 0 16px 30px rgba(15,23,42,0.14);
+    --tab-height: 35px;
+    --tabs-scrollbar-height: 12px;
 }
 
 * { box-sizing: border-box; }
@@ -266,8 +270,65 @@ button.primary:hover { background-color: var(--accent-hover); }
     flex: 1; display: flex; flex-direction: column; background-color: var(--bg-app); position: relative; min-width: 0;
 }
 
+.tabs-wrapper {
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-tabs);
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: var(--tabs-shadow);
+    min-width: 0;
+}
+
+.tabs-row {
+    display: flex;
+    align-items: stretch;
+    height: var(--tab-height);
+    min-height: var(--tab-height);
+    min-width: 0;
+}
+
+.tabs-viewport {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: var(--tab-height);
+    scrollbar-width: none;
+}
+
+.tabs-viewport::-webkit-scrollbar {
+    height: 0;
+}
+
+.tabs-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    height: var(--tab-height);
+    min-width: max-content;
+}
+
+.tabs-scrollbar {
+    height: var(--tabs-scrollbar-height);
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--bg-tabs);
+    min-width: 0;
+}
+
+.tabs-scrollbar-spacer {
+    height: 1px;
+}
+
+.tabs-wrapper.no-tab-overflow .tabs-scrollbar {
+    display: none;
+}
+
 .tabs-container {
-    display: flex; background-color: var(--bg-tabs); border-bottom: 1px solid var(--border-color); overflow-x: auto; white-space: nowrap; height: 35px; scrollbar-width: thin; scrollbar-color: #555 #222; min-width: 0;
+    display: flex;
+    background-color: var(--bg-tabs);
+    border-bottom: 1px solid var(--border-color);
     box-shadow: var(--tabs-shadow);
 }
 
@@ -285,9 +346,14 @@ button.primary:hover { background-color: var(--accent-hover); }
     flex: 1 1 180px;
     min-width: 80px;
     max-width: 220px;
-    height: 35px;
+    height: var(--tab-height);
     overflow: hidden;
     white-space: nowrap;
+}
+
+button.tab.add-tab {
+    flex: 0 0 auto;
+    height: var(--tab-height);
 }
 .tab:hover { background-color: var(--button-hover); color: var(--text-main); }
 .tab.active { background-color: var(--tab-active-bg); color: var(--text-main); font-weight: bold; border-bottom: 2px solid var(--accent); }

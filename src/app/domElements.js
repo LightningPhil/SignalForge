@@ -65,6 +65,10 @@ export const elements = {
     liveStatus: document.getElementById('live-status'),
 
     tabContainer: document.getElementById('column-tabs'),
+    tabViewport: document.getElementById('tabs-scroll-viewport'),
+    tabsWrapper: document.getElementById('tabs-wrapper'),
+    tabsScrollbar: document.getElementById('tabs-scrollbar'),
+    tabsScrollbarSpacer: document.getElementById('tabs-scrollbar-spacer'),
     btnAddMultiView: document.getElementById('btn-add-multiview'),
     chkSyncTabs: document.getElementById('chk-sync-tabs'),
     traceSelectorPanel: document.getElementById('trace-selector-panel'),
