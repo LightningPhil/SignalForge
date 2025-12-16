@@ -19,12 +19,13 @@ function showPipelinePanels() {
 
 function showMathPipelineNotice() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
-    if (pipelinePanel) pipelinePanel.style.display = '';
+    if (pipelinePanel) pipelinePanel.style.display = 'none';
     if (elements.pipelineList) elements.pipelineList.style.display = 'none';
     if (elements.pipelineActions) elements.pipelineActions.style.display = 'none';
     if (elements.paramPanel) elements.paramPanel.style.display = 'none';
-    if (elements.mathTraceNote) elements.mathTraceNote.style.display = '';
+    if (elements.mathTraceNote) elements.mathTraceNote.style.display = 'none';
     if (elements.traceSelectorPanel) elements.traceSelectorPanel.style.display = 'none';
+    if (elements.composerPanel) elements.composerPanel.style.display = 'none';
 }
 
 function renderTraceSelector(view) {
