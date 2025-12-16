@@ -91,7 +91,9 @@ export const SettingsManager = {
                 columnPipelines: newConfig.columnPipelines || {},
                 pipelineScope: newConfig.pipelineScope !== undefined
                     ? newConfig.pipelineScope
-                    : true
+                    : State.config.pipelineScope !== undefined
+                        ? State.config.pipelineScope
+                        : true
             };
 
             State.config = merged;
