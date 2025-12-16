@@ -36,8 +36,13 @@ export const Exporter = {
         // 1. Identify Numeric Columns to Filter
         const numericCols = headers.filter(h => {
             if (h === xCol) return false;
-            const val = rawData[0][h];
-            return !isNaN(parseFloat(val));
+
+            return rawData.some(row => {
+                const val = row[h];
+                if (val === undefined || val === null) return false;
+                const parsed = parseFloat(val);
+                return Number.isFinite(parsed);
+            });
         });
 
         const rawTime = rawData.map((r) => parseFloat(r[xCol]));

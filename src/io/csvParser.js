@@ -11,12 +11,12 @@ export const CsvParser = {
         
         reader.onload = (e) => {
             const text = e.target.result;
-            const lines = text.split('\n').slice(0, 50); 
+            const lines = text.split('\n');
             this.showHeaderSelector(file, lines, onComplete);
         };
-        
-        // Read only the beginning of the file for the preview
-        reader.readAsText(file.slice(0, 1024 * 5)); 
+
+        // Read the full file so headers buried behind metadata remain selectable
+        reader.readAsText(file);
     },
 
     showHeaderSelector(file, lines, onComplete) {
