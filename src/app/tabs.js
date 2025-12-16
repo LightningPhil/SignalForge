@@ -8,6 +8,55 @@ import { showMathModal } from './mathModal.js';
 import { createModal } from '../ui/uiHelpers.js';
 import { Graph } from '../ui/graph.js';
 
+let tabsScrollInit = false;
+let isSyncingScroll = false;
+let tabsResizeObserver = null;
+
+function updateTabsOverflowState() {
+    const { tabViewport, tabContainer, tabsWrapper, tabsScrollbarSpacer, tabsScrollbar } = elements;
+    if (!tabViewport || !tabContainer || !tabsWrapper || !tabsScrollbarSpacer || !tabsScrollbar) return;
+
+    const contentWidth = tabContainer.scrollWidth;
+    tabsScrollbarSpacer.style.width = `${contentWidth}px`;
+
+    const hasOverflow = tabViewport.scrollWidth > tabViewport.clientWidth + 1;
+    tabsWrapper.classList.toggle('no-tab-overflow', !hasOverflow);
+
+    if (!isSyncingScroll) {
+        const scrollLeft = tabViewport.scrollLeft;
+        if (tabsScrollbar.scrollLeft !== scrollLeft) {
+            tabsScrollbar.scrollLeft = scrollLeft;
+        }
+    }
+}
+
+function initTabsScrolling() {
+    if (tabsScrollInit) return;
+    tabsScrollInit = true;
+
+    const { tabViewport, tabsScrollbar, tabContainer } = elements;
+    if (!tabViewport || !tabsScrollbar) return;
+
+    tabViewport.addEventListener('scroll', () => {
+        if (isSyncingScroll) return;
+        isSyncingScroll = true;
+        tabsScrollbar.scrollLeft = tabViewport.scrollLeft;
+        isSyncingScroll = false;
+    });
+
+    tabsScrollbar.addEventListener('scroll', () => {
+        if (isSyncingScroll) return;
+        isSyncingScroll = true;
+        tabViewport.scrollLeft = tabsScrollbar.scrollLeft;
+        isSyncingScroll = false;
+    });
+
+    tabsResizeObserver = new ResizeObserver(() => updateTabsOverflowState());
+    if (tabContainer) tabsResizeObserver.observe(tabContainer);
+    tabsResizeObserver.observe(tabViewport);
+    window.addEventListener('resize', updateTabsOverflowState, { passive: true });
+}
+
 function showPipelinePanels() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
     if (pipelinePanel) pipelinePanel.style.display = '';
@@ -145,6 +194,8 @@ function renderColumnTabs() {
     const { tabContainer, btnAddMultiView } = elements;
     if (!tabContainer) return;
 
+    initTabsScrolling();
+
     const headers = State.data.headers || [];
     const xCol = State.data.timeColumn;
     const activeCol = State.data.dataColumn;
@@ -189,6 +240,7 @@ function renderColumnTabs() {
             mvTabs.forEach((t) => t.classList.remove('active'));
             tab.classList.add('active');
             activateTab({ columnId: tab.getAttribute('data-col') });
+            tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         });
     });
 
@@ -216,6 +268,7 @@ function renderColumnTabs() {
             tabs.forEach((t) => t.classList.remove('active'));
             tab.classList.add('active');
             activateTab({ multiViewId: viewId });
+            tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         });
     });
 
@@ -289,6 +342,10 @@ function renderColumnTabs() {
     }
 
     renderComposerPanel();
+
+    const activeTab = tabContainer.querySelector('.tab.active');
+    activeTab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    updateTabsOverflowState();
 }
 
 export { renderColumnTabs, activateTab };
