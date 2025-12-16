@@ -209,7 +209,7 @@
 
 .math-row {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: 1fr 0.8fr 0.9fr 0.9fr auto;
     gap: 8px;
     align-items: center;
 }
@@ -217,6 +217,11 @@
 .math-row select,
 .math-row input {
     width: 100%;
+}
+
+.math-shift-toggle {
+    justify-content: flex-start;
+    gap: 6px;
 }
 
 .math-label {

@@ -52,6 +52,9 @@
                         <button id="btn-move-up" title="Move Up">⬆️</button>
                         <button id="btn-move-down" title="Move Down">⬇️</button>
                     </div>
+                    <div id="math-trace-note" class="hint" style="display:none; margin-top:8px;">
+                        Math traces don’t have their own filter pipeline. Apply filtering in the source waveform tab(s) first.
+                    </div>
                 </div>
 
                 <div class="panel" id="trace-selector-panel" style="display:none;">
@@ -204,11 +207,28 @@
             </aside>
 
             <section class="graph-container">
-                <div class="tabs-container" id="tabs-wrapper">
-                    <div id="column-tabs" class="tabs-container">
-                        <div class="tab-placeholder">Load data to see columns</div>
+                <div id="tabs-wrapper" class="tabs-wrapper">
+                    <div class="tabs-row">
+                        <div id="tabs-scroll-viewport" class="tabs-viewport" aria-label="Trace tabs">
+                            <div id="column-tabs" class="tabs-strip">
+                                <div class="tab-placeholder">Load data to see columns</div>
+                            </div>
+                        </div>
+
+                        <button
+                            id="btn-add-multiview"
+                            class="tabs-add"
+                            title="Add Multi-View or Math Trace"
+                            aria-label="Add Multi-View or Math Trace"
+                            type="button"
+                        >+</button>
                     </div>
-                    <button id="btn-add-multiview" class="tab add-tab" title="Add Multi-View or Math Trace" aria-label="Add Multi-View or Math Trace">➕</button>
+
+                    <div id="tabs-scrollbar" class="tabs-scrollbar" aria-hidden="true">
+                        <div id="tabs-scrollbar-spacer" class="tabs-scrollbar-spacer"></div>
+                    </div>
+
+                    <div class="tabs-scrollbar-filler" aria-hidden="true"></div>
                 </div>
 
                 <div class="graph-toolbar">

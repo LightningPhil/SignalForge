@@ -144,8 +144,7 @@ function setupEventListeners() {
             const headers = State.data.headers || [];
             const xCol = State.data.timeColumn;
             const yCols = headers.filter((h) => h !== xCol);
-            const mathCols = MathEngine.getAvailableMathColumns();
-            return [...new Set([...yCols, ...mathCols])];
+            return [...new Set([...yCols])];
         })();
 
         if (wantsSync) {
@@ -158,6 +157,8 @@ function setupEventListeners() {
         } else {
             State.setPipelineScope(false, allColumns);
         }
+
+        chkSyncTabs.checked = State.isGlobalScope();
 
         const activePipeline = State.getPipeline();
         State.ui.selectedStepId = activePipeline[0]?.id || null;
