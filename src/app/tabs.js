@@ -6,6 +6,7 @@ import { renderPipelineList, updateParamEditor } from './pipelineUi.js';
 import { renderComposerPanel } from './composerUi.js';
 import { showMathModal } from './mathModal.js';
 import { createModal } from '../ui/uiHelpers.js';
+import { Graph } from '../ui/graph.js';
 
 function showPipelinePanels() {
     const pipelinePanel = elements.pipelineList?.closest('.panel');
@@ -23,7 +24,7 @@ function showMathPipelineNotice() {
     if (elements.pipelineList) elements.pipelineList.style.display = 'none';
     if (elements.pipelineActions) elements.pipelineActions.style.display = 'none';
     if (elements.paramPanel) elements.paramPanel.style.display = 'none';
-    if (elements.mathTraceNote) elements.mathTraceNote.style.display = 'none';
+    if (elements.mathTraceNote) elements.mathTraceNote.style.display = '';
     if (elements.traceSelectorPanel) elements.traceSelectorPanel.style.display = 'none';
     if (elements.composerPanel) elements.composerPanel.style.display = 'none';
 }
@@ -66,6 +67,80 @@ function renderTraceSelector(view) {
     });
 }
 
+function getRightMostTabTarget() {
+    const headers = State.data.headers || [];
+    const xCol = State.data.timeColumn;
+    const yCols = headers.filter((h) => h !== xCol);
+    const virtualCols = MathEngine.getAvailableMathColumns();
+
+    if (State.multiViews.length > 0) {
+        const lastView = State.multiViews[State.multiViews.length - 1];
+        return { columnId: null, multiViewId: lastView.id };
+    }
+
+    if (virtualCols.length > 0) {
+        const lastVirtual = virtualCols[virtualCols.length - 1];
+        return { columnId: lastVirtual, multiViewId: null };
+    }
+
+    if (yCols.length > 0) {
+        const lastRaw = yCols[yCols.length - 1];
+        return { columnId: lastRaw, multiViewId: null };
+    }
+
+    return null;
+}
+
+function activateTab({ columnId = null, multiViewId = null } = {}) {
+    const headers = State.data.headers || [];
+    const xCol = State.data.timeColumn;
+    const yCols = headers.filter((h) => h !== xCol);
+    const rangeKey = State.getViewKeyFor(columnId, multiViewId);
+
+    if (multiViewId) {
+        const view = State.multiViews.find((v) => v.id === multiViewId);
+        if (!view) return;
+        State.ui.activeMultiViewId = multiViewId;
+        State.syncComposerForView(view.id, view.activeColumnIds);
+        renderTraceSelector(view);
+    } else if (columnId) {
+        if (!yCols.includes(columnId) && !MathEngine.getAvailableMathColumns().includes(columnId)) return;
+        State.ui.activeMultiViewId = null;
+        State.data.dataColumn = columnId;
+        State.syncComposerForView(null, [State.data.dataColumn].filter(Boolean));
+
+        if (State.getMathDefinition(columnId)) {
+            showMathPipelineNotice();
+        } else {
+            showPipelinePanels();
+        }
+    }
+
+    const pipeline = State.getPipeline();
+    const selectionExists = pipeline.some((s) => s.id === State.ui.selectedStepId);
+    if (!selectionExists) {
+        State.ui.selectedStepId = pipeline[0]?.id || null;
+    }
+
+    renderPipelineList();
+    updateParamEditor();
+    renderComposerPanel();
+
+    const activeKey = rangeKey || State.getActiveViewKey();
+    const savedRange = activeKey ? State.getViewRangeForKey(activeKey) : undefined;
+    const rangeToApply = savedRange === undefined ? null : savedRange;
+
+    if (savedRange === null) {
+        Graph.lastRanges = { x: null, y: null };
+    } else if (savedRange) {
+        Graph.lastRanges = { x: savedRange.x ?? null, y: savedRange.y ?? null };
+    } else {
+        Graph.lastRanges = { x: null, y: null };
+    }
+
+    runPipelineAndRender(rangeToApply);
+}
+
 function renderColumnTabs() {
     const { tabContainer, btnAddMultiView } = elements;
     if (!tabContainer) return;
@@ -83,86 +158,64 @@ function renderColumnTabs() {
     yCols.forEach((col) => {
         const isActive = (!activeMulti && col === activeCol) ? 'active' : '';
         const safeCol = col.replace(/"/g, '&quot;');
-        html += `<div class="tab ${isActive}" data-col="${safeCol}">${safeCol}</div>`;
+        html += `<div class="tab ${isActive}" data-col="${safeCol}" title="${safeCol}"><span class="tab-label">${safeCol}</span></div>`;
     });
 
     if (virtualCols.length > 0) {
-        html += '<div style="border-left:1px solid #555; width:1px; height:20px; margin:0 5px;"></div>';
+        html += '<div class="tab-sep"></div>';
         virtualCols.forEach((col) => {
             const isActive = (!activeMulti && col === activeCol) ? 'active' : '';
             const safeCol = col.replace(/"/g, '&quot;');
-            html += `<div class="tab virtual ${isActive}" data-col="${safeCol}">${safeCol}<span class="tab-edit" data-edit-math="${safeCol}" aria-label="Edit math trace">✎</span><span class="tab-close" data-remove-math="${safeCol}" aria-label="Remove math trace">×</span></div>`;
+            html += `<div class="tab virtual ${isActive}" data-col="${safeCol}" title="${safeCol}"><span class="tab-label">${safeCol}</span><span class="tab-edit" data-edit-math="${safeCol}" aria-label="Edit math trace">✎</span><span class="tab-close" data-remove-math="${safeCol}" aria-label="Remove math trace">×</span></div>`;
         });
     }
 
     if (State.multiViews.length > 0) {
-        html += '<div style="border-left:1px solid #555; width:1px; height:20px; margin:0 5px;"></div>';
+        html += '<div class="tab-sep"></div>';
         State.multiViews.forEach((view) => {
             const isActive = view.id === activeMulti ? 'active' : '';
             const safeName = view.name.replace(/"/g, '&quot;');
-            html += `<div class="tab multi ${isActive}" data-view="${view.id}">${safeName}<span class="tab-close" data-remove="${view.id}" aria-label="Remove multi-view tab">×</span></div>`;
+            html += `<div class="tab multi ${isActive}" data-view="${view.id}" title="${safeName}"><span class="tab-label">${safeName}</span><span class="tab-close" data-remove="${view.id}" aria-label="Remove multi-view tab">×</span></div>`;
         });
     }
 
     tabContainer.innerHTML = html || '<div class="tab-placeholder">Load data to see columns</div>';
 
     const tabs = tabContainer.querySelectorAll('.tab[data-col]');
+    const mvTabs = tabContainer.querySelectorAll('.tab[data-view]');
     tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
             tabs.forEach((t) => t.classList.remove('active'));
+            mvTabs.forEach((t) => t.classList.remove('active'));
             tab.classList.add('active');
-            State.ui.activeMultiViewId = null;
-            State.data.dataColumn = tab.getAttribute('data-col');
-            State.syncComposerForView(null, [State.data.dataColumn].filter(Boolean));
-
-            const isMath = !!State.getMathDefinition(State.data.dataColumn);
-
-            const pipeline = State.getPipeline();
-            const selectionExists = pipeline.some((s) => s.id === State.ui.selectedStepId);
-            if (!selectionExists) {
-                State.ui.selectedStepId = pipeline[0]?.id || null;
-            }
-
-            if (isMath) {
-                showMathPipelineNotice();
-            } else {
-                showPipelinePanels();
-            }
-            renderPipelineList();
-            updateParamEditor();
-            renderComposerPanel();
-            runPipelineAndRender();
+            activateTab({ columnId: tab.getAttribute('data-col') });
         });
     });
 
-    const mvTabs = tabContainer.querySelectorAll('.tab[data-view]');
     mvTabs.forEach((tab) => {
         const viewId = tab.getAttribute('data-view');
         const closeBtn = tab.querySelector('.tab-close');
         closeBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
             State.removeMultiView(viewId);
-            if (State.ui.activeMultiViewId === viewId) {
-                State.ui.activeMultiViewId = null;
+            const target = getRightMostTabTarget();
+            if (target) {
+                activateTab(target);
+            } else {
                 showPipelinePanels();
+                renderPipelineList();
+                updateParamEditor();
+                renderComposerPanel();
                 runPipelineAndRender();
             }
             renderColumnTabs();
-            renderComposerPanel();
         });
 
         tab.addEventListener('click', () => {
             mvTabs.forEach((t) => t.classList.remove('active'));
             tabs.forEach((t) => t.classList.remove('active'));
             tab.classList.add('active');
-            State.ui.activeMultiViewId = viewId;
-            const view = State.multiViews.find((v) => v.id === viewId);
-            if (view) {
-                State.syncComposerForView(viewId, view.activeColumnIds);
-                renderTraceSelector(view);
-                renderComposerPanel();
-                runPipelineAndRender();
-            }
+            activateTab({ multiViewId: viewId });
         });
     });
 
@@ -172,23 +225,19 @@ function renderColumnTabs() {
             e.stopPropagation();
             const mathName = btn.getAttribute('data-remove-math');
             State.removeMathDefinition(mathName);
-
-            const headers = State.data.headers || [];
-            const xCol = State.data.timeColumn;
-            const yCols = headers.filter((h) => h !== xCol);
-            const remainingVirtual = MathEngine.getAvailableMathColumns();
-            const fallback = State.data.dataColumn === mathName
-                ? (yCols[0] || remainingVirtual[0] || null)
-                : State.data.dataColumn;
-
-            State.data.dataColumn = fallback;
-            State.ui.activeMultiViewId = null;
-
+            const target = getRightMostTabTarget();
+            if (target) {
+                activateTab(target);
+            } else {
+                State.data.dataColumn = null;
+                State.ui.activeMultiViewId = null;
+                showPipelinePanels();
+                renderPipelineList();
+                updateParamEditor();
+                renderComposerPanel();
+                runPipelineAndRender();
+            }
             renderColumnTabs();
-            renderComposerPanel();
-            renderPipelineList();
-            updateParamEditor();
-            runPipelineAndRender();
         });
     });
 
@@ -227,11 +276,8 @@ function renderColumnTabs() {
             modal.querySelector('#btn-create-multiview')?.addEventListener('click', () => {
                 const defaultCol = activeCol || yCols[0] || virtualCols[0];
                 const view = State.addMultiView(null, defaultCol ? [defaultCol] : []);
-                State.ui.activeMultiViewId = view.id;
+                activateTab({ multiViewId: view.id });
                 renderColumnTabs();
-                renderTraceSelector(view);
-                renderComposerPanel();
-                runPipelineAndRender();
                 closeModal();
             });
 
@@ -245,4 +291,4 @@ function renderColumnTabs() {
     renderComposerPanel();
 }
 
-export { renderColumnTabs };
+export { renderColumnTabs, activateTab };

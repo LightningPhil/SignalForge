@@ -109,6 +109,9 @@ main {
 /* --- Sidebar --- */
 aside.controls {
     width: 300px;
+    flex: 0 0 300px;
+    min-width: 300px;
+    max-width: 300px;
     background-color: var(--bg-panel);
     padding: 15px;
     border-right: 1px solid var(--border-color);
@@ -260,23 +263,46 @@ button.primary:hover { background-color: var(--accent-hover); }
 
 /* --- Graph Area --- */
 .graph-container {
-    flex: 1; display: flex; flex-direction: column; background-color: var(--bg-app); position: relative;
+    flex: 1; display: flex; flex-direction: column; background-color: var(--bg-app); position: relative; min-width: 0;
 }
 
 .tabs-container {
-    display: flex; background-color: var(--bg-tabs); border-bottom: 1px solid var(--border-color); overflow-x: auto; white-space: nowrap; height: 35px; scrollbar-width: thin; scrollbar-color: #555 #222;
+    display: flex; background-color: var(--bg-tabs); border-bottom: 1px solid var(--border-color); overflow-x: auto; white-space: nowrap; height: 35px; scrollbar-width: thin; scrollbar-color: #555 #222; min-width: 0;
     box-shadow: var(--tabs-shadow);
 }
 
-.tab { 
-    padding: 0 15px; display: flex; align-items: center; cursor: pointer; border-right: 1px solid var(--border-color); font-size: 0.9rem; color: var(--text-muted); transition: background 0.2s, color 0.2s; user-select: none;
+.tab {
+    padding: 0 15px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    border-right: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    transition: background 0.2s, color 0.2s;
+    user-select: none;
+    flex: 1 1 180px;
+    min-width: 80px;
+    max-width: 220px;
+    height: 35px;
+    overflow: hidden;
+    white-space: nowrap;
 }
 .tab:hover { background-color: var(--button-hover); color: var(--text-main); }
 .tab.active { background-color: var(--tab-active-bg); color: var(--text-main); font-weight: bold; border-bottom: 2px solid var(--accent); }
 
+.tab-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .tab .tab-close,
 .tab .tab-edit {
-    margin-left: 8px;
+    margin-left: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -289,6 +315,7 @@ button.primary:hover { background-color: var(--accent-hover); }
     font-size: 0.75rem;
     line-height: 1;
     transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    flex: 0 0 auto;
 }
 
 .tab .tab-close:hover,
@@ -296,6 +323,13 @@ button.primary:hover { background-color: var(--accent-hover); }
     background: var(--button-hover);
     color: var(--text-main);
     border-color: var(--accent);
+}
+
+.tab-sep {
+    flex: 0 0 1px;
+    height: 20px;
+    margin: 0 5px;
+    border-left: 1px solid var(--border-color);
 }
 
 /* Virtual Tabs (Math Traces) */
