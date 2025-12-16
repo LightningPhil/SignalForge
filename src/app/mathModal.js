@@ -1,7 +1,7 @@
 import { createModal } from '../ui/uiHelpers.js';
 import { State } from '../state.js';
 import { MathEngine } from '../processing/math.js';
-import { renderColumnTabs } from './tabs.js';
+import { renderColumnTabs, activateTab } from './tabs.js';
 import { runPipelineAndRender } from './dataPipeline.js';
 import { HelpSystem } from '../ui/helpSystem.js';
 
@@ -215,13 +215,23 @@ function showMathModal(existingDef = null) {
             variables
         });
 
-        renderColumnTabs();
-        const shouldActivate = !existingDef || State.data.dataColumn === existingDef.name;
-        if (shouldActivate) {
+        if (!existingDef) {
             State.data.dataColumn = name;
             State.ui.activeMultiViewId = null;
+            activateTab({ columnId: name });
+            renderColumnTabs();
+            overlay.remove();
+            return;
         }
-        runPipelineAndRender();
+
+        if (!State.ui.activeMultiViewId && State.data.dataColumn === existingDef.name) {
+            activateTab({ columnId: name });
+        } else {
+            runPipelineAndRender();
+        }
+
+        renderColumnTabs();
+
         overlay.remove();
     });
 

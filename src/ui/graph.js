@@ -757,6 +757,18 @@ export const Graph = {
             };
         }
 
+        const activeKey = State.getActiveViewKey();
+        if (activeKey) {
+            if (range === null) {
+                State.setViewRangeForKey(activeKey, null);
+            } else {
+                State.setViewRangeForKey(activeKey, {
+                    x: this.lastRanges.x ?? null,
+                    y: this.lastRanges.y ?? null
+                });
+            }
+        }
+
         const xCol = State.data.timeColumn;
         if (!xCol) return;
 

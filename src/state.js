@@ -28,7 +28,8 @@ export const State = {
     // Runtime state
     ui: {
         selectedStepId: null,
-        activeMultiViewId: null
+        activeMultiViewId: null,
+        viewRanges: {}
     },
 
     // Methods
@@ -43,6 +44,7 @@ export const State = {
 
         this.multiViews = [];
         this.ui.activeMultiViewId = null;
+        this.ui.viewRanges = {};
 
         this.composer = { views: {} };
         this.traceConfigs = {};
@@ -83,6 +85,41 @@ export const State = {
 
     getActiveColumnId() {
         return this.data.dataColumn;
+    },
+
+    getViewKeyFor(columnId = null, multiViewId = null) {
+        if (multiViewId) return `mv:${multiViewId}`;
+        const col = columnId || this.data.dataColumn;
+        return col ? `col:${col}` : null;
+    },
+
+    getActiveViewKey() {
+        return this.getViewKeyFor(this.data.dataColumn, this.ui.activeMultiViewId);
+    },
+
+    setViewRangeForKey(key, range) {
+        if (!key) return;
+        if (!this.ui.viewRanges) this.ui.viewRanges = {};
+        if (range === undefined) return;
+        if (range === null) {
+            this.ui.viewRanges[key] = null;
+            return;
+        }
+        const nextRange = {
+            x: range.x ?? null,
+            y: range.y ?? null
+        };
+        this.ui.viewRanges[key] = nextRange;
+    },
+
+    getViewRangeForKey(key) {
+        if (!key || !this.ui.viewRanges) return undefined;
+        return this.ui.viewRanges[key];
+    },
+
+    clearViewRangeForKey(key) {
+        if (!key || !this.ui.viewRanges) return;
+        delete this.ui.viewRanges[key];
     },
 
     clonePipeline(pipeline) {
@@ -256,6 +293,7 @@ export const State = {
         if (this.ui.activeMultiViewId === id) {
             this.ui.activeMultiViewId = null;
         }
+        this.clearViewRangeForKey(this.getViewKeyFor(null, id));
         this.removeComposerView(id);
     },
 
@@ -357,6 +395,8 @@ export const State = {
         if (this.composer?.views && this.composer.views[name]) {
             delete this.composer.views[name];
         }
+
+        this.clearViewRangeForKey(this.getViewKeyFor(name, null));
 
         if (this.data.dataColumn === name) {
             this.data.dataColumn = null;
