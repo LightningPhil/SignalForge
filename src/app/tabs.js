@@ -77,7 +77,7 @@ function renderColumnTabs() {
         virtualCols.forEach((col) => {
             const isActive = (!activeMulti && col === activeCol) ? 'active' : '';
             const safeCol = col.replace(/"/g, '&quot;');
-            html += `<div class="tab virtual ${isActive}" data-col="${safeCol}">${safeCol}<span class="tab-close" data-remove-math="${safeCol}" aria-label="Remove math trace">×</span></div>`;
+            html += `<div class="tab virtual ${isActive}" data-col="${safeCol}">${safeCol}<span class="tab-edit" data-edit-math="${safeCol}" aria-label="Edit math trace">✎</span><span class="tab-close" data-remove-math="${safeCol}" aria-label="Remove math trace">×</span></div>`;
         });
     }
 
@@ -169,6 +169,17 @@ function renderColumnTabs() {
             renderPipelineList();
             updateParamEditor();
             runPipelineAndRender();
+        });
+    });
+
+    const mathEditButtons = tabContainer.querySelectorAll('.tab-edit[data-edit-math]');
+    mathEditButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const mathName = btn.getAttribute('data-edit-math');
+            const def = State.getMathDefinition(mathName);
+            if (!def) return;
+            showMathModal(def);
         });
     });
 

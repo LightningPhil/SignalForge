@@ -1,4 +1,5 @@
 import { State } from '../state.js';
+import { Filter, applyXOffset } from './filter.js';
 
 // Ensure math.js is available globally
 const mathLib = (typeof math !== 'undefined') ? math : null;
@@ -69,7 +70,7 @@ export const MathEngine = {
         const visitedWithCurrent = new Set(visited);
         if (def.name) visitedWithCurrent.add(def.name);
 
-        (def.variables || []).forEach(({ columnId, symbol }) => {
+        (def.variables || []).forEach(({ columnId, symbol, sourceMode, applyXOffset: applyShift }) => {
             const sym = (symbol || '').trim();
             if (!sym) {
                 errors.push('Each mapped column needs a symbol (e.g., V or I).');
@@ -81,7 +82,11 @@ export const MathEngine = {
                 return;
             }
 
-            const data = this.getColumnData(columnId, rawTime, visitedWithCurrent);
+            const mode = {
+                sourceMode: sourceMode ?? 'raw',
+                applyXOffset: applyShift ?? true
+            };
+            const data = this.resolveSeries(columnId, rawTime, mode, visitedWithCurrent);
             if (!data || data.length === 0) {
                 errors.push(`No numeric samples found for column "${columnId}" mapped to ${sym}.`);
                 return;
@@ -128,25 +133,55 @@ export const MathEngine = {
             return { ok: false, errors };
         }
 
+        const hasNonFinite = normalized.some((v) => !Number.isFinite(v));
+        if (hasNonFinite) {
+            errors.push('Expression produced non-finite values (NaN/Infinity). Check the inputs or guard against division by zero.');
+            return { ok: false, errors };
+        }
+
         return { ok: true, errors: [] };
     },
 
     getColumnData(columnId, rawTime, visited = new Set()) {
+        return this.resolveSeries(columnId, rawTime, { sourceMode: 'raw', applyXOffset: false }, visited);
+    },
+
+    resolveSeries(columnId, rawTime = [], mode = {}, visited = new Set()) {
         if (!columnId) return [];
+
+        const { sourceMode = 'raw', applyXOffset: applyShift = true } = mode;
+
         if (visited.has(columnId)) {
             console.warn(`Circular math reference detected for ${columnId}.`);
             return [];
         }
 
+        const visitedWithCurrent = new Set(visited);
+        visitedWithCurrent.add(columnId);
+
         const mathDef = State.getMathDefinition(columnId);
+        let series = [];
+
         if (mathDef) {
-            visited.add(columnId);
-            const result = this.calculateVirtualColumn(mathDef, rawTime, visited);
-            return result.values;
+            const result = this.calculateVirtualColumn(mathDef, rawTime, visitedWithCurrent);
+            series = result.values || [];
+        } else if (State.data.headers.includes(columnId)) {
+            series = State.data.raw.map((r) => parseFloat(r[columnId]));
         }
 
-        if (!State.data.headers.includes(columnId)) return [];
-        return State.data.raw.map((r) => parseFloat(r[columnId]));
+        if (!Array.isArray(series)) series = [];
+
+        if (sourceMode === 'filtered') {
+            const pipeline = State.getPipelineForColumn(columnId);
+            series = Filter.applyPipeline(series, rawTime, pipeline);
+        }
+
+        if (applyShift) {
+            const { xOffset = 0 } = State.getTraceConfig(columnId);
+            series = applyXOffset(series, xOffset);
+        }
+
+        return series;
     },
 
     normalizeResult(result, targetLength) {
@@ -188,10 +223,14 @@ export const MathEngine = {
         const visitedWithCurrent = new Set(visited);
         if (def.name) visitedWithCurrent.add(def.name);
 
-        def.variables.forEach(({ columnId, symbol }) => {
+        def.variables.forEach(({ columnId, symbol, sourceMode, applyXOffset: applyShift }) => {
             const sym = (symbol || '').trim();
             if (!sym || !columnId) return;
-            const data = this.getColumnData(columnId, rawTime, visitedWithCurrent);
+            const mode = {
+                sourceMode: sourceMode ?? 'raw',
+                applyXOffset: applyShift ?? true
+            };
+            const data = this.resolveSeries(columnId, rawTime, mode, visitedWithCurrent);
             if (data.length === 0) return;
             variableData[sym] = data;
             minLen = Math.min(minLen, data.length);

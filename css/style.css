@@ -274,7 +274,8 @@ button.primary:hover { background-color: var(--accent-hover); }
 .tab:hover { background-color: var(--button-hover); color: var(--text-main); }
 .tab.active { background-color: var(--tab-active-bg); color: var(--text-main); font-weight: bold; border-bottom: 2px solid var(--accent); }
 
-.tab .tab-close {
+.tab .tab-close,
+.tab .tab-edit {
     margin-left: 8px;
     display: inline-flex;
     align-items: center;
@@ -290,7 +291,8 @@ button.primary:hover { background-color: var(--accent-hover); }
     transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
-.tab .tab-close:hover {
+.tab .tab-close:hover,
+.tab .tab-edit:hover {
     background: var(--button-hover);
     color: var(--text-main);
     border-color: var(--accent);
