@@ -7,6 +7,16 @@ function renderComposerPanel() {
     if (!composerPanel || !composerList) return;
 
     const activeColumns = State.getActiveComposerColumns();
+    const isSingleMathTrace = !State.ui.activeMultiViewId
+        && activeColumns.length === 1
+        && !!State.getMathDefinition(activeColumns[0]);
+
+    if (isSingleMathTrace) {
+        composerPanel.style.display = 'none';
+        composerList.innerHTML = '';
+        return;
+    }
+
     if (!activeColumns.length) {
         composerPanel.style.display = 'none';
         composerList.innerHTML = '';
