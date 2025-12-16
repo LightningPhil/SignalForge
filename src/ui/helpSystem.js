@@ -169,19 +169,25 @@ export const HelpSystem = {
 
                     <div id="content-math-trace-tabs" class="help-section">
                         <h3>Math Trace Tabs</h3>
-                        <p>Math Trace tabs generate new series using the built-in math engine and place them alongside recorded columns.</p>
+                        <p>Math Trace tabs generate new series using the built-in math engine and place them alongside recorded columns. They are ideal for building custom measurements that mix existing traces, time, and scalar constants.</p>
                         <ol>
                             <li><strong>Open the builder:</strong> Choose <em>Add New View → Math Trace Tab</em> to map symbols to columns and author an expression.</li>
                             <li><strong>Map variables:</strong> Assign symbols (e.g., <code>V</code>, <code>I</code>, <code>REF</code>) to any combination of raw or math traces so expressions stay readable.</li>
-                            <li><strong>Use built-ins:</strong> Available helpers include <code>diff(x)</code> for discrete derivatives, <code>cumsum(x)</code> for running totals, and <code>mean(...)</code> for averaging arrays or scalars. Common math.js functions work too: square a trace with <code>pow(V, 2)</code> or <code>V .* V</code>, take square roots with <code>sqrt(V)</code>, and keep magnitudes with <code>abs(V)</code>.</li>
+                            <li><strong>Use built-ins:</strong> Available helpers include <code>diff(x)</code> for discrete derivatives, <code>cumsum(x)</code> for running totals, and <code>mean(...)</code> for averaging arrays or scalars. Common math.js functions work too: square a trace with <code>pow(V, 2)</code> or <code>V .* V</code>, take square roots with <code>sqrt(V)</code>, keep magnitudes with <code>abs(V)</code>, and normalize with <code>V / max(V)</code>.</li>
                             <li><strong>Time aliases:</strong> Reference <code>t</code> for the aligned time vector and <code>dt</code> for sample spacing, ideal for slope estimates or integrals.</li>
                         </ol>
                         <h4>Examples</h4>
                         <ul>
-                            <li><code>diff(V)</code> — instantaneous slope of voltage over time.</li>
-                            <li><code>cumsum(I) * dt</code> — numeric integration of current to estimate charge.</li>
+                            <li><code>diff(V) / dt</code> — discrete derivative when you want slope per second.</li>
+                            <li><code>cumsum(I) * dt</code> — numeric integration of current to estimate charge over time.</li>
+                            <li><code>cumsum((V .* I)) * dt</code> — running energy estimate from instantaneous power.</li>
+                            <li><code>abs(V)</code> — keep magnitudes from signed measurements (e.g., rectified sensor data).</li>
                             <li><code>mean(V1, V2, V3)</code> — quick ensemble average across three probes.</li>
                             <li><code>(V - REF) / 10</code> — simple offset and scaling for calibration traces.</li>
+                            <li><code>sqrt(Vx.^2 + Vy.^2)</code> — vector magnitude from orthogonal axes.</li>
+                            <li><code>abs(diff(V))</code> — emphasize edge magnitudes while ignoring direction.</li>
+                            <li><code>diff(V) ./ diff(t)</code> — alternative derivative using explicit time spacing.</li>
+                            <li><code>abs(V - mean(V))</code> — magnitude of deviations from the average.</li>
                         </ul>
                         <p class="hint">Math traces appear as tabs with their own boxed <strong>×</strong> icon. Click the box to delete the virtual column without affecting the original data. See the <a href="https://mathjs.org/docs/index.html" target="_blank" rel="noopener">math.js documentation</a> for additional functions and syntax.</p>
                     </div>
