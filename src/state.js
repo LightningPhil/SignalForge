@@ -89,6 +89,26 @@ export const State = {
         return JSON.parse(JSON.stringify(pipeline || []));
     },
 
+    ensureMathTracePipelineDefaults(columnId) {
+        if (!columnId) return;
+
+        if (this.isGlobalScope()) {
+            const headers = this.data.headers || [];
+            const timeCol = this.data.timeColumn;
+            const yCols = headers.filter((h) => h !== timeCol);
+            const virtualCols = (this.config.mathDefinitions || []).map((d) => d.name);
+            const allCols = [...new Set([...yCols, ...virtualCols, columnId])];
+
+            this.setPipelineScope(false, allCols);
+        }
+
+        if (!this.config.columnPipelines) this.config.columnPipelines = {};
+
+        if (!this.config.columnPipelines[columnId]) {
+            this.config.columnPipelines[columnId] = [this.createNullFilterStep()];
+        }
+    },
+
     getPipelineForColumn(columnId) {
         if (this.isGlobalScope()) {
             return this.ensurePipelineStored(null, this.config.pipeline);
@@ -340,6 +360,8 @@ export const State = {
         // Remove existing with same name to allow overwrite/update
         this.config.mathDefinitions = this.config.mathDefinitions.filter(d => d.name !== def.name);
         this.config.mathDefinitions.push(def);
+
+        this.ensureMathTracePipelineDefaults(def.name);
     },
 
     removeMathDefinition(name) {
