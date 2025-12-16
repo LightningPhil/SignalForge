@@ -45,6 +45,13 @@ function runPipelineAndRender(range = null) {
     const { rawX, rawY } = getRawSeries();
     if (!rawX.length || !rawY.length) return;
 
+    const isMath = !!State.getMathDefinition(State.data.dataColumn);
+    if (isMath) {
+        State.data.processed = [];
+        Graph.render(rawX, rawY, null, range, { isMath: true, seriesName: State.data.dataColumn });
+        return;
+    }
+
     const filteredY = Filter.applyPipeline(rawY, rawX, State.getPipeline());
     State.data.processed = filteredY;
 
@@ -60,8 +67,9 @@ function triggerGraphUpdateOnly() {
     }
 
     const { rawX, rawY } = getRawSeries();
+    const isMath = !!State.getMathDefinition(State.data.dataColumn);
     const filteredY = State.data.processed.length > 0 ? State.data.processed : null;
-    Graph.render(rawX, rawY, filteredY, null);
+    Graph.render(rawX, rawY, isMath ? null : filteredY, null, { isMath, seriesName: State.data.dataColumn });
 }
 
 export { hasData, runPipelineAndRender, triggerGraphUpdateOnly, getRawSeries };
