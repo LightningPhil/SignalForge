@@ -3,7 +3,7 @@ import { elements } from './domElements.js';
 import { triggerGraphUpdateOnly } from './dataPipeline.js';
 
 function bindToolbarEvents() {
-    const { liveShowRaw, liveRawOpacity, liveShowDiff, liveFreqDomain } = elements;
+    const { liveShowRaw, liveRawOpacity, liveShowDiff, liveViewMode, liveShowEvents } = elements;
 
     if (liveShowRaw) {
         liveShowRaw.addEventListener('change', (e) => {
@@ -30,26 +30,39 @@ function bindToolbarEvents() {
         });
     }
 
-    if (liveFreqDomain) {
-        liveFreqDomain.addEventListener('change', (e) => {
-            State.config.graph.showFreqDomain = e.target.checked;
+    if (liveViewMode) {
+        liveViewMode.addEventListener('change', (e) => {
+            const mode = e.target.value || 'time';
+            State.config.graph.viewMode = mode;
+            State.config.graph.showFreqDomain = mode === 'fft';
             const diffGroup = liveShowDiff?.parentElement?.parentElement;
-            if (diffGroup) diffGroup.style.display = e.target.checked ? 'none' : 'flex';
+            if (diffGroup) diffGroup.style.display = mode === 'time' ? 'flex' : 'none';
+            triggerGraphUpdateOnly();
+        });
+    }
+
+    if (liveShowEvents) {
+        liveShowEvents.addEventListener('change', (e) => {
+            State.ensureAnalysisConfig().showEvents = e.target.checked;
             triggerGraphUpdateOnly();
         });
     }
 }
 
 function updateToolbarUIFromState() {
-    const { liveShowRaw, liveRawOpacity, liveShowDiff, liveFreqDomain } = elements;
+    const { liveShowRaw, liveRawOpacity, liveShowDiff, liveViewMode, liveShowEvents } = elements;
     const cfg = State.config.graph;
+    const mode = cfg.viewMode || (cfg.showFreqDomain ? 'fft' : 'time');
     if (liveShowRaw) {
         liveShowRaw.checked = cfg.showRaw !== false;
         if (liveRawOpacity) liveRawOpacity.disabled = !liveShowRaw.checked;
     }
     if (liveRawOpacity) liveRawOpacity.value = cfg.rawOpacity || 0.5;
     if (liveShowDiff) liveShowDiff.checked = cfg.showDifferential;
-    if (liveFreqDomain) liveFreqDomain.checked = cfg.showFreqDomain;
+    if (liveViewMode) liveViewMode.value = mode;
+    const diffGroup = liveShowDiff?.parentElement?.parentElement;
+    if (diffGroup) diffGroup.style.display = mode === 'time' ? 'flex' : 'none';
+    if (liveShowEvents) liveShowEvents.checked = State.ensureAnalysisConfig().showEvents !== false;
 }
 
 export { bindToolbarEvents, updateToolbarUIFromState };

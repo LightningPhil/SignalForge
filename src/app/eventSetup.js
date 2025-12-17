@@ -11,6 +11,7 @@ import { bindToolbarEvents } from './toolbar.js';
 import { MathEngine } from '../processing/math.js';
 import { debounce } from './utils.js';
 import { bindComposerEvents } from './composerUi.js';
+import { AnalysisEngine } from '../analysis/analysisEngine.js';
 
 function setupEventListeners() {
     const {
@@ -170,6 +171,9 @@ function setupEventListeners() {
 
     bindToolbarEvents();
     bindComposerEvents();
+
+    const debouncedAnalysisRun = debounce(() => AnalysisEngine.run(), 200);
+    AnalysisEngine.onSelectionChange(debouncedAnalysisRun);
 }
 
 export { setupEventListeners };

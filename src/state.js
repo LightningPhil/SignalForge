@@ -29,7 +29,8 @@ export const State = {
     ui: {
         selectedStepId: null,
         activeMultiViewId: null,
-        viewRanges: {}
+        viewRanges: {},
+        analysis: { selection: null, events: [], activeEventIndex: 0 }
     },
 
     // Methods
@@ -45,6 +46,7 @@ export const State = {
         this.multiViews = [];
         this.ui.activeMultiViewId = null;
         this.ui.viewRanges = {};
+        this.resetAnalysisUi();
 
         this.composer = { views: {} };
         this.traceConfigs = {};
@@ -165,6 +167,103 @@ export const State = {
 
         const cfg = this.getTraceConfig(columnId);
         Object.assign(cfg, params);
+    },
+
+    ensureAnalysisConfig() {
+        if (!this.config.analysis) {
+            this.config.analysis = JSON.parse(JSON.stringify(Config.analysis || {}));
+        }
+        if (this.config.analysis.enabled === undefined) {
+            this.config.analysis.enabled = true;
+        }
+        if (this.config.analysis.selectionOnly === undefined) {
+            this.config.analysis.selectionOnly = true;
+        }
+        if (this.config.analysis.impedanceOhms === undefined) {
+            this.config.analysis.impedanceOhms = 50;
+        }
+        if (!this.config.analysis.fftWindow) {
+            this.config.analysis.fftWindow = 'hann';
+        }
+        if (this.config.analysis.fftZeroPad === undefined) {
+            this.config.analysis.fftZeroPad = 'nextPow2';
+        }
+        if (this.config.analysis.fftZeroPad === true) {
+            this.config.analysis.fftZeroPad = 'nextPow2';
+        }
+        if (this.config.analysis.fftZeroPad === false) {
+            this.config.analysis.fftZeroPad = 'none';
+        }
+        if (!this.config.analysis.fftZeroPadFactor) {
+            this.config.analysis.fftZeroPadFactor = 2;
+        }
+        if (!this.config.analysis.fftDetrend) {
+            this.config.analysis.fftDetrend = 'removeMean';
+        }
+        if (!this.config.analysis.fftView) {
+            this.config.analysis.fftView = 'magnitude';
+        }
+        if (!Number.isFinite(this.config.analysis.fftPeakCount)) {
+            this.config.analysis.fftPeakCount = 5;
+        }
+        if (!Number.isFinite(this.config.analysis.fftPeakProminence)) {
+            this.config.analysis.fftPeakProminence = 0.02;
+        }
+        if (this.config.analysis.fftShowHarmonics === undefined) {
+            this.config.analysis.fftShowHarmonics = false;
+        }
+        if (!Number.isFinite(this.config.analysis.fftHarmonicCount)) {
+            this.config.analysis.fftHarmonicCount = 5;
+        }
+        if (this.config.analysis.fftHarmonicFundamental === undefined) {
+            this.config.analysis.fftHarmonicFundamental = null;
+        }
+        if (!this.config.analysis.fftSource) {
+            this.config.analysis.fftSource = 'auto';
+        }
+        if (!this.config.analysis.spectrogramWindow) {
+            this.config.analysis.spectrogramWindow = this.config.analysis.fftWindow || 'hann';
+        }
+        if (!Number.isFinite(this.config.analysis.spectrogramSize)) {
+            this.config.analysis.spectrogramSize = 512;
+        }
+        if (!Number.isFinite(this.config.analysis.spectrogramOverlap)) {
+            this.config.analysis.spectrogramOverlap = 0.5;
+        }
+        if (!Number.isFinite(this.config.analysis.spectrogramMaxPoints)) {
+            this.config.analysis.spectrogramMaxPoints = 40000;
+        }
+        if (!Number.isFinite(this.config.analysis.spectrogramFreqMin)) {
+            this.config.analysis.spectrogramFreqMin = 0;
+        }
+        if (this.config.analysis.spectrogramFreqMax === undefined) {
+            this.config.analysis.spectrogramFreqMax = null;
+        }
+        if (!this.config.analysis.spectrogramSource) {
+            this.config.analysis.spectrogramSource = this.config.analysis.fftSource || 'auto';
+        }
+        if (this.config.analysis.showEvents === undefined) {
+            this.config.analysis.showEvents = true;
+        }
+        if (this.config.analysis.systemSelectionOnly === undefined) {
+            this.config.analysis.systemSelectionOnly = true;
+        }
+        if (this.config.analysis.systemMaxLagSeconds === undefined) {
+            this.config.analysis.systemMaxLagSeconds = null;
+        }
+        if (!this.config.analysis.systemInput) {
+            this.config.analysis.systemInput = 'auto';
+        }
+        if (!this.config.analysis.systemOutput) {
+            this.config.analysis.systemOutput = 'auto';
+        }
+        if (!this.config.analysis.measurementPreset) {
+            this.config.analysis.measurementPreset = Config.analysis?.measurementPreset || 'general';
+        }
+        if (!this.config.analysis.trigger) {
+            this.config.analysis.trigger = JSON.parse(JSON.stringify(Config.analysis.trigger));
+        }
+        return this.config.analysis;
     },
 
     setPipelineForColumn(columnId, pipeline) {
@@ -369,6 +468,60 @@ export const State = {
 
     getComposer(viewId = null) {
         return this.syncComposerForView(viewId, this.getActiveComposerColumns());
+    },
+
+    // --- Analysis State ---
+
+    ensureAnalysisUi() {
+        if (!this.ui.analysis) {
+            this.ui.analysis = { selection: null, events: [], activeEventIndex: 0 };
+        }
+        if (!Array.isArray(this.ui.analysis.events)) this.ui.analysis.events = [];
+        if (typeof this.ui.analysis.activeEventIndex !== 'number') this.ui.analysis.activeEventIndex = 0;
+        if (!('selection' in this.ui.analysis)) this.ui.analysis.selection = null;
+        return this.ui.analysis;
+    },
+
+    resetAnalysisUi() {
+        this.ui.analysis = { selection: null, events: [], activeEventIndex: 0 };
+    },
+
+    setAnalysisSelection(selection) {
+        this.ensureAnalysisUi();
+        this.ui.analysis.selection = selection ? { ...selection } : null;
+    },
+
+    getAnalysisSelection() {
+        this.ensureAnalysisUi();
+        return this.ui.analysis.selection;
+    },
+
+    setAnalysisEvents(events = []) {
+        this.ensureAnalysisUi();
+        this.ui.analysis.events = Array.isArray(events) ? events.slice() : [];
+        this.ui.analysis.activeEventIndex = Math.min(
+            this.ui.analysis.activeEventIndex,
+            Math.max(0, this.ui.analysis.events.length - 1)
+        );
+    },
+
+    getAnalysisEvents() {
+        this.ensureAnalysisUi();
+        return this.ui.analysis.events;
+    },
+
+    setActiveEventIndex(idx = 0) {
+        this.ensureAnalysisUi();
+        const clamped = Math.max(0, Math.min(idx, Math.max(0, this.ui.analysis.events.length - 1)));
+        this.ui.analysis.activeEventIndex = clamped;
+        return clamped;
+    },
+
+    getActiveEvent() {
+        this.ensureAnalysisUi();
+        if (!this.ui.analysis.events || !this.ui.analysis.events.length) return null;
+        const idx = Math.max(0, Math.min(this.ui.analysis.activeEventIndex, this.ui.analysis.events.length - 1));
+        return this.ui.analysis.events[idx];
     },
 
     // --- Math Management ---

@@ -200,6 +200,188 @@
                     </div>
                 </div>
 
+                <div class="panel" id="measurement-panel">
+                    <div class="panel-header">
+                        <h3>Measurements</h3>
+                        <div class="preset-control">
+                            <label for="measurement-preset">Preset</label>
+                            <select id="measurement-preset"></select>
+                        </div>
+                    </div>
+                    <div class="measurement-meta">
+                        <div>
+                            <div class="label">Trace</div>
+                            <div id="measurement-trace" class="value">No trace selected</div>
+                        </div>
+                        <div>
+                            <div class="label">Selection</div>
+                            <div id="measurement-selection" class="value">Full record</div>
+                        </div>
+                    </div>
+                    <div class="measurement-table-wrapper">
+                        <table class="measurement-table">
+                            <tbody id="measurement-rows"></tbody>
+                        </table>
+                        <div id="measurement-summary" class="measurement-summary"></div>
+                    </div>
+                    <ul id="measurement-warnings" class="measurement-warnings"></ul>
+                </div>
+
+                <div class="panel" id="spectral-panel">
+                    <h3>FFT / Spectrum</h3>
+                    <div class="fft-controls">
+                        <div class="fft-row">
+                            <label for="fft-window">Window</label>
+                            <select id="fft-window">
+                                <option value="hann">Hann</option>
+                                <option value="hamming">Hamming</option>
+                                <option value="blackman">Blackman</option>
+                                <option value="blackman-harris">Blackman-Harris</option>
+                                <option value="flattop">Flattop</option>
+                                <option value="kaiser">Kaiser</option>
+                                <option value="rectangular">Rectangular</option>
+                            </select>
+                        </div>
+                        <div class="fft-row">
+                            <label for="fft-detrend">Detrend</label>
+                            <select id="fft-detrend">
+                                <option value="removeMean">Remove mean</option>
+                                <option value="linear">Remove linear</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+                        <div class="fft-row split">
+                            <label for="fft-zero-pad">Zero pad</label>
+                            <select id="fft-zero-pad">
+                                <option value="nextPow2">Next pow2</option>
+                                <option value="factor">Factor</option>
+                                <option value="none">Off</option>
+                            </select>
+                            <input type="number" id="fft-zero-factor" min="1" step="1" value="2" title="Zero pad factor">
+                        </div>
+                        <div class="fft-row split">
+                            <label for="fft-view">View</label>
+                            <select id="fft-view">
+                                <option value="magnitude">Magnitude</option>
+                                <option value="phase">Phase</option>
+                                <option value="both">Both</option>
+                            </select>
+                            <label for="fft-source">Source</label>
+                            <select id="fft-source">
+                                <option value="auto">Auto</option>
+                                <option value="raw">Raw</option>
+                                <option value="filtered">Filtered</option>
+                            </select>
+                        </div>
+                        <div class="fft-row split">
+                            <label for="fft-peak-count">Peaks</label>
+                            <input type="number" id="fft-peak-count" min="1" max="20" value="5">
+                            <label for="fft-peak-prominence">Prominence</label>
+                            <input type="number" id="fft-peak-prominence" min="0" step="0.001" value="0.02">
+                        </div>
+                        <div class="fft-row split">
+                            <label class="inline-label">
+                                <input type="checkbox" id="fft-show-harmonics"> Harmonics
+                            </label>
+                            <label for="fft-harmonic-count">Count</label>
+                            <input type="number" id="fft-harmonic-count" min="1" max="12" value="5">
+                        </div>
+                        <div class="fft-row">
+                            <label for="fft-fundamental">Fundamental (Hz)</label>
+                            <input type="number" id="fft-fundamental" step="0.001" placeholder="Auto from peak">
+                        </div>
+                    </div>
+                    <div class="fft-summary" id="fft-meta">Load data to view spectrum</div>
+                    <ul id="fft-warnings" class="measurement-warnings"></ul>
+                    <div class="fft-section">
+                        <h4>Peaks</h4>
+                        <table id="fft-peaks-table" class="simple-table"></table>
+                    </div>
+                    <div class="fft-section">
+                        <h4>Metrics</h4>
+                        <table id="fft-metrics-table" class="simple-table"></table>
+                    </div>
+                </div>
+
+                <div class="panel" id="system-panel">
+                    <div class="panel-header">
+                        <h3>System / Bode</h3>
+                    </div>
+                    <div class="system-grid">
+                        <label for="system-input">Input</label>
+                        <select id="system-input"></select>
+
+                        <label for="system-output">Output</label>
+                        <select id="system-output"></select>
+
+                        <label for="system-use-selection" class="inline">
+                            <input type="checkbox" id="system-use-selection" checked>
+                            Selection only
+                        </label>
+                        <label for="system-max-lag">Max lag (s)</label>
+                        <input type="number" id="system-max-lag" step="0.000001" min="0" placeholder="Auto">
+                    </div>
+                    <div id="system-summary" class="system-summary">Select input/output channels to compute FRF.</div>
+                    <ul id="system-warnings" class="measurement-warnings"></ul>
+                </div>
+
+                <div class="panel" id="events-panel">
+                    <div class="panel-header">
+                        <h3>Events</h3>
+                        <div id="event-count" class="event-count">0 events</div>
+                    </div>
+                    <div class="event-controls">
+                        <div class="event-row">
+                            <label for="event-type">Type</label>
+                            <select id="event-type">
+                                <option value="level">Level</option>
+                                <option value="edge">Edge</option>
+                                <option value="pulse">Pulse Width</option>
+                                <option value="runt">Runt</option>
+                            </select>
+                        </div>
+                        <div class="event-row">
+                            <label for="event-direction">Direction</label>
+                            <select id="event-direction">
+                                <option value="rising">Rising</option>
+                                <option value="falling">Falling</option>
+                                <option value="either">Either</option>
+                            </select>
+                        </div>
+                        <div class="event-row">
+                            <label for="event-source">Source</label>
+                            <select id="event-source">
+                                <option value="auto">Auto</option>
+                                <option value="raw">Raw</option>
+                                <option value="filtered">Filtered</option>
+                                <option value="math">Math</option>
+                            </select>
+                        </div>
+                        <div class="event-grid">
+                            <label for="event-threshold">Threshold</label>
+                            <input type="number" id="event-threshold" step="0.001" value="0">
+                            <label for="event-hysteresis">Hysteresis</label>
+                            <input type="number" id="event-hysteresis" step="0.001" value="0">
+                            <label for="event-slope">Slope Threshold</label>
+                            <input type="number" id="event-slope" step="0.001" value="0">
+                            <label for="event-min-width">Min Width (s)</label>
+                            <input type="number" id="event-min-width" step="0.000001" value="0">
+                            <label for="event-max-width">Max Width (s)</label>
+                            <input type="number" id="event-max-width" step="0.000001" value="1">
+                            <label for="event-high-threshold">High (runt)</label>
+                            <input type="number" id="event-high-threshold" step="0.001" value="1">
+                            <label for="event-low-threshold">Low (runt)</label>
+                            <input type="number" id="event-low-threshold" step="0.001" value="0">
+                        </div>
+                        <label class="toggle-label" for="event-use-selection">
+                            <input type="checkbox" id="event-use-selection" checked>
+                            Limit to selection
+                        </label>
+                    </div>
+                    <ul id="event-warnings" class="measurement-warnings"></ul>
+                    <div id="event-list" class="event-list"></div>
+                </div>
+
                 <div class="panel" id="composer-panel" style="display:none;">
                     <h3>Jitter Correction</h3>
                     <div id="composer-list" class="composer-list"></div>
@@ -243,7 +425,20 @@
                         <label class="toggle-label"><input type="checkbox" id="live-show-diff"> Diff</label>
                     </div>
                     <div class="tool-group tool-divider">
-                        <label class="toggle-label"><input type="checkbox" id="live-freq-domain"> Freq Domain (FFT)</label>
+                        <label for="live-view-mode">View</label>
+                        <select id="live-view-mode">
+                            <option value="time">Time</option>
+                            <option value="fft">FFT</option>
+                            <option value="spectrogram">Spectrogram</option>
+                            <option value="bode">Bode</option>
+                        </select>
+                    </div>
+                    <div class="tool-group tool-divider">
+                        <label class="toggle-label"><input type="checkbox" id="live-show-events" checked> Events</label>
+                    </div>
+                    <div class="tool-group event-nav">
+                        <button id="btn-event-prev" title="Previous event">◀</button>
+                        <button id="btn-event-next" title="Next event">▶</button>
                     </div>
                     <div class="tool-item" style="margin-left: auto;">
                         <span id="live-status" style="font-size: 0.8em; color: var(--text-muted);">Ready</span>

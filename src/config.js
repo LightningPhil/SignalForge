@@ -3,6 +3,7 @@
  */
 
 export const Config = {
+    settingsVersion: 2,
     // Default Graph Settings
     graph: {
         title: "Signal Analysis",
@@ -18,6 +19,7 @@ export const Config = {
         showDifferential: false,
         showGrid: true,
         showFreqDomain: false,
+        viewMode: 'time',
         
         // Raw Data Visibility
         showRaw: true,
@@ -104,5 +106,50 @@ export const Config = {
     // Display calibration (pixels per centimeter)
     displayCalibration: {
         pixelsPerCm: 96 / 2.54
+    },
+
+    // Analysis defaults (non-breaking; safely ignored by older settings)
+    analysis: {
+        enabled: true,
+        selectionOnly: true,
+        impedanceOhms: 50,
+        fftWindow: 'hann',
+        fftZeroPad: 'nextPow2',
+        fftZeroPadFactor: 2,
+        fftDetrend: 'removeMean',
+        fftView: 'magnitude',
+        fftPeakCount: 5,
+        fftPeakProminence: 0.02,
+        fftShowHarmonics: false,
+        fftHarmonicCount: 5,
+        fftHarmonicFundamental: null,
+        fftSource: 'auto',
+        spectrogramWindow: 'hann',
+        spectrogramSize: 512,
+        spectrogramOverlap: 0.5,
+        spectrogramMaxPoints: 40000,
+        spectrogramFreqMin: 0,
+        spectrogramFreqMax: null,
+        spectrogramSource: 'auto',
+        showEvents: true,
+        systemSelectionOnly: true,
+        systemMaxLagSeconds: null,
+        systemInput: 'auto',
+        systemOutput: 'auto',
+        measurementPreset: 'general',
+        trigger: {
+            enabled: true,
+            type: 'level',
+            direction: 'rising',
+            threshold: 0,
+            hysteresis: 0,
+            slopeThreshold: 0,
+            minWidth: 0,
+            maxWidth: 1,
+            highThreshold: 1,
+            lowThreshold: 0,
+            source: 'auto',
+            selectionOnly: true
+        }
     }
 };

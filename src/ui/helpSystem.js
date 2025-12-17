@@ -59,11 +59,26 @@ export const HelpSystem = {
                         <div class="tree-node expanded">
                             <div class="tree-node-header" data-toggle>
                                 <span class="tree-caret">▾</span>
+                                <span class="tree-title">Analysis</span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="tree-item" data-target="analysis-measurements">Measurements</div>
+                                <div class="tree-item" data-target="analysis-events">Events &amp; Triggers</div>
+                                <div class="tree-item" data-target="analysis-fft">FFT &amp; Spectral Metrics</div>
+                                <div class="tree-item" data-target="analysis-spectrogram">Spectrogram</div>
+                                <div class="tree-item" data-target="analysis-bode">System / Bode</div>
+                            </div>
+                        </div>
+
+                        <div class="tree-node expanded">
+                            <div class="tree-node-header" data-toggle>
+                                <span class="tree-caret">▾</span>
                                 <span class="tree-title">Reference</span>
                             </div>
                             <div class="tree-children">
                                 <div class="tree-item" data-target="data-integrity">Data Integrity & Saving</div>
                                 <div class="tree-item" data-target="troubleshooting">Troubleshooting Tips</div>
+                                <div class="tree-item" data-target="known-limitations">Known Limitations</div>
                                 <div class="tree-item" data-target="license">License</div>
                             </div>
                         </div>
@@ -192,6 +207,59 @@ export const HelpSystem = {
                         <p class="hint">Math traces appear as tabs with their own boxed <strong>×</strong> icon. Click the box to delete the virtual column without affecting the original data. See the <a href="https://mathjs.org/docs/index.html" target="_blank" rel="noopener">math.js documentation</a> for additional functions and syntax.</p>
                     </div>
 
+                    <div id="content-analysis-measurements" class="help-section">
+                        <h3>Measurements</h3>
+                        <p>The Measurement Panel computes oscilloscope-style statistics on the active trace and reuses cached results per selection to avoid unnecessary recomputes.</p>
+                        <ul>
+                            <li><strong>Presets:</strong> Switch between General, Power Electronics, and Pulsed to surface the most relevant metrics.</li>
+                            <li><strong>Selection aware:</strong> Use zoom/range selection to scope metrics to a region; clear the selection to return to full-record results.</li>
+                            <li><strong>Time units:</strong> Durations and timestamps auto-scale between ns, µs, ms, and s for readability.</li>
+                            <li><strong>Non-uniform warnings:</strong> A notice appears if dt varies by more than 5% so you know when rise/fall or integration results may be approximate.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-analysis-events" class="help-section">
+                        <h3>Events &amp; Triggers</h3>
+                        <p>Use the Events panel to run post-acquisition triggers on raw, filtered, or math traces and navigate results on the plot.</p>
+                        <ul>
+                            <li><strong>Trigger types:</strong> Level crossings with hysteresis, slope-based edges, pulse-width detection, and runt/glitch capture.</li>
+                            <li><strong>Selection only:</strong> Enable the selection toggle to restrict detection to the zoomed region when scanning long captures.</li>
+                            <li><strong>Navigation:</strong> Next/prev buttons and clicking list entries jump the cursor to each event; markers render directly on the time plot.</li>
+                            <li><strong>Timing guardrails:</strong> The detector warns when the timebase is non-uniform so you can double-check event timestamps.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-analysis-fft" class="help-section">
+                        <h3>FFT &amp; Spectral Metrics</h3>
+                        <p>The Spectrum panel shares FFT settings with the frequency-domain view and caches FFTs per window/padding choice.</p>
+                        <ul>
+                            <li><strong>Window &amp; detrend:</strong> Choose Hann, Hamming, Blackman, or Kaiser windows and remove mean or linear trends before transforming.</li>
+                            <li><strong>Zero padding:</strong> Use next-power-of-two or explicit factors to control spectral resolution; coherent gain is corrected automatically.</li>
+                            <li><strong>Metrics:</strong> Peak lists, harmonics, THD, SNR, spur detection, and bandpower summaries update as you adjust prominence or harmonic count.</li>
+                            <li><strong>Source selection:</strong> Analyze raw, filtered, or math traces; cached spectra are keyed per source, window, and selection.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-analysis-spectrogram" class="help-section">
+                        <h3>Spectrogram</h3>
+                        <p>Switch the toolbar to Spectrogram mode for STFT heatmaps when frequency content drifts over time.</p>
+                        <ul>
+                            <li><strong>Windowing:</strong> Reuses the FFT window/detrend options and supports configurable size/overlap.</li>
+                            <li><strong>Guardrails:</strong> Downsamples very large selections and allows frequency band limits to keep renders responsive.</li>
+                            <li><strong>Selections:</strong> Honors the current selection when enabled so you can focus on specific events or bursts.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-analysis-bode" class="help-section">
+                        <h3>System / Bode</h3>
+                        <p>The System panel estimates cross-channel delay and frequency response between a chosen input/output pair.</p>
+                        <ul>
+                            <li><strong>Delay estimation:</strong> Cross-correlation suggests timing offsets without mutating your data; apply offsets only if you choose.</li>
+                            <li><strong>Bode view:</strong> Magnitude, phase, and coherence plots share FFT settings and respect selection-only analysis.</li>
+                            <li><strong>Source routing:</strong> Pick any raw or math trace as input/output to explore transfer characteristics.</li>
+                        </ul>
+                    </div>
+
                     <div id="content-filter-overview" class="help-section">
                         <h3>Filter Library Overview</h3>
                         <p>Combine filters to match the structure of your signal. Linear filters are order-sensitive when paired with nonlinear steps like median filters.</p>
@@ -305,6 +373,16 @@ export const HelpSystem = {
                             <li><strong>Unexpected oscillations:</strong> Reduce aggressive FFT cutoffs or shrink Savitzky-Golay window sizes to avoid ringing.</li>
                             <li><strong>Slow interactions:</strong> Shorten window sizes or temporarily bypass expensive filters while iterating.</li>
                             <li><strong>Baseline drift after filtering:</strong> Apply Median first to remove spikes, then use IIR Low Pass or Savitzky-Golay with a modest window.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-known-limitations" class="help-section">
+                        <h3>Known Limitations</h3>
+                        <ul>
+                            <li><strong>Sampling non-uniformity:</strong> Analysis warns when dt jitter exceeds ~5%; results are not automatically resampled.</li>
+                            <li><strong>Very long captures:</strong> STFT and dense FFTs may be downsampled or padded; narrow selections keep interactions responsive.</li>
+                            <li><strong>Browser memory:</strong> Large CSVs and multi-view plots can exhaust browser memory; split files or reduce concurrent views if slowdown appears.</li>
+                            <li><strong>Export fidelity:</strong> Exports preserve computed metrics and plot captures but do not embed original CSV files.</li>
                         </ul>
                     </div>
 
