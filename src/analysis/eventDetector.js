@@ -34,6 +34,21 @@ function toNumberArray(arr = []) {
     return out;
 }
 
+function toFinitePairs(tArr = [], yArr = []) {
+    const t = [];
+    const y = [];
+    const limit = Math.min(tArr?.length || 0, yArr?.length || 0);
+    for (let i = 0; i < limit; i += 1) {
+        const ti = Number(tArr[i]);
+        const yi = Number(yArr[i]);
+        if (Number.isFinite(ti) && Number.isFinite(yi)) {
+            t.push(ti);
+            y.push(yi);
+        }
+    }
+    return { t, y };
+}
+
 function clampIndices(i0, i1, maxLen) {
     const start = Math.max(0, Math.min(Number.isInteger(i0) ? i0 : 0, maxLen - 1));
     const end = Math.max(start, Math.min(Number.isInteger(i1) ? i1 : maxLen - 1));
@@ -253,9 +268,8 @@ export const EventDetector = {
         const triggerCfg = this.normalizeConfig(config);
         const resolved = trace
             ? resolveTriggerSignal(trace, triggerCfg.source, triggerCfg.selectionOnly ? selection : null)
-            : { t: toNumberArray(t), y: toNumberArray(y), sourceType: triggerCfg.source, units: 'units' };
-        const time = toNumberArray(resolved.t);
-        const values = toNumberArray(resolved.y);
+            : { t, y, sourceType: triggerCfg.source, units: 'units' };
+        const { t: time, y: values } = toFinitePairs(resolved.t, resolved.y);
         const { t: sliceT, y: sliceY, selection: effectiveSel } = sliceSeries(time, values, triggerCfg.selectionOnly ? selection : null);
 
         triggerCfg.sourceType = resolved.sourceType;
@@ -263,6 +277,10 @@ export const EventDetector = {
 
         if (!triggerCfg.enabled) {
             return { events: [], selection: effectiveSel, warnings: [] };
+        }
+
+        if (sliceT.length < 2 || sliceY.length < 2) {
+            return { events: [], selection: effectiveSel, warnings: [], signal: sliceY, sourceType: triggerCfg.sourceType };
         }
 
         let events = [];
