@@ -11,6 +11,13 @@ const TYPE_LABELS = {
     runt: 'Runt / Glitch'
 };
 
+const SOURCE_HINTS = {
+    raw: 'Raw amplitude',
+    filtered: 'Filtered amplitude',
+    math: 'Math trace',
+    derivative: 'Slope (units / second)'
+};
+
 function formatEvent(event) {
     if (!event) return '—';
     const time = Number.isFinite(event.time) ? formatSeconds(event.time) : 'n/a';
@@ -46,6 +53,9 @@ export const EventPanel = {
         this.highThresholdInput = document.getElementById('event-high-threshold');
         this.lowThresholdInput = document.getElementById('event-low-threshold');
         this.sourceSelect = document.getElementById('event-source');
+        this.sourceHint = document.getElementById('event-source-hint');
+        this.slopeHint = document.getElementById('event-slope-hint');
+        this.thresholdLabel = document.querySelector('label[for="event-threshold"]');
         this.useSelectionCheckbox = document.getElementById('event-use-selection');
         this.showEventsToggle = document.getElementById('live-show-events');
         this.prevBtn = document.getElementById('btn-event-prev');
@@ -68,10 +78,12 @@ export const EventPanel = {
         if (this.maxWidthInput) this.maxWidthInput.value = cfg.maxWidth ?? 1;
         if (this.highThresholdInput) this.highThresholdInput.value = cfg.highThreshold ?? 1;
         if (this.lowThresholdInput) this.lowThresholdInput.value = cfg.lowThreshold ?? 0;
-        if (this.sourceSelect) this.sourceSelect.value = cfg.source || 'auto';
+        if (this.sourceSelect) this.sourceSelect.value = cfg.source || 'raw';
         if (this.useSelectionCheckbox) this.useSelectionCheckbox.checked = cfg.selectionOnly !== false;
         const showEventsCfg = State.ensureAnalysisConfig().showEvents;
         if (this.showEventsToggle) this.showEventsToggle.checked = showEventsCfg !== false;
+
+        this.updateSourceHints();
     },
 
     bindInputs() {
@@ -114,7 +126,23 @@ export const EventPanel = {
         triggerCfg.selectionOnly = this.useSelectionCheckbox ? !!this.useSelectionCheckbox.checked : triggerCfg.selectionOnly;
         analysisCfg.showEvents = this.showEventsToggle ? !!this.showEventsToggle.checked : analysisCfg.showEvents;
         analysisCfg.trigger = triggerCfg;
+        this.updateSourceHints();
         this.refresh();
+    },
+
+    updateSourceHints() {
+        const source = this.sourceSelect?.value || 'raw';
+        if (this.sourceHint) {
+            this.sourceHint.textContent = SOURCE_HINTS[source] || '';
+        }
+        if (this.slopeHint) {
+            this.slopeHint.textContent = source === 'derivative'
+                ? 'Slope thresholds are expressed in units/second.'
+                : 'Edge detection uses slope thresholds per second.';
+        }
+        if (this.thresholdLabel) {
+            this.thresholdLabel.textContent = source === 'derivative' ? 'Slope Threshold' : 'Threshold';
+        }
     },
 
     setSeries(series) {
@@ -140,19 +168,8 @@ export const EventPanel = {
 
         const triggerCfg = State.ensureAnalysisConfig().trigger || {};
         const selection = State.getAnalysisSelection();
-        let ySource = (!this.lastSeries.isMath && this.lastSeries.filteredY?.length)
-            ? this.lastSeries.filteredY
-            : this.lastSeries.rawY;
-
-        if (triggerCfg.source === 'raw') {
-            ySource = this.lastSeries.rawY;
-        } else if (triggerCfg.source === 'filtered' && this.lastSeries.filteredY?.length) {
-            ySource = this.lastSeries.filteredY;
-        }
-
         const detection = EventDetector.detect({
-            t: this.lastSeries.rawX,
-            y: ySource,
+            trace: this.lastSeries,
             selection,
             config: triggerCfg
         });
@@ -160,6 +177,8 @@ export const EventPanel = {
         State.setAnalysisEvents(detection.events);
         this.renderList(detection.events);
         this.renderWarnings(detection.warnings);
+
+        const ySource = detection.signal || this.lastSeries.rawY;
 
         Graph.setEventOverlay(detection.events, {
             show: State.ensureAnalysisConfig().showEvents,

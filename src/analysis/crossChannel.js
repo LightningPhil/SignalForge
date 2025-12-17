@@ -23,7 +23,7 @@ export const CrossChannel = {
     estimateDelay(time = [], x = [], y = [], options = {}) {
         const { selection = null, maxLagSeconds = null } = options;
         if (!Array.isArray(time) || time.length < 2 || !Array.isArray(x) || !Array.isArray(y)) {
-            return { delay: 0, correlation: 0, warnings: ['Insufficient data for delay estimation.'] };
+            return { delaySeconds: 0, delaySamples: 0, correlationPeak: 0, confidence: 0, warnings: ['Insufficient data for delay estimation.'] };
         }
 
         const sel = normalizeSelection(selection, Math.min(x.length, y.length, time.length));
@@ -31,10 +31,13 @@ export const CrossChannel = {
         const xSel = sliceWithSelection(x, sel);
         const ySel = sliceWithSelection(y, sel);
         if (tx.length < 2 || xSel.length < 2 || ySel.length < 2) {
-            return { delay: 0, correlation: 0, warnings: ['Selection too short for delay estimation.'] };
+            return { delaySeconds: 0, delaySamples: 0, correlationPeak: 0, confidence: 0, warnings: ['Selection too short for delay estimation.'] };
         }
 
         const { fs, warnings: timingWarnings } = FFT.inferSampleRate(tx);
+        if (!Number.isFinite(fs) || fs <= 0) {
+            return { delaySeconds: 0, delaySamples: 0, correlationPeak: 0, confidence: 0, warnings: ['Unable to infer sampling rate.'] };
+        }
         const maxLagSamples = maxLagSeconds ? Math.min(Math.floor(maxLagSeconds * fs), tx.length - 1) : Math.min(tx.length - 1, 2000);
         let bestCorr = -Infinity;
         let bestLag = 0;
@@ -60,9 +63,14 @@ export const CrossChannel = {
             }
         }
 
+        const correlationPeak = bestCorr;
+        const delaySeconds = bestLag / fs;
+        const confidence = Number.isFinite(correlationPeak) ? Math.max(0, Math.min(1, (correlationPeak + 1) / 2)) : 0;
         return {
-            delay: bestLag / fs,
-            correlation: bestCorr,
+            delaySeconds,
+            delaySamples: bestLag,
+            correlationPeak,
+            confidence,
             warnings: timingWarnings || []
         };
     },

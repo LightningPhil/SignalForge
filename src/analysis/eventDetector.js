@@ -1,4 +1,5 @@
 import { AnalysisTypes } from './analysisEngine.js';
+import { computeDerivative } from './derivedSignals.js';
 
 const DEFAULT_TRIGGER = {
     enabled: true,
@@ -11,9 +12,18 @@ const DEFAULT_TRIGGER = {
     maxWidth: Infinity,
     highThreshold: 1,
     lowThreshold: 0,
-    source: 'auto',
+    source: 'raw',
     selectionOnly: true
 };
+
+const derivativeCache = new Map();
+
+function keyFor(traceId, selection, baseSource) {
+    const selKey = selection && selection.i0 !== null && selection.i1 !== null
+        ? `${selection.i0}-${selection.i1}`
+        : 'full';
+    return `${traceId || 'anon'}|${selKey}|${baseSource}`;
+}
 
 function toNumberArray(arr = []) {
     const out = [];
@@ -42,6 +52,36 @@ function sliceSeries(t, y, selection) {
     return { t: t.slice(start, end + 1), y: y.slice(start, end + 1), selection: { i0: start, i1: end } };
 }
 
+function resolveTriggerSignal(trace = null, sourceType = 'raw', selection = null) {
+    if (!trace) return { t: [], y: [], sourceType, units: 'units' };
+
+    const baseSource = sourceType === 'auto'
+        ? (!trace.isMath && trace.filteredY?.length ? 'filtered' : 'raw')
+        : sourceType;
+
+    const baseY = (() => {
+        if (baseSource === 'filtered' && !trace.isMath && trace.filteredY?.length) return trace.filteredY;
+        if (baseSource === 'math' && trace.isMath) return trace.rawY;
+        return trace.rawY;
+    })();
+
+    const { t, y, selection: appliedSel } = sliceSeries(trace.rawX || [], baseY || [], selection && sourceType !== 'derivative' ? selection : null);
+
+    if (sourceType === 'derivative') {
+        const cacheKey = keyFor(trace.seriesName || trace.columnId, selection, baseSource);
+        if (derivativeCache.has(cacheKey)) {
+            const cached = derivativeCache.get(cacheKey);
+            return { ...cached, selection: appliedSel };
+        }
+        const dy = computeDerivative(t, y);
+        const payload = { t, y: Array.from(dy), sourceType: 'derivative', units: 'units/s' };
+        derivativeCache.set(cacheKey, payload);
+        return { ...payload, selection: appliedSel };
+    }
+
+    return { t, y, sourceType: baseSource, units: 'units' };
+}
+
 function detectLevelCrossings(t, y, cfg) {
     const events = [];
     if (t.length < 2) return events;
@@ -63,7 +103,7 @@ function detectLevelCrossings(t, y, cfg) {
                     index: i,
                     time: tCurr,
                     type: 'level',
-                    metadata: { direction: 'rising', threshold: cfg.threshold, amplitude: current }
+                    metadata: { direction: 'rising', threshold: cfg.threshold, amplitude: current, sourceType: cfg.sourceType, units: cfg.units }
                 }));
             }
             state = 'above';
@@ -73,7 +113,7 @@ function detectLevelCrossings(t, y, cfg) {
                     index: i,
                     time: tCurr,
                     type: 'level',
-                    metadata: { direction: 'falling', threshold: cfg.threshold, amplitude: current }
+                    metadata: { direction: 'falling', threshold: cfg.threshold, amplitude: current, sourceType: cfg.sourceType, units: cfg.units }
                 }));
             }
             state = 'below';
@@ -105,7 +145,7 @@ function detectEdges(t, y, cfg) {
                 index: i,
                 time: t0,
                 type: 'edge',
-                metadata: { slope, direction: passesRising ? 'rising' : 'falling', amplitude: y0 }
+                metadata: { slope, direction: passesRising ? 'rising' : 'falling', amplitude: y0, sourceType: cfg.sourceType, units: cfg.units }
             }));
         }
     }
@@ -137,7 +177,7 @@ function detectPulseWidths(t, y, cfg) {
                     index: startIndex,
                     time: t[startIndex],
                     type: 'pulse',
-                    metadata: { width, peak, amplitude: peak }
+                    metadata: { width, peak, amplitude: peak, sourceType: cfg.sourceType, units: cfg.units }
                 }));
             }
             isHigh = false;
@@ -175,7 +215,7 @@ function detectRunts(t, y, cfg) {
                     index: startIndex,
                     time: t[startIndex],
                     type: 'runt',
-                    metadata: { width, peak: maxVal, amplitude: maxVal }
+                    metadata: { width, peak: maxVal, amplitude: maxVal, sourceType: cfg.sourceType, units: cfg.units }
                 }));
             }
             isPotential = false;
@@ -207,11 +247,19 @@ export const EventDetector = {
         return { ...DEFAULT_TRIGGER, ...config };
     },
 
-    detect({ t = [], y = [], selection = null, config = {} }) {
+    resolveTriggerSignal,
+
+    detect({ t = [], y = [], selection = null, config = {}, trace = null }) {
         const triggerCfg = this.normalizeConfig(config);
-        const time = toNumberArray(t);
-        const values = toNumberArray(y);
+        const resolved = trace
+            ? resolveTriggerSignal(trace, triggerCfg.source, triggerCfg.selectionOnly ? selection : null)
+            : { t: toNumberArray(t), y: toNumberArray(y), sourceType: triggerCfg.source, units: 'units' };
+        const time = toNumberArray(resolved.t);
+        const values = toNumberArray(resolved.y);
         const { t: sliceT, y: sliceY, selection: effectiveSel } = sliceSeries(time, values, triggerCfg.selectionOnly ? selection : null);
+
+        triggerCfg.sourceType = resolved.sourceType;
+        triggerCfg.units = resolved.units;
 
         if (!triggerCfg.enabled) {
             return { events: [], selection: effectiveSel, warnings: [] };
@@ -233,6 +281,6 @@ export const EventDetector = {
             warnings.push('Timebase is non-uniform; event timing may be approximate.');
         }
 
-        return { events, selection: effectiveSel, warnings };
+        return { events, selection: effectiveSel, warnings, signal: sliceY, sourceType: triggerCfg.sourceType };
     }
 };

@@ -4,9 +4,11 @@ import { CrossChannel } from '../analysis/crossChannel.js';
 import { Filter } from '../processing/filter.js';
 import { MathEngine } from '../processing/math.js';
 import { AnalysisEngine } from '../analysis/analysisEngine.js';
+import { applyTraceTimeOffset } from '../app/stateMutations.js';
 
 const fallbackSummary = 'Select input/output channels to compute FRF.';
 let latestResult = null;
+let applyBtn = null;
 
 function getColumnData(columnId) {
     if (!columnId || !State.data.timeColumn) return { x: [], y: [], isMath: false };
@@ -53,10 +55,11 @@ function renderSummary(payload) {
         return;
     }
 
-    const { delay, correlation, input, output, warnings = [] } = payload;
-    const delayText = Number.isFinite(delay) ? `${delay.toExponential(3)} s` : 'N/A';
-    const corrText = Number.isFinite(correlation) ? correlation.toFixed(3) : 'N/A';
-    systemSummary.textContent = `${input} → ${output}: delay ${delayText}, corr ${corrText}`;
+    const { delaySeconds, correlationPeak, confidence, input, output, warnings = [] } = payload;
+    const delayText = Number.isFinite(delaySeconds) ? `${delaySeconds.toExponential(3)} s` : 'N/A';
+    const corrText = Number.isFinite(correlationPeak) ? correlationPeak.toFixed(3) : 'N/A';
+    const confText = Number.isFinite(confidence) ? `, conf ${confidence.toFixed(2)}` : '';
+    systemSummary.textContent = `${input} → ${output}: delay ${delayText}, corr ${corrText}${confText}`;
     renderWarnings(warnings);
 }
 
@@ -107,22 +110,31 @@ function computeSystem() {
     latestResult = {
         input: selectedInput,
         output: selectedOutput,
-        delay: delay.delay,
-        correlation: delay.correlation,
+        delaySeconds: delay.delaySeconds,
+        delaySamples: delay.delaySamples,
+        correlationPeak: delay.correlationPeak,
+        confidence: delay.confidence,
         frf
     };
 
     renderSummary({
         input: selectedInput,
         output: selectedOutput,
-        delay: delay.delay,
-        correlation: delay.correlation,
+        delaySeconds: delay.delaySeconds,
+        correlationPeak: delay.correlationPeak,
+        confidence: delay.confidence,
         warnings: [...(delay.warnings || []), ...(frf.warnings || [])]
     });
+
+    if (applyBtn) {
+        applyBtn.disabled = !latestResult || !Number.isFinite(latestResult.confidence) || latestResult.confidence < 0.6;
+        applyBtn.title = 'Applies +Δt offset to selected trace. Does not modify data samples.';
+    }
 }
 
 export const SystemPanel = {
     init() {
+        applyBtn = document.getElementById('system-apply-alignment');
         populateSelectOptions();
         const analysis = State.ensureAnalysisConfig();
         if (elements.systemUseSelection) {
@@ -149,6 +161,15 @@ export const SystemPanel = {
         if (elements.systemOutput) {
             elements.systemOutput.addEventListener('change', (e) => {
                 State.ensureAnalysisConfig().systemOutput = e.target.value || 'auto';
+                computeSystem();
+            });
+        }
+
+        if (applyBtn) {
+            applyBtn.addEventListener('click', () => {
+                if (!latestResult || latestResult.confidence < 0.6) return;
+                applyTraceTimeOffset(latestResult.output, latestResult.delaySeconds || 0);
+                AnalysisEngine.notifySelection(State.getAnalysisSelection());
                 computeSystem();
             });
         }

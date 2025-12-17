@@ -148,7 +148,7 @@ export const Config = {
             maxWidth: 1,
             highThreshold: 1,
             lowThreshold: 0,
-            source: 'auto',
+            source: 'raw',
             selectionOnly: true
         }
     }

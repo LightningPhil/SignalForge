@@ -140,5 +140,40 @@ export const SpectralMetrics = {
             fundamentalHz,
             warnings: spectrum.warnings || []
         };
+    },
+
+    summarizeFromSpectrum(spectrum, options = {}) {
+        if (!spectrum) {
+            return { spectrum: { freq: [], linearMagnitude: [], warnings: [], meta: {} }, peaks: [], harmonics: [], thd: null, snr: null, spur: { freq: null, magnitude: null }, bandpower: 0, fundamentalHz: null, warnings: [] };
+        }
+        const peaks = this.computePeaks(spectrum.freq, spectrum.linearMagnitude, {
+            maxPeaks: options.maxPeaks || 5,
+            prominence: options.prominence || 0.01
+        });
+        const fundamentalHz = Number.isFinite(options.fundamentalHz) && options.fundamentalHz > 0
+            ? options.fundamentalHz
+            : (peaks[0]?.freq || null);
+        const harmonics = this.computeHarmonics(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5);
+        const thd = fundamentalHz ? this.thd(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5) : null;
+        const snr = fundamentalHz ? this.snr(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.bandwidthHz || spectrum.meta?.nyquist) : null;
+        const spur = fundamentalHz ? this.spur(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5) : { freq: null, magnitude: null };
+        const bandpower = this.bandpower(
+            spectrum.freq,
+            spectrum.linearMagnitude,
+            options.bandStartHz || 0,
+            options.bandEndHz || spectrum.meta?.nyquist
+        );
+
+        return {
+            spectrum,
+            peaks,
+            harmonics,
+            thd,
+            snr,
+            spur,
+            bandpower,
+            fundamentalHz,
+            warnings: spectrum.warnings || []
+        };
     }
 };

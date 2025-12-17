@@ -64,9 +64,11 @@ export const HelpSystem = {
                             <div class="tree-children">
                                 <div class="tree-item" data-target="analysis-measurements">Measurements</div>
                                 <div class="tree-item" data-target="analysis-events">Events &amp; Triggers</div>
+                                <div class="tree-item" data-target="analysis-triggers">Trigger Sources &amp; Derivatives</div>
                                 <div class="tree-item" data-target="analysis-fft">FFT &amp; Spectral Metrics</div>
                                 <div class="tree-item" data-target="analysis-spectrogram">Spectrogram</div>
                                 <div class="tree-item" data-target="analysis-bode">System / Bode</div>
+                                <div class="tree-item" data-target="analysis-alignment">Applying Alignment</div>
                             </div>
                         </div>
 
@@ -77,6 +79,7 @@ export const HelpSystem = {
                             </div>
                             <div class="tree-children">
                                 <div class="tree-item" data-target="data-integrity">Data Integrity & Saving</div>
+                                <div class="tree-item" data-target="performance-workers">Performance Notes</div>
                                 <div class="tree-item" data-target="troubleshooting">Troubleshooting Tips</div>
                                 <div class="tree-item" data-target="known-limitations">Known Limitations</div>
                                 <div class="tree-item" data-target="license">License</div>
@@ -229,6 +232,18 @@ export const HelpSystem = {
                         </ul>
                     </div>
 
+                    <div id="content-analysis-triggers" class="help-section">
+                        <h3>Trigger Sources &amp; Derivative Triggers</h3>
+                        <p>Select which signal powers detection without altering saved data.</p>
+                        <ul>
+                            <li><strong>Source choices:</strong> Raw, filtered, math traces, or on-the-fly derivatives (dy/dt).</li>
+                            <li><strong>Unit hints:</strong> Derivative triggers report thresholds in slope units (e.g., V/s) and annotate events with their source type.</li>
+                            <li><strong>Isolation:</strong> Derived signals are computed transiently; pipelines and stored columns stay untouched.</li>
+                            <li><strong>Metadata:</strong> Event exports keep source type and units for reproducibility.</li>
+                        </ul>
+                        <p class="hint">Use derivative triggers to catch slew-rate spikes, current surges, or slope reversals without adding permanent filters.</p>
+                    </div>
+
                     <div id="content-analysis-fft" class="help-section">
                         <h3>FFT &amp; Spectral Metrics</h3>
                         <p>The Spectrum panel shares FFT settings with the frequency-domain view and caches FFTs per window/padding choice.</p>
@@ -257,6 +272,17 @@ export const HelpSystem = {
                             <li><strong>Delay estimation:</strong> Cross-correlation suggests timing offsets without mutating your data; apply offsets only if you choose.</li>
                             <li><strong>Bode view:</strong> Magnitude, phase, and coherence plots share FFT settings and respect selection-only analysis.</li>
                             <li><strong>Source routing:</strong> Pick any raw or math trace as input/output to explore transfer characteristics.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-analysis-alignment" class="help-section">
+                        <h3>Applying Alignment</h3>
+                        <p>Delay suggestions are never auto-applied. When confidence is high, you can apply the offset as a non-destructive x-shift.</p>
+                        <ul>
+                            <li><strong>Review first:</strong> Estimated delay, correlation peak, and confidence are displayed beside the System controls.</li>
+                            <li><strong>Apply:</strong> Click <em>Apply alignment to Trace B</em> to add the positive delay to that trace&rsquo;s <code>xOffset</code>.</li>
+                            <li><strong>Undo/redo friendly:</strong> Offsets are tracked so you can revert or reapply while experimenting.</li>
+                            <li><strong>Persistence:</strong> Saved workspaces keep offsets so aligned traces stay synchronized after reload.</li>
                         </ul>
                     </div>
 
@@ -363,6 +389,16 @@ export const HelpSystem = {
                             <li><strong>Non-destructive preview:</strong> The raw trace overlay remains unchanged, enabling direct comparison to processed results.</li>
                             <li><strong>Export options:</strong> Use export to download processed series or intermediate results for archival, publication figures, or external simulation.</li>
                             <li><strong>Reproducibility:</strong> Save filter chains with their parameters to rebuild the analysis sequence in subsequent sessions.</li>
+                        </ul>
+                    </div>
+
+                    <div id="content-performance-workers" class="help-section">
+                        <h3>Performance Notes</h3>
+                        <ul>
+                            <li><strong>Web Workers:</strong> Large FFTs and spectrograms offload to a worker when available so the UI stays responsive.</li>
+                            <li><strong>Fallback:</strong> If workers are unavailable, computations run on the main thread with identical numeric results.</li>
+                            <li><strong>Status:</strong> Watch for “Computing…” messages in the status bar during long operations.</li>
+                            <li><strong>Deterministic:</strong> Both execution paths share the same algorithms—only the thread changes.</li>
                         </ul>
                     </div>
 
