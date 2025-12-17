@@ -96,9 +96,12 @@ export const Graph = {
         
         const plotElement = document.getElementById(PLOT_ID);
         plotElement.on('plotly_relayout', this.handleZoom.bind(this));
-        
+
         window.addEventListener('resize', () => {
-            Plotly.Plots.resize(PLOT_ID);
+            const el = document.getElementById(PLOT_ID);
+            if (el && window.Plotly && Plotly.Plots && typeof Plotly.Plots.resize === 'function') {
+                Plotly.Plots.resize(el);
+            }
         });
     },
 

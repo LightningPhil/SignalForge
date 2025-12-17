@@ -1,5 +1,19 @@
 import { FFT } from './fft.js';
 
+const EPS = 1e-12;
+
+function normalizeCutoff(fc, { fs, minHz = 1e-9 } = {}) {
+    let v = Number(fc);
+    if (!Number.isFinite(v)) return null;
+    v = Math.abs(v);
+    if (Number.isFinite(fs) && fs > 0) {
+        const nyquist = fs / 2;
+        if (v > nyquist) v = nyquist;
+    }
+    if (v < minHz) v = minHz;
+    return v;
+}
+
 /**
  * Filter Processing Engine
  */
@@ -75,32 +89,45 @@ export const Filter = {
      * @returns {Array} Array of Gain values (linear 0-1) for plot
      */
     calculateTransferFunction(pipeline, fs, points) {
-        const transfer = new Array(points).fill(1.0); // Start at unity gain
-        const binWidth = (fs / 2) / points; // Nyquist / points
+        const safePoints = Math.max(1, Number(points) || 0);
+        const transfer = new Array(safePoints).fill(1.0); // Start at unity gain
+        const binWidth = safePoints > 0 ? (fs / 2) / safePoints : 0; // Nyquist / points
 
         pipeline.forEach(step => {
             if (!step.enabled) return;
             if (!['lowPassFFT','highPassFFT','notchFFT'].includes(step.type)) return;
 
-            for(let i=0; i < points; i++) {
+            const slope = step.slope || 12;
+            const order = Math.max(1, Math.round(slope / 6));
+            const fc = normalizeCutoff(step.cutoffFreq, { fs });
+            const notchCenter = normalizeCutoff(step.centerFreq, { fs });
+            const notchBw = normalizeCutoff(step.bandwidth, { fs, minHz: 0 });
+
+            for(let i=0; i < safePoints; i++) {
                 const freq = i * binWidth;
                 let gain = 1.0;
 
                 if (step.type === 'notchFFT') {
-                    const center = step.centerFreq;
-                    const bw = step.bandwidth;
-                    if (freq >= (center - bw/2) && freq <= (center + bw/2)) {
-                        gain = 0.0;
+                    if (notchCenter && notchBw) {
+                        const halfBw = notchBw / 2;
+                        if (freq >= (notchCenter - halfBw) && freq <= (notchCenter + halfBw)) {
+                            gain = 0.0;
+                        }
                     }
                 } else {
-                    const fc = step.cutoffFreq;
-                    const slope = step.slope || 12;
-                    const order = Math.max(1, Math.round(slope / 6));
-                    
-                    let ratio = (step.type === 'lowPassFFT') ? (freq / fc) : (fc / freq);
-                    gain = 1.0 / Math.sqrt(1 + Math.pow(ratio, 2 * order));
+                    if (!fc) {
+                        gain = 1.0;
+                    } else if (freq === 0) {
+                        gain = step.type === 'lowPassFFT' ? 1.0 : 0.0;
+                    } else {
+                        const ratio = (step.type === 'lowPassFFT') ? (freq / fc) : (fc / freq);
+                        const candidate = 1.0 / Math.sqrt(1 + Math.pow(ratio, 2 * order));
+                        gain = Number.isFinite(candidate)
+                            ? candidate
+                            : (step.type === 'lowPassFFT' ? 1.0 : 0.0);
+                    }
                 }
-                
+
                 transfer[i] *= gain;
             }
         });
@@ -112,8 +139,10 @@ export const Filter = {
 
     applyFFTFilter(data, fs, type, config) {
         const len = data.length;
+        if (len === 0) return [];
         const { re, im } = FFT.forward(data);
-        const n = re.length; 
+        const n = re.length;
+        if (n === 0) return data;
         const binWidth = fs / n;
 
         for(let i=0; i <= n/2; i++) {
@@ -121,18 +150,30 @@ export const Filter = {
             let gain = 1.0;
 
             if (type === 'notch') {
-                const center = config.centerFreq;
-                const bw = config.bandwidth;
-                if (freq >= (center - bw/2) && freq <= (center + bw/2)) {
-                    gain = 0.0;
+                const center = normalizeCutoff(config.centerFreq, { fs });
+                const bw = normalizeCutoff(config.bandwidth, { fs, minHz: 0 });
+                if (center && bw) {
+                    const half = bw / 2;
+                    if (freq >= (center - half) && freq <= (center + half)) {
+                        gain = 0.0;
+                    }
                 }
             } else {
-                const fc = config.cutoffFreq;
-                const slope = config.slope || 12; 
+                const fc = normalizeCutoff(config.cutoffFreq, { fs });
+                const slope = config.slope || 12;
                 const order = Math.max(1, Math.round(slope / 6));
-                
-                let ratio = (type === 'lowpass') ? (freq / fc) : (fc / freq);
-                gain = 1.0 / Math.sqrt(1 + Math.pow(ratio, 2 * order));
+
+                if (!fc) {
+                    gain = 1.0;
+                } else if (freq === 0) {
+                    gain = type === 'lowpass' ? 1.0 : 0.0;
+                } else {
+                    const ratio = (type === 'lowpass') ? (freq / fc) : (fc / freq);
+                    const candidate = 1.0 / Math.sqrt(1 + Math.pow(ratio, 2 * order));
+                    gain = Number.isFinite(candidate)
+                        ? candidate
+                        : (type === 'lowpass' ? 1.0 : 0.0);
+                }
             }
 
             re[i] *= gain;
@@ -203,10 +244,15 @@ export const Filter = {
     },
 
     savitzkyGolay(data, windowSize, order) {
-        if (windowSize % 2 === 0) windowSize++;
-        const half = Math.floor(windowSize / 2);
+        let resolvedWindow = Math.max(1, Math.floor(windowSize || 0));
+        if (resolvedWindow % 2 === 0) resolvedWindow += 1;
+        const resolvedOrder = Math.max(0, Math.floor(order || 0));
+        if (resolvedWindow < resolvedOrder + 2) {
+            throw new Error('Savitzky-Golay window size must be odd and at least order + 2.');
+        }
+        const half = Math.floor(resolvedWindow / 2);
         const result = new Array(data.length).fill(0);
-        const weights = this.computeSGWeights(half, order);
+        const weights = this.computeSGWeights(half, resolvedOrder);
         for (let i = 0; i < data.length; i++) {
             let sum = 0;
             for (let j = -half; j <= half; j++) {
@@ -288,17 +334,25 @@ export const Filter = {
 
     computeSGWeights(m, order) {
         const windowSize = 2 * m + 1;
+        const resolvedOrder = Math.max(0, Math.floor(order || 0));
+        if (windowSize < resolvedOrder + 2) {
+            throw new Error('Savitzky-Golay window size must be odd and at least order + 2.');
+        }
         const A = [];
         for (let i = -m; i <= m; i++) {
             const row = [];
-            for (let j = 0; j <= order; j++) { row.push(Math.pow(i, j)); }
+            for (let j = 0; j <= resolvedOrder; j++) { row.push(Math.pow(i, j)); }
             A.push(row);
         }
         const AT = this.transpose(A);
         const ATA = this.multiplyMatrices(AT, A);
         const ATAInv = this.invertMatrix(ATA);
         const C = this.multiplyMatrices(ATAInv, AT);
-        return C[0]; 
+        const coeffs = C[0];
+        if (!coeffs.every((v) => Number.isFinite(v))) {
+            throw new Error('Savitzky-Golay coefficients are not finite.');
+        }
+        return coeffs;
     },
 
     computeGaussianKernel(sigma, size) {
@@ -330,21 +384,36 @@ export const Filter = {
     },
 
     invertMatrix(M){
-        let n = M.length;
-        let A = M.map(row => [...row]);
-        let I = [];
+        const n = M.length;
+        const A = M.map(row => [...row]);
+        const I = [];
         for(let i=0; i<n; i++){
-            let row = new Array(n).fill(0);
+            const row = new Array(n).fill(0);
             row[i] = 1;
             I.push(row);
         }
         A.forEach((r,i) => r.push(...I[i]));
         for(let i=0; i<n; i++){
-            let pivot = A[i][i];
+            let maxRow = i;
+            let maxVal = Math.abs(A[i][i]);
+            for(let r=i+1; r<n; r++) {
+                const v = Math.abs(A[r][i]);
+                if (v > maxVal) {
+                    maxVal = v;
+                    maxRow = r;
+                }
+            }
+            if (!Number.isFinite(maxVal) || maxVal < EPS) {
+                throw new Error('Matrix is singular or ill-conditioned');
+            }
+            if (maxRow !== i) {
+                [A[i], A[maxRow]] = [A[maxRow], A[i]];
+            }
+            const pivot = A[i][i];
             for(let j=i; j<2*n; j++) A[i][j] /= pivot;
             for(let k=0; k<n; k++){
                 if(k!==i){
-                    let factor = A[k][i];
+                    const factor = A[k][i];
                     for(let j=i; j<2*n; j++) A[k][j] -= factor * A[i][j];
                 }
             }

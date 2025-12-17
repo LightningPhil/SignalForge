@@ -27,7 +27,8 @@ export const FFT = {
      * Calculates the Next Power of Two for padding.
      */
     nextPowerOfTwo(n) {
-        return Math.pow(2, Math.ceil(Math.log(n) / Math.log(2)));
+        if (!Number.isFinite(n) || n <= 1) return 1;
+        return 2 ** Math.ceil(Math.log2(n));
     },
 
     /**
@@ -40,22 +41,28 @@ export const FFT = {
      */
     forward(data, options = {}) {
         const { zeroPadMode = 'nextPow2', zeroPadFactor = 1 } = options;
+        const sourceLength = Array.isArray(data) || ArrayBuffer.isView(data) ? data.length : 0;
+        if (sourceLength === 0) {
+            return { re: new Float64Array(0), im: new Float64Array(0), length: 0 };
+        }
+
         const desiredLength = (() => {
-            if (zeroPadMode === 'none') return data.length;
-            if (zeroPadMode === 'factor' && zeroPadFactor > 1) {
-                const target = Math.max(data.length, Math.ceil(data.length * zeroPadFactor));
+            if (zeroPadMode === 'none') return sourceLength;
+            if (zeroPadMode === 'factor' && Number.isFinite(zeroPadFactor) && zeroPadFactor > 1) {
+                const target = Math.max(sourceLength, Math.ceil(sourceLength * zeroPadFactor));
                 return this.nextPowerOfTwo(target);
             }
-            return this.nextPowerOfTwo(data.length);
+            return this.nextPowerOfTwo(sourceLength);
         })();
 
-        const re = new Float64Array(desiredLength);
-        const im = new Float64Array(desiredLength);
+        const safeLength = Number.isFinite(desiredLength) && desiredLength > 0 ? desiredLength : 1;
+        const re = new Float64Array(safeLength);
+        const im = new Float64Array(safeLength);
 
-        for (let i = 0; i < data.length; i += 1) re[i] = data[i];
+        for (let i = 0; i < sourceLength; i += 1) re[i] = data[i];
 
         this.transform(re, im);
-        return { re, im, length: desiredLength };
+        return { re, im, length: safeLength };
     },
 
     /**
@@ -205,6 +212,9 @@ export const FFT = {
 
     getWindow(windowType = 'hann', length = 0, opts = {}) {
         const n = Math.max(1, length);
+        if (n <= 1) {
+            return { window: new Float64Array([1]), coherentGain: 1, enbw: 1 };
+        }
         const window = new Float64Array(n);
         if (windowType === 'rectangular') {
             window.fill(1);
@@ -242,7 +252,7 @@ export const FFT = {
 
         const coherentGain = window.reduce((acc, v) => acc + v, 0) / n;
         const power = window.reduce((acc, v) => acc + v * v, 0);
-        const enbw = power / (coherentGain * coherentGain * n);
+        const enbw = coherentGain === 0 ? 1 : power / (coherentGain * coherentGain * n);
         return { window, coherentGain, enbw };
     },
 
@@ -294,6 +304,21 @@ export const FFT = {
 
         const sliced = signal.slice(indices.start, indices.end + 1);
         const slicedTime = timeArray.slice(indices.start, indices.end + 1);
+        if (!sliced || sliced.length < 2) {
+            const empty = {
+                freq: [],
+                magnitude: [],
+                linearMagnitude: [],
+                phase: [],
+                warnings: sliced.length ? [] : ['Selection too short for FFT.'],
+                meta: { fs: 1, deltaF: 0, nyquist: 0, coherentGain: 1, enbw: 1, medianDt: undefined },
+                re: new Float64Array(0),
+                im: new Float64Array(0),
+                length: sliced.length,
+            };
+            cache.set(key, empty);
+            return empty;
+        }
         const { fs, warnings: timingWarnings, medianDt } = this.inferSampleRate(slicedTime.length ? slicedTime : timeArray);
         const detrended = this.applyDetrend(sliced, detrend);
         const { window, coherentGain, enbw } = this.getWindow(windowType, detrended.length, windowOpts);
