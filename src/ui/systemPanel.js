@@ -5,10 +5,13 @@ import { Filter } from '../processing/filter.js';
 import { MathEngine } from '../processing/math.js';
 import { AnalysisEngine } from '../analysis/analysisEngine.js';
 import { applyTraceTimeOffset } from '../app/stateMutations.js';
+import { WorkerManager } from '../analysis/workerManager.js';
 
 const fallbackSummary = 'Select input/output channels to compute FRF.';
 let latestResult = null;
 let applyBtn = null;
+let pendingDelayJobId = null;
+let pendingDelayToken = null;
 
 function getColumnData(columnId) {
     if (!columnId || !State.data.timeColumn) return { x: [], y: [], isMath: false };
@@ -63,7 +66,11 @@ function renderSummary(payload) {
     renderWarnings(warnings);
 }
 
-function computeSystem() {
+async function computeSystem() {
+    if (pendingDelayJobId) {
+        WorkerManager.cancel(pendingDelayJobId);
+        pendingDelayJobId = null;
+    }
     const analysis = State.ensureAnalysisConfig();
     const inputCol = elements.systemInput?.value || 'auto';
     const outputCol = elements.systemOutput?.value || 'auto';
@@ -86,10 +93,45 @@ function computeSystem() {
     }
 
     const selection = analysis.systemSelectionOnly === false ? null : State.getAnalysisSelection();
-    const delay = CrossChannel.estimateDelay(outputData.x, inputData.y, outputData.y, {
+    const delayOptions = {
         selection,
         maxLagSeconds: analysis.systemMaxLagSeconds
-    });
+    };
+
+    const shouldOffload = WorkerManager.shouldOffload(Math.min(inputData.y.length, outputData.y.length));
+    const token = Date.now();
+    pendingDelayToken = token;
+    if (applyBtn) applyBtn.disabled = true;
+    const statusEl = elements.systemSummary;
+    if (statusEl) statusEl.textContent = 'Computing delay…';
+
+    if (shouldOffload && pendingDelayJobId) {
+        WorkerManager.cancel(pendingDelayJobId);
+        pendingDelayJobId = null;
+    }
+
+    const delayPromise = shouldOffload
+        ? (() => {
+            const job = WorkerManager.run('correlation', {
+                time: outputData.x,
+                x: inputData.y,
+                y: outputData.y,
+                options: delayOptions
+            });
+            pendingDelayJobId = job.jobId;
+            return job;
+        })()
+        : Promise.resolve(CrossChannel.estimateDelay(outputData.x, inputData.y, outputData.y, delayOptions));
+
+    const delay = await delayPromise.catch((err) => ({
+        delaySeconds: 0,
+        delaySamples: 0,
+        correlationPeak: 0,
+        confidence: 0,
+        warnings: [err?.message || 'Delay estimation failed']
+    }));
+    if (pendingDelayToken !== token) return;
+    pendingDelayJobId = null;
 
     const inputFiltered = inputData.isMath ? inputData.y : Filter.applyPipeline(inputData.y, inputData.x, State.getPipelineForColumn(selectedInput));
     const outputFiltered = outputData.isMath ? outputData.y : Filter.applyPipeline(outputData.y, outputData.x, State.getPipelineForColumn(selectedOutput));

@@ -23,6 +23,8 @@ export const Graph = {
     currentEvents: [],
     eventOverlay: { show: true, activeIndex: null, amplitudes: null },
     pendingSpectrogram: null,
+    pendingSpectrogramJobId: null,
+    pendingFreqJobs: [],
 
     getPlotStyling() {
         const styles = getComputedStyle(document.documentElement);
@@ -637,17 +639,24 @@ export const Graph = {
         if (WorkerManager.shouldOffload(rawY.length)) {
             const statusEl = document.getElementById(STATUS_ID);
             if (statusEl) statusEl.textContent = 'Computing FFT…';
+            this.pendingFreqJobs.forEach((jobId) => WorkerManager.cancel(jobId));
+            this.pendingFreqJobs = [];
             const jobs = [
                 WorkerManager.run('fft', { signal: rawY, time: timeX, options: { ...baseOptions, cacheKey: `${cacheKeyBase}|raw`, useWorker: false } })
             ];
             if (!isMath && filteredY && filteredY.length) {
                 jobs.push(WorkerManager.run('fft', { signal: filteredY, time: timeX, options: { ...baseOptions, cacheKey: `${cacheKeyBase}|filtered`, useWorker: false } }));
             }
+            this.pendingFreqJobs = jobs.map((job) => job.jobId).filter(Boolean);
             Promise.all(jobs)
                 .then(([rawSpec, filteredSpec]) => buildAndRender(rawSpec, filteredSpec))
                 .catch((err) => {
                     if (statusEl) statusEl.textContent = 'FFT worker failed';
                     console.error(err);
+                })
+                .finally(() => {
+                    this.pendingFreqJobs.forEach((jobId) => WorkerManager.cancel(jobId));
+                    this.pendingFreqJobs = [];
                 });
             return;
         }
@@ -807,16 +816,27 @@ export const Graph = {
         if (shouldOffload) {
             const token = `${Date.now()}`;
             this.pendingSpectrogram = token;
+            if (this.pendingSpectrogramJobId) {
+                WorkerManager.cancel(this.pendingSpectrogramJobId);
+                this.pendingSpectrogramJobId = null;
+            }
             const statusEl = document.getElementById(STATUS_ID);
             if (statusEl) statusEl.textContent = 'Computing spectrogram…';
-            WorkerManager.run('stft', { signal: targetY || [], time: rawX || [], options: { ...optionsPayload, useWorker: false } })
-                .then((spec) => {
+            const job = WorkerManager.run('stft', { signal: targetY || [], time: rawX || [], options: { ...optionsPayload, useWorker: false } });
+            this.pendingSpectrogramJobId = job.jobId;
+            job.then((spec) => {
                     if (this.pendingSpectrogram !== token) return;
                     renderResult(spec);
                 })
                 .catch((err) => {
                     if (statusEl) statusEl.textContent = 'Spectrogram worker failed';
                     console.error(err);
+                })
+                .finally(() => {
+                    if (this.pendingSpectrogramJobId) {
+                        WorkerManager.cancel(this.pendingSpectrogramJobId);
+                        this.pendingSpectrogramJobId = null;
+                    }
                 });
             return;
         }

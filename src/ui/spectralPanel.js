@@ -41,6 +41,7 @@ export const SpectralPanel = {
     lastSeries: null,
     cache: new Map(),
     pendingJob: null,
+    pendingJobId: null,
 
     init() {
         this.panelEl = document.getElementById('spectral-panel');
@@ -207,10 +208,15 @@ export const SpectralPanel = {
         if (shouldOffload) {
             const token = `${Date.now()}-${cacheKey}`;
             this.pendingJob = token;
+            if (this.pendingJobId) {
+                WorkerManager.cancel(this.pendingJobId);
+                this.pendingJobId = null;
+            }
             if (this.metaEl) this.metaEl.textContent = 'Computing FFT…';
             renderWarnings(this.warningsEl, []);
-            WorkerManager.run('fft', { signal: y, time: x, options: { ...baseOptions, useWorker: false } })
-                .then((spectrum) => {
+            const job = WorkerManager.run('fft', { signal: y, time: x, options: { ...baseOptions, useWorker: false } });
+            this.pendingJobId = job.jobId;
+            job.then((spectrum) => {
                     if (this.pendingJob !== token) return;
                     const summary = SpectralMetrics.summarizeFromSpectrum(spectrum, {
                         maxPeaks: analysis.fftPeakCount,
@@ -225,6 +231,12 @@ export const SpectralPanel = {
                 .catch((err) => {
                     if (this.metaEl) this.metaEl.textContent = 'FFT worker failed';
                     renderWarnings(this.warningsEl, [err?.message || 'Worker error']);
+                })
+                .finally(() => {
+                    if (this.pendingJobId) {
+                        WorkerManager.cancel(this.pendingJobId);
+                        this.pendingJobId = null;
+                    }
                 });
             return;
         }

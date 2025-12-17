@@ -47,11 +47,21 @@ export const WorkerManager = {
             pending.set(jobId, { resolve, reject });
         });
         target.postMessage({ jobId, type: jobType, payload });
+        promise.jobId = jobId;
+        promise.cancel = () => this.cancel(jobId);
         return promise;
     },
 
+    cancel(jobId) {
+        if (!jobId || !pending.has(jobId)) return false;
+        const entry = pending.get(jobId);
+        pending.delete(jobId);
+        entry.reject(new Error('Job cancelled'));
+        return true;
+    },
+
     cancelAll() {
-        pending.forEach((entry) => entry.reject(new Error('Job cancelled')));
+        Array.from(pending.keys()).forEach((jobId) => this.cancel(jobId));
         pending.clear();
     }
 };
