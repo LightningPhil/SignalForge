@@ -9,6 +9,7 @@ import { AnalysisEngine } from '../analysis/analysisEngine.js';
 import { SpectralMetrics } from '../analysis/spectralMetrics.js';
 import { TimeFrequency } from '../analysis/timeFrequency.js';
 import { SystemPanel } from './systemPanel.js';
+import { WorkerManager } from '../analysis/workerManager.js';
 
 const PLOT_ID = 'main-plot';
 const STATUS_ID = 'graph-status';
@@ -21,6 +22,7 @@ export const Graph = {
     lastRanges: { x: null, y: null },
     currentEvents: [],
     eventOverlay: { show: true, activeIndex: null, amplitudes: null },
+    pendingSpectrogram: null,
 
     getPlotStyling() {
         const styles = getComputedStyle(document.documentElement);
@@ -294,9 +296,10 @@ export const Graph = {
         Plotly.react(PLOT_ID, traces, layout);
 
         if (statusEl) {
-            const delayText = Number.isFinite(result.delay) ? `${result.delay.toExponential(3)} s` : 'n/a';
-            const corrText = Number.isFinite(result.correlation) ? result.correlation.toFixed(3) : 'n/a';
-            statusEl.textContent = `Bode: ${result.input} → ${result.output} · delay ${delayText} · corr ${corrText}`;
+            const delayText = Number.isFinite(result.delaySeconds) ? `${result.delaySeconds.toExponential(3)} s` : 'n/a';
+            const corrText = Number.isFinite(result.correlationPeak) ? result.correlationPeak.toFixed(3) : 'n/a';
+            const confText = Number.isFinite(result.confidence) ? ` · conf ${result.confidence.toFixed(2)}` : '';
+            statusEl.textContent = `Bode: ${result.input} → ${result.output} · delay ${delayText} · corr ${corrText}${confText}`;
         }
     },
 
@@ -488,150 +491,173 @@ export const Graph = {
             analysis.fftZeroPadFactor
         ].join('|');
 
+        const buildAndRender = (rawSpectrum, filteredSpectrum) => {
+            if (!rawSpectrum) return;
+            const freqAxis = rawSpectrum.freq;
+            const traces = [];
+            const showMagnitude = analysis.fftView !== 'phase';
+            const showPhase = analysis.fftView === 'phase' || analysis.fftView === 'both';
+            const primarySpec = filteredSpectrum || rawSpectrum;
+
+            const showRawSpectrum = isMath ? true : (config.showRaw !== false);
+
+            if (showMagnitude && showRawSpectrum) {
+                traces.push({
+                    x: freqAxis,
+                    y: rawSpectrum.magnitude,
+                    mode: 'lines',
+                    name: isMath ? `${seriesName} Spectrum` : 'Raw Spectrum',
+                    line: { color: isMath ? colors.filtered : this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: isMath ? 2 : 1 },
+                    xaxis: 'x',
+                    yaxis: 'y'
+                });
+            }
+
+            if (!isMath && filteredSpectrum && showMagnitude) {
+                traces.push({
+                    x: freqAxis,
+                    y: filteredSpectrum.magnitude,
+                    mode: 'lines',
+                    name: 'Filtered Spectrum',
+                    line: { color: colors.filtered, width: 1.5 },
+                    xaxis: 'x',
+                    yaxis: 'y'
+                });
+            }
+
+            if (showPhase) {
+                traces.push({
+                    x: freqAxis,
+                    y: primarySpec.phase,
+                    mode: 'lines',
+                    name: 'Phase',
+                    line: { color: colors.transfer || '#00bcd4', width: 1.2, dash: 'dot' },
+                    xaxis: showMagnitude ? 'x2' : 'x',
+                    yaxis: showMagnitude ? 'y2' : 'y'
+                });
+            }
+
+            const pipeline = State.getPipeline();
+            const hasFFTFilters = pipeline.some((p) => p.enabled && ['lowPassFFT', 'highPassFFT', 'notchFFT'].includes(p.type));
+            if (hasFFTFilters && showMagnitude) {
+                const transfer = Filter.calculateTransferFunction(pipeline, rawSpectrum.meta.fs, freqAxis.length * 2);
+                const transferDB = transfer.map((g) => 20 * Math.log10(g + 1e-9));
+                traces.push({
+                    x: freqAxis,
+                    y: transferDB.slice(0, freqAxis.length),
+                    mode: 'lines',
+                    name: 'Filter Transfer H(f)',
+                    line: { color: colors.transfer || '#00bcd4', width: 1.8, dash: 'dash' },
+                    xaxis: 'x',
+                    yaxis: 'y'
+                });
+            }
+
+            const peakList = SpectralMetrics.computePeaks(primarySpec.freq, primarySpec.linearMagnitude, {
+                maxPeaks: analysis.fftPeakCount,
+                prominence: analysis.fftPeakProminence
+            });
+            if (showMagnitude && peakList.length) {
+                traces.push({
+                    x: peakList.map((p) => p.freq),
+                    y: peakList.map((p) => 20 * Math.log10(Math.max(p.magnitude, 1e-12))),
+                    mode: 'markers',
+                    name: 'Peaks',
+                    marker: { size: 8, color: '#ff6f61', symbol: 'circle' },
+                    xaxis: 'x',
+                    yaxis: 'y',
+                    hovertemplate: 'f=%{x:.3f} Hz<extra></extra>'
+                });
+            }
+
+            if (analysis.fftShowHarmonics !== false && showMagnitude) {
+                const fundamental = analysis.fftHarmonicFundamental || peakList[0]?.freq || null;
+                const harmonics = SpectralMetrics.computeHarmonics(primarySpec.freq, primarySpec.linearMagnitude, fundamental, analysis.fftHarmonicCount);
+                if (harmonics.length) {
+                    traces.push({
+                        x: harmonics.map((h) => h.freq),
+                        y: harmonics.map((h) => 20 * Math.log10(Math.max(h.magnitude || 0, 1e-12))),
+                        mode: 'markers',
+                        name: 'Harmonics',
+                        marker: { size: 7, color: '#7dd3fc', symbol: 'x' },
+                        xaxis: 'x',
+                        yaxis: 'y',
+                        hovertemplate: 'h%{text}: %{x:.3f} Hz<extra></extra>',
+                        text: harmonics.map((h) => h.order)
+                    });
+                }
+            }
+
+            const layout = {
+                title: 'Frequency Domain (FFT)',
+                paper_bgcolor: paperBg,
+                plot_bgcolor: plotBg,
+                font: { color: fontColor },
+                showlegend: true,
+                grid: showMagnitude && showPhase ? { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom' } : undefined,
+                xaxis: {
+                    title: 'Frequency (Hz)',
+                    type: 'log',
+                    autorange: true,
+                    gridcolor: gridColor,
+                    domain: showMagnitude && showPhase ? [0, 1] : undefined
+                },
+                yaxis: {
+                    title: showMagnitude ? 'Magnitude (dB)' : 'Phase (deg)',
+                    gridcolor: gridColor,
+                    domain: showMagnitude && showPhase ? [0.55, 1] : [0, 1]
+                },
+                shapes: []
+            };
+
+            if (showMagnitude && showPhase) {
+                layout.xaxis2 = {
+                    title: 'Frequency (Hz)',
+                    type: 'log',
+                    anchor: 'y2',
+                    gridcolor: gridColor,
+                    match: 'x'
+                };
+                layout.yaxis2 = {
+                    title: 'Phase (deg)',
+                    anchor: 'x2',
+                    gridcolor: gridColor,
+                    domain: [0, 0.45]
+                };
+            }
+
+            Plotly.react(PLOT_ID, traces, layout);
+
+            const statusEl = document.getElementById(STATUS_ID);
+            if (statusEl) {
+                statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(primarySpec.meta.fs)} Hz · Δf ≈ ${primarySpec.meta.deltaF.toPrecision(3)} Hz)`;
+            }
+        };
+
+        if (WorkerManager.shouldOffload(rawY.length)) {
+            const statusEl = document.getElementById(STATUS_ID);
+            if (statusEl) statusEl.textContent = 'Computing FFT…';
+            const jobs = [
+                WorkerManager.run('fft', { signal: rawY, time: timeX, options: { ...baseOptions, cacheKey: `${cacheKeyBase}|raw`, useWorker: false } })
+            ];
+            if (!isMath && filteredY && filteredY.length) {
+                jobs.push(WorkerManager.run('fft', { signal: filteredY, time: timeX, options: { ...baseOptions, cacheKey: `${cacheKeyBase}|filtered`, useWorker: false } }));
+            }
+            Promise.all(jobs)
+                .then(([rawSpec, filteredSpec]) => buildAndRender(rawSpec, filteredSpec))
+                .catch((err) => {
+                    if (statusEl) statusEl.textContent = 'FFT worker failed';
+                    console.error(err);
+                });
+            return;
+        }
+
         const rawSpectrum = FFT.computeSpectrum(rawY, timeX, { ...baseOptions, cacheKey: `${cacheKeyBase}|raw` });
         const filteredSpectrum = (!isMath && filteredY && filteredY.length)
             ? FFT.computeSpectrum(filteredY, timeX, { ...baseOptions, cacheKey: `${cacheKeyBase}|filtered` })
             : null;
 
-        const freqAxis = rawSpectrum.freq;
-        const traces = [];
-        const showMagnitude = analysis.fftView !== 'phase';
-        const showPhase = analysis.fftView === 'phase' || analysis.fftView === 'both';
-        const primarySpec = filteredSpectrum || rawSpectrum;
-
-        const showRawSpectrum = isMath ? true : (config.showRaw !== false);
-
-        if (showMagnitude && showRawSpectrum) {
-            traces.push({
-                x: freqAxis,
-                y: rawSpectrum.magnitude,
-                mode: 'lines',
-                name: isMath ? `${seriesName} Spectrum` : 'Raw Spectrum',
-                line: { color: isMath ? colors.filtered : this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: isMath ? 2 : 1 },
-                xaxis: 'x',
-                yaxis: 'y'
-            });
-        }
-
-        if (!isMath && filteredSpectrum && showMagnitude) {
-            traces.push({
-                x: freqAxis,
-                y: filteredSpectrum.magnitude,
-                mode: 'lines',
-                name: 'Filtered Spectrum',
-                line: { color: colors.filtered, width: 1.5 },
-                xaxis: 'x',
-                yaxis: 'y'
-            });
-        }
-
-        if (showPhase) {
-            traces.push({
-                x: freqAxis,
-                y: primarySpec.phase,
-                mode: 'lines',
-                name: 'Phase',
-                line: { color: colors.transfer || '#00bcd4', width: 1.2, dash: 'dot' },
-                xaxis: showMagnitude ? 'x2' : 'x',
-                yaxis: showMagnitude ? 'y2' : 'y'
-            });
-        }
-
-        const pipeline = State.getPipeline();
-        const hasFFTFilters = pipeline.some((p) => p.enabled && ['lowPassFFT', 'highPassFFT', 'notchFFT'].includes(p.type));
-        if (hasFFTFilters && showMagnitude) {
-            const transfer = Filter.calculateTransferFunction(pipeline, rawSpectrum.meta.fs, freqAxis.length * 2);
-            const transferDB = transfer.map((g) => 20 * Math.log10(g + 1e-9));
-            traces.push({
-                x: freqAxis,
-                y: transferDB.slice(0, freqAxis.length),
-                mode: 'lines',
-                name: 'Filter Transfer H(f)',
-                line: { color: colors.transfer || '#00bcd4', width: 1.8, dash: 'dash' },
-                xaxis: 'x',
-                yaxis: 'y'
-            });
-        }
-
-        const peakList = SpectralMetrics.computePeaks(primarySpec.freq, primarySpec.linearMagnitude, {
-            maxPeaks: analysis.fftPeakCount,
-            prominence: analysis.fftPeakProminence
-        });
-        if (showMagnitude && peakList.length) {
-            traces.push({
-                x: peakList.map((p) => p.freq),
-                y: peakList.map((p) => 20 * Math.log10(Math.max(p.magnitude, 1e-12))),
-                mode: 'markers',
-                name: 'Peaks',
-                marker: { size: 8, color: '#ff6f61', symbol: 'circle' },
-                xaxis: 'x',
-                yaxis: 'y',
-                hovertemplate: 'f=%{x:.3f} Hz<extra></extra>'
-            });
-        }
-
-        if (analysis.fftShowHarmonics !== false && showMagnitude) {
-            const fundamental = analysis.fftHarmonicFundamental || peakList[0]?.freq || null;
-            const harmonics = SpectralMetrics.computeHarmonics(primarySpec.freq, primarySpec.linearMagnitude, fundamental, analysis.fftHarmonicCount);
-            if (harmonics.length) {
-                traces.push({
-                    x: harmonics.map((h) => h.freq),
-                    y: harmonics.map((h) => 20 * Math.log10(Math.max(h.magnitude || 0, 1e-12))),
-                    mode: 'markers',
-                    name: 'Harmonics',
-                    marker: { size: 7, color: '#7dd3fc', symbol: 'x' },
-                    xaxis: 'x',
-                    yaxis: 'y',
-                    hovertemplate: 'h%{text}: %{x:.3f} Hz<extra></extra>',
-                    text: harmonics.map((h) => h.order)
-                });
-            }
-        }
-
-        const layout = {
-            title: 'Frequency Domain (FFT)',
-            paper_bgcolor: paperBg,
-            plot_bgcolor: plotBg,
-            font: { color: fontColor },
-            showlegend: true,
-            grid: showMagnitude && showPhase ? { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom' } : undefined,
-            xaxis: {
-                title: 'Frequency (Hz)',
-                type: 'log',
-                autorange: true,
-                gridcolor: gridColor,
-                domain: showMagnitude && showPhase ? [0, 1] : undefined
-            },
-            yaxis: {
-                title: showMagnitude ? 'Magnitude (dB)' : 'Phase (deg)',
-                gridcolor: gridColor,
-                domain: showMagnitude && showPhase ? [0.55, 1] : [0, 1]
-            },
-            shapes: []
-        };
-
-        if (showMagnitude && showPhase) {
-            layout.xaxis2 = {
-                title: 'Frequency (Hz)',
-                type: 'log',
-                anchor: 'y2',
-                gridcolor: gridColor,
-                match: 'x'
-            };
-            layout.yaxis2 = {
-                title: 'Phase (deg)',
-                anchor: 'x2',
-                gridcolor: gridColor,
-                domain: [0, 0.45]
-            };
-        }
-
-        Plotly.react(PLOT_ID, traces, layout);
-
-        const statusEl = document.getElementById(STATUS_ID);
-        if (statusEl) {
-            statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(primarySpec.meta.fs)} Hz · Δf ≈ ${primarySpec.meta.deltaF.toPrecision(3)} Hz)`;
-        }
+        buildAndRender(rawSpectrum, filteredSpectrum);
     },
 
     renderMultiFreqDomain(timeX, seriesList) {
@@ -722,7 +748,52 @@ export const Graph = {
             targetY = filteredY;
         }
 
-        const spectrogram = TimeFrequency.computeSpectrogram(targetY || [], rawX || [], {
+        const renderResult = (spectrogram) => {
+            const colorscale = this.getActiveTheme() === 'light' ? 'Portland' : 'Turbo';
+
+            const traces = [{
+                x: spectrogram.timeBins,
+                y: spectrogram.freqBins,
+                z: spectrogram.magnitudeDb,
+                type: 'heatmap',
+                colorscale,
+                colorbar: { title: 'Magnitude (dB)' },
+                hovertemplate: 't=%{x:.6f}s<br>f=%{y:.3f}Hz<br>%{z:.2f} dB<extra></extra>'
+            }];
+
+            const layout = {
+                title: `Spectrogram${seriesName ? ` — ${seriesName}` : ''}`,
+                paper_bgcolor: paperBg,
+                plot_bgcolor: plotBg,
+                font: { color: fontColor },
+                xaxis: { title: 'Time (s)', gridcolor: gridColor },
+                yaxis: { title: 'Frequency (Hz)', gridcolor: gridColor },
+                margin: { t: 60, r: 80, b: 60, l: 60 }
+            };
+
+            Plotly.react(PLOT_ID, traces, layout);
+
+            const statusEl = document.getElementById(STATUS_ID);
+            if (statusEl) {
+                const parts = [];
+                const frames = spectrogram.meta?.nFrames || 0;
+                if (frames) parts.push(`${frames} frame(s)`);
+                if (spectrogram.meta?.freqResolution) {
+                    parts.push(`Δf ≈ ${spectrogram.meta.freqResolution.toPrecision(3)} Hz`);
+                }
+                if (spectrogram.meta?.hop && spectrogram.meta?.fs) {
+                    const hopSeconds = spectrogram.meta.hop / spectrogram.meta.fs;
+                    parts.push(`hop ≈ ${hopSeconds.toExponential(2)} s`);
+                }
+                const warnText = spectrogram.warnings && spectrogram.warnings.length
+                    ? ` · ${spectrogram.warnings.join(' ')}`
+                    : '';
+                statusEl.textContent = `Spectrogram${parts.length ? ` (${parts.join(' · ')})` : ''}${warnText}`;
+            }
+        };
+
+        const shouldOffload = WorkerManager.shouldOffload((targetY || []).length);
+        const optionsPayload = {
             selection,
             windowSize: analysis.spectrogramSize,
             overlap: analysis.spectrogramOverlap,
@@ -731,49 +802,27 @@ export const Graph = {
             maxPoints: analysis.spectrogramMaxPoints,
             freqMin: analysis.spectrogramFreqMin,
             freqMax: analysis.spectrogramFreqMax
-        });
-
-        const colorscale = this.getActiveTheme() === 'light' ? 'Portland' : 'Turbo';
-
-        const traces = [{
-            x: spectrogram.timeBins,
-            y: spectrogram.freqBins,
-            z: spectrogram.magnitudeDb,
-            type: 'heatmap',
-            colorscale,
-            colorbar: { title: 'Magnitude (dB)' },
-            hovertemplate: 't=%{x:.6f}s<br>f=%{y:.3f}Hz<br>%{z:.2f} dB<extra></extra>'
-        }];
-
-        const layout = {
-            title: `Spectrogram${seriesName ? ` — ${seriesName}` : ''}`,
-            paper_bgcolor: paperBg,
-            plot_bgcolor: plotBg,
-            font: { color: fontColor },
-            xaxis: { title: 'Time (s)', gridcolor: gridColor },
-            yaxis: { title: 'Frequency (Hz)', gridcolor: gridColor },
-            margin: { t: 60, r: 80, b: 60, l: 60 }
         };
 
-        Plotly.react(PLOT_ID, traces, layout);
-
-        const statusEl = document.getElementById(STATUS_ID);
-        if (statusEl) {
-            const parts = [];
-            const frames = spectrogram.meta?.nFrames || 0;
-            if (frames) parts.push(`${frames} frame(s)`);
-            if (spectrogram.meta?.freqResolution) {
-                parts.push(`Δf ≈ ${spectrogram.meta.freqResolution.toPrecision(3)} Hz`);
-            }
-            if (spectrogram.meta?.hop && spectrogram.meta?.fs) {
-                const hopSeconds = spectrogram.meta.hop / spectrogram.meta.fs;
-                parts.push(`hop ≈ ${hopSeconds.toExponential(2)} s`);
-            }
-            const warnText = spectrogram.warnings && spectrogram.warnings.length
-                ? ` · ${spectrogram.warnings.join(' ')}`
-                : '';
-            statusEl.textContent = `Spectrogram${parts.length ? ` (${parts.join(' · ')})` : ''}${warnText}`;
+        if (shouldOffload) {
+            const token = `${Date.now()}`;
+            this.pendingSpectrogram = token;
+            const statusEl = document.getElementById(STATUS_ID);
+            if (statusEl) statusEl.textContent = 'Computing spectrogram…';
+            WorkerManager.run('stft', { signal: targetY || [], time: rawX || [], options: { ...optionsPayload, useWorker: false } })
+                .then((spec) => {
+                    if (this.pendingSpectrogram !== token) return;
+                    renderResult(spec);
+                })
+                .catch((err) => {
+                    if (statusEl) statusEl.textContent = 'Spectrogram worker failed';
+                    console.error(err);
+                });
+            return;
         }
+
+        const spectrogram = TimeFrequency.computeSpectrogram(targetY || [], rawX || [], optionsPayload);
+        renderResult(spectrogram);
     },
 
     // --- Time Domain Renderer (Existing Logic) ---

@@ -3,6 +3,7 @@ import { SpectralMetrics } from '../analysis/spectralMetrics.js';
 import { State } from '../state.js';
 import { debounce, selectionKey, seriesSignature } from '../app/utils.js';
 import { triggerGraphUpdateOnly } from '../app/dataPipeline.js';
+import { WorkerManager } from '../analysis/workerManager.js';
 
 function formatNumber(val, digits = 3) {
     if (val === null || val === undefined || Number.isNaN(val)) return '—';
@@ -39,6 +40,7 @@ function peakRows(peaks = []) {
 export const SpectralPanel = {
     lastSeries: null,
     cache: new Map(),
+    pendingJob: null,
 
     init() {
         this.panelEl = document.getElementById('spectral-panel');
@@ -192,17 +194,47 @@ export const SpectralPanel = {
             return;
         }
 
-        const summary = SpectralMetrics.summarize(y, x, {
+        const shouldOffload = WorkerManager.shouldOffload(y.length);
+        const baseOptions = {
             selection,
             windowType: analysis.fftWindow,
             detrend: analysis.fftDetrend,
             zeroPadMode: analysis.fftZeroPad,
             zeroPadFactor: analysis.fftZeroPadFactor,
+            cacheKey
+        };
+
+        if (shouldOffload) {
+            const token = `${Date.now()}-${cacheKey}`;
+            this.pendingJob = token;
+            if (this.metaEl) this.metaEl.textContent = 'Computing FFT…';
+            renderWarnings(this.warningsEl, []);
+            WorkerManager.run('fft', { signal: y, time: x, options: { ...baseOptions, useWorker: false } })
+                .then((spectrum) => {
+                    if (this.pendingJob !== token) return;
+                    const summary = SpectralMetrics.summarizeFromSpectrum(spectrum, {
+                        maxPeaks: analysis.fftPeakCount,
+                        prominence: analysis.fftPeakProminence,
+                        harmonicCount: analysis.fftHarmonicCount,
+                        fundamentalHz: analysis.fftHarmonicFundamental || undefined,
+                        cacheKey
+                    });
+                    this.cache.set(cacheKey, summary);
+                    this.render(summary);
+                })
+                .catch((err) => {
+                    if (this.metaEl) this.metaEl.textContent = 'FFT worker failed';
+                    renderWarnings(this.warningsEl, [err?.message || 'Worker error']);
+                });
+            return;
+        }
+
+        const summary = SpectralMetrics.summarize(y, x, {
+            ...baseOptions,
             maxPeaks: analysis.fftPeakCount,
             prominence: analysis.fftPeakProminence,
             harmonicCount: analysis.fftHarmonicCount,
-            fundamentalHz: analysis.fftHarmonicFundamental || undefined,
-            cacheKey
+            fundamentalHz: analysis.fftHarmonicFundamental || undefined
         });
 
         this.cache.set(cacheKey, summary);

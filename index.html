@@ -321,6 +321,9 @@
                         <label for="system-max-lag">Max lag (s)</label>
                         <input type="number" id="system-max-lag" step="0.000001" min="0" placeholder="Auto">
                     </div>
+                    <div class="system-actions">
+                        <button id="system-apply-alignment" title="Applies +Δt offset to selected trace. Does not modify data samples." disabled>Apply alignment to Trace B</button>
+                    </div>
                     <div id="system-summary" class="system-summary">Select input/output channels to compute FRF.</div>
                     <ul id="system-warnings" class="measurement-warnings"></ul>
                 </div>
@@ -351,11 +354,12 @@
                         <div class="event-row">
                             <label for="event-source">Source</label>
                             <select id="event-source">
-                                <option value="auto">Auto</option>
                                 <option value="raw">Raw</option>
                                 <option value="filtered">Filtered</option>
                                 <option value="math">Math</option>
+                                <option value="derivative">Derivative (dy/dt)</option>
                             </select>
+                            <div id="event-source-hint" class="muted small-text"></div>
                         </div>
                         <div class="event-grid">
                             <label for="event-threshold">Threshold</label>
@@ -364,6 +368,7 @@
                             <input type="number" id="event-hysteresis" step="0.001" value="0">
                             <label for="event-slope">Slope Threshold</label>
                             <input type="number" id="event-slope" step="0.001" value="0">
+                            <div id="event-slope-hint" class="muted small-text" style="grid-column: span 2;">Edge detection uses slope thresholds per second.</div>
                             <label for="event-min-width">Min Width (s)</label>
                             <input type="number" id="event-min-width" step="0.000001" value="0">
                             <label for="event-max-width">Max Width (s)</label>
