@@ -1,4 +1,18 @@
 import { State } from '../state.js';
+import { Config } from '../config.js';
+
+const CURRENT_VERSION = 2;
+
+function mergeAnalysisDefaults(analysis = {}) {
+    const defaults = Config.analysis || {};
+    const merged = {
+        ...defaults,
+        ...analysis,
+        trigger: { ...(defaults.trigger || {}), ...(analysis.trigger || {}) }
+    };
+    if (!merged.measurementPreset) merged.measurementPreset = defaults.measurementPreset || 'general';
+    return merged;
+}
 
 /**
  * Settings Persistence Module
@@ -10,6 +24,8 @@ export const SettingsManager = {
 
     getSerializableConfig() {
         const base = JSON.parse(JSON.stringify(State.config));
+        base.settingsVersion = CURRENT_VERSION;
+        base.analysis = mergeAnalysisDefaults(base.analysis || {});
         if (!State.isGlobalScope()) {
             base.pipeline = JSON.parse(JSON.stringify(State.getPipeline()));
         }
@@ -84,23 +100,37 @@ export const SettingsManager = {
                 throw new Error("Invalid settings file structure.");
             }
 
+            const migrated = this.migrateConfig(newConfig);
             const merged = {
                 ...State.config,
-                ...newConfig,
-                pipeline: newConfig.pipeline || State.config.pipeline,
-                columnPipelines: newConfig.columnPipelines || {},
-                pipelineScope: newConfig.pipelineScope !== undefined
-                    ? newConfig.pipelineScope
+                ...migrated,
+                pipeline: migrated.pipeline || State.config.pipeline,
+                columnPipelines: migrated.columnPipelines || {},
+                pipelineScope: migrated.pipelineScope !== undefined
+                    ? migrated.pipelineScope
                     : State.config.pipelineScope !== undefined
                         ? State.config.pipelineScope
                         : true
             };
 
             State.config = merged;
+            State.ensureAnalysisConfig();
             return true;
         } catch (e) {
             alert("Error loading settings: " + e.message);
             return false;
         }
+    },
+
+    migrateConfig(config) {
+        const cloned = JSON.parse(JSON.stringify(config));
+        const version = cloned.settingsVersion || 1;
+        cloned.analysis = mergeAnalysisDefaults(cloned.analysis || {});
+        if (version < CURRENT_VERSION) {
+            cloned.settingsVersion = CURRENT_VERSION;
+        } else {
+            cloned.settingsVersion = version;
+        }
+        return cloned;
     }
 };

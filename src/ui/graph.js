@@ -5,6 +5,10 @@ import { FFT } from '../processing/fft.js';
 import { Filter } from '../processing/filter.js';
 import { MathEngine } from '../processing/math.js';
 import { applyComposerOffsets, getComposerTrace } from '../processing/composer.js';
+import { AnalysisEngine } from '../analysis/analysisEngine.js';
+import { SpectralMetrics } from '../analysis/spectralMetrics.js';
+import { TimeFrequency } from '../analysis/timeFrequency.js';
+import { SystemPanel } from './systemPanel.js';
 
 const PLOT_ID = 'main-plot';
 const STATUS_ID = 'graph-status';
@@ -15,6 +19,8 @@ const STATUS_ID = 'graph-status';
 export const Graph = {
 
     lastRanges: { x: null, y: null },
+    currentEvents: [],
+    eventOverlay: { show: true, activeIndex: null, amplitudes: null },
 
     getPlotStyling() {
         const styles = getComputedStyle(document.documentElement);
@@ -23,6 +29,12 @@ export const Graph = {
         const fontColor = styles.getPropertyValue('--text-main').trim() || '#e0e0e0';
         const gridColor = styles.getPropertyValue('--plot-grid').trim() || '#333';
         return { paperBg, plotBg, fontColor, gridColor };
+    },
+
+    getViewMode() {
+        const cfg = State.config.graph || {};
+        if (cfg.viewMode) return cfg.viewMode;
+        return cfg.showFreqDomain ? 'fft' : 'time';
     },
 
     getActiveTheme() {
@@ -105,6 +117,7 @@ export const Graph = {
             'xaxis.gridcolor': gridColor,
             'yaxis.gridcolor': gridColor,
             'yaxis2.gridcolor': gridColor,
+            'yaxis3.gridcolor': gridColor,
             ...(xRange ? { 'xaxis.range': xRange } : {}),
             ...(yRange ? { 'yaxis.range': yRange } : {})
         });
@@ -136,6 +149,40 @@ export const Graph = {
         const g = parseInt(hex.slice(3, 5), 16);
         const b = parseInt(hex.slice(5, 7), 16);
         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    },
+
+    setEventOverlay(events = [], options = {}) {
+        this.currentEvents = Array.isArray(events) ? events : [];
+        this.eventOverlay = {
+            show: options.show !== false,
+            activeIndex: Number.isInteger(options.activeIndex) ? options.activeIndex : null,
+            amplitudes: options.amplitudes || null
+        };
+    },
+
+    getEventAmplitude(event, fallbackY = []) {
+        if (!event) return 0;
+        if (this.eventOverlay?.amplitudes && Number.isFinite(this.eventOverlay.amplitudes[event.index])) {
+            return this.eventOverlay.amplitudes[event.index];
+        }
+        if (event.metadata && Number.isFinite(event.metadata.amplitude)) return event.metadata.amplitude;
+        if (Number.isInteger(event.index) && Number.isFinite(fallbackY[event.index])) return fallbackY[event.index];
+        return 0;
+    },
+
+    zoomToEvent(time) {
+        if (!Number.isFinite(time)) return;
+        const plotElement = document.getElementById(PLOT_ID);
+        if (!plotElement || !plotElement.layout || !plotElement.data) return;
+        const currentRange = plotElement.layout.xaxis?.range;
+        const rawX = State.data.raw.map((r) => parseFloat(r[State.data.timeColumn]));
+        const span = currentRange && currentRange.length === 2
+            ? (currentRange[1] - currentRange[0])
+            : Math.max(1e-9, (rawX[rawX.length - 1] || 0) - (rawX[0] || 0)) / 10;
+        const half = span / 2;
+        const nextRange = [time - half, time + half];
+        this.lastRanges = { x: nextRange, y: this.lastRanges.y };
+        Plotly.relayout(PLOT_ID, { 'xaxis.range': nextRange });
     },
 
     getAxisFormat(format, axisType = 'linear', currencySymbol = '£', significantFigures = 3) {
@@ -172,10 +219,18 @@ export const Graph = {
         const { adjustedRawY, adjustedFilteredY } = applyComposerOffsets(rawY, filteredY, composerTrace);
 
         const config = State.config.graph;
+        const mode = this.getViewMode();
+
+        if (mode === 'bode') {
+            this.renderSystemBode();
+            return;
+        }
 
         // --- Mode Switching ---
-        if (config.showFreqDomain) {
+        if (mode === 'fft') {
             this.renderFreqDomain(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, { isMath, seriesName });
+        } else if (mode === 'spectrogram') {
+            this.renderSpectrogram(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, { isMath, seriesName });
         } else {
             this.renderTimeDomain(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, range, { isMath, seriesName });
         }
@@ -183,12 +238,65 @@ export const Graph = {
 
     renderMultiView(rawX, seriesList, ranges = null, viewId = null) {
         if (!rawX || rawX.length === 0) return;
-        const config = State.config.graph;
+        const mode = this.getViewMode();
 
-        if (config.showFreqDomain) {
+        if (mode === 'fft') {
             this.renderMultiFreqDomain(rawX, seriesList);
+        } else if (mode === 'spectrogram') {
+            const primary = seriesList.find((s) => s && s.rawY && s.rawY.length);
+            if (primary) {
+                this.renderSpectrogram(rawX, primary.rawY, primary.isMath ? null : primary.filteredY, {
+                    isMath: primary.isMath,
+                    seriesName: primary.columnId || 'Series'
+                });
+            }
+        } else if (mode === 'bode') {
+            this.renderSystemBode();
         } else {
             this.renderMultiTimeDomain(rawX, seriesList, ranges, viewId);
+        }
+    },
+
+    renderSystemBode() {
+        const result = SystemPanel.getResult();
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+        const colors = this.getColorsForTheme();
+        const plotElement = document.getElementById(PLOT_ID);
+        const statusEl = document.getElementById(STATUS_ID);
+
+        if (!result || !result.frf || !result.frf.freq.length) {
+            if (plotElement) Plotly.react(PLOT_ID, [], { paper_bgcolor: paperBg, plot_bgcolor: plotBg });
+            if (statusEl) statusEl.textContent = 'Select input/output for Bode view';
+            return;
+        }
+
+        const { freq, magnitudeDb, phaseDeg, coherence } = result.frf;
+        const traces = [
+            { x: freq, y: magnitudeDb, mode: 'lines', name: '|H(f)|', line: { color: colors.filtered }, xaxis: 'x', yaxis: 'y' },
+            { x: freq, y: phaseDeg, mode: 'lines', name: 'Phase', line: { color: colors.transfer || '#00bcd4', dash: 'dot' }, xaxis: 'x2', yaxis: 'y2' },
+            { x: freq, y: coherence, mode: 'lines', name: 'Coherence', line: { color: '#9ccc65' }, xaxis: 'x2', yaxis: 'y3' }
+        ];
+
+        const layout = {
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
+            grid: { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom' },
+            xaxis: { title: 'Frequency (Hz)', type: 'log', gridcolor: gridColor },
+            yaxis: { title: 'Magnitude (dB)', gridcolor: gridColor },
+            xaxis2: { title: 'Frequency (Hz)', type: 'log', gridcolor: gridColor, anchor: 'y2' },
+            yaxis2: { title: 'Phase (deg)', gridcolor: gridColor, domain: [0, 0.4] },
+            yaxis3: { title: 'Coherence', gridcolor: gridColor, overlaying: 'y2', side: 'right', range: [0, 1] },
+            height: 600,
+            legend: { orientation: 'h' }
+        };
+
+        Plotly.react(PLOT_ID, traces, layout);
+
+        if (statusEl) {
+            const delayText = Number.isFinite(result.delay) ? `${result.delay.toExponential(3)} s` : 'n/a';
+            const corrText = Number.isFinite(result.correlation) ? result.correlation.toFixed(3) : 'n/a';
+            statusEl.textContent = `Bode: ${result.input} → ${result.output} · delay ${delayText} · corr ${corrText}`;
         }
     },
 
@@ -359,185 +467,313 @@ export const Graph = {
         const colors = this.getColorsForTheme();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
         const { isMath = false, seriesName = 'Series' } = options || {};
+        const analysis = State.ensureAnalysisConfig();
+        const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
 
-        // 1. Calculate Sampling Rate (Fs) from current view
-        // Use average delta of timeX
-        let fs = 1.0;
-        if(timeX.length > 1) {
-            const limit = Math.min(100, timeX.length-1);
-            let sum = 0;
-            for(let i=0; i<limit; i++) sum += (timeX[i+1]-timeX[i]);
-            if(sum > 0) fs = 1.0 / (sum/limit);
-        }
+        const baseOptions = {
+            selection,
+            windowType: analysis.fftWindow,
+            detrend: analysis.fftDetrend,
+            zeroPadMode: analysis.fftZeroPad,
+            zeroPadFactor: analysis.fftZeroPadFactor
+        };
 
-        // 2. Perform FFT on Raw
-        const { re: rawRe, im: rawIm } = FFT.forward(rawY);
-        const rawMag = FFT.getMagnitudeDB(rawRe, rawIm);
-        const n = rawMag.length;
-        
-        // Generate Freq Axis (0 to Nyquist)
-        const freqAxis = [];
-        const binWidth = (fs/2) / n;
-        for(let i=0; i<n; i++) freqAxis.push(i * binWidth);
+        const cacheKeyBase = [
+            seriesName || 'Series',
+            isMath ? 'math' : 'raw',
+            selection ? `${selection.i0}-${selection.i1}` : 'full',
+            analysis.fftWindow,
+            analysis.fftDetrend,
+            analysis.fftZeroPad,
+            analysis.fftZeroPadFactor
+        ].join('|');
 
+        const rawSpectrum = FFT.computeSpectrum(rawY, timeX, { ...baseOptions, cacheKey: `${cacheKeyBase}|raw` });
+        const filteredSpectrum = (!isMath && filteredY && filteredY.length)
+            ? FFT.computeSpectrum(filteredY, timeX, { ...baseOptions, cacheKey: `${cacheKeyBase}|filtered` })
+            : null;
+
+        const freqAxis = rawSpectrum.freq;
         const traces = [];
+        const showMagnitude = analysis.fftView !== 'phase';
+        const showPhase = analysis.fftView === 'phase' || analysis.fftView === 'both';
+        const primarySpec = filteredSpectrum || rawSpectrum;
 
         const showRawSpectrum = isMath ? true : (config.showRaw !== false);
 
-        if (showRawSpectrum) {
+        if (showMagnitude && showRawSpectrum) {
             traces.push({
                 x: freqAxis,
-                y: rawMag,
+                y: rawSpectrum.magnitude,
                 mode: 'lines',
                 name: isMath ? `${seriesName} Spectrum` : 'Raw Spectrum',
-                line: { color: isMath ? colors.filtered : this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: isMath ? 2 : 1 }
+                line: { color: isMath ? colors.filtered : this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: isMath ? 2 : 1 },
+                xaxis: 'x',
+                yaxis: 'y'
             });
         }
 
-        if (!isMath && filteredY) {
-            const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
-            const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
-
-            traces.push({
-                x: freqAxis, // Assumes same length
-                y: filtMag,
-                mode: 'lines',
-                name: 'Filtered Spectrum',
-                line: { color: colors.filtered, width: 1.5 }
-            });
-        }
-
-        // Trace 3: Transfer Function (Filter Shape)
-        // Only if we have active FFT filters
-        const pipeline = State.getPipeline();
-        const hasFFTFilters = pipeline.some(p => p.enabled && ['lowPassFFT','highPassFFT','notchFFT'].includes(p.type));
-        
-        if (hasFFTFilters) {
-            // Calculate theoretical curve
-            const transfer = Filter.calculateTransferFunction(pipeline, fs, n);
-            // Convert to dB
-            const transferDB = transfer.map(g => 20 * Math.log10(g + 1e-9));
-            
-            // Shift Transfer curve visually? 
-            // Usually Transfer function is 0dB max. Data might be -40dB.
-            // Plot on secondary Y axis? Or just overlay.
-            // Let's put it on Y2 to avoid scaling issues.
-            
+        if (!isMath && filteredSpectrum && showMagnitude) {
             traces.push({
                 x: freqAxis,
-                y: transferDB,
+                y: filteredSpectrum.magnitude,
+                mode: 'lines',
+                name: 'Filtered Spectrum',
+                line: { color: colors.filtered, width: 1.5 },
+                xaxis: 'x',
+                yaxis: 'y'
+            });
+        }
+
+        if (showPhase) {
+            traces.push({
+                x: freqAxis,
+                y: primarySpec.phase,
+                mode: 'lines',
+                name: 'Phase',
+                line: { color: colors.transfer || '#00bcd4', width: 1.2, dash: 'dot' },
+                xaxis: showMagnitude ? 'x2' : 'x',
+                yaxis: showMagnitude ? 'y2' : 'y'
+            });
+        }
+
+        const pipeline = State.getPipeline();
+        const hasFFTFilters = pipeline.some((p) => p.enabled && ['lowPassFFT', 'highPassFFT', 'notchFFT'].includes(p.type));
+        if (hasFFTFilters && showMagnitude) {
+            const transfer = Filter.calculateTransferFunction(pipeline, rawSpectrum.meta.fs, freqAxis.length * 2);
+            const transferDB = transfer.map((g) => 20 * Math.log10(g + 1e-9));
+            traces.push({
+                x: freqAxis,
+                y: transferDB.slice(0, freqAxis.length),
                 mode: 'lines',
                 name: 'Filter Transfer H(f)',
-                line: { color: colors.transfer || '#00bcd4', width: 2, dash: 'dot' },
-                yaxis: 'y2'
+                line: { color: colors.transfer || '#00bcd4', width: 1.8, dash: 'dash' },
+                xaxis: 'x',
+                yaxis: 'y'
             });
+        }
+
+        const peakList = SpectralMetrics.computePeaks(primarySpec.freq, primarySpec.linearMagnitude, {
+            maxPeaks: analysis.fftPeakCount,
+            prominence: analysis.fftPeakProminence
+        });
+        if (showMagnitude && peakList.length) {
+            traces.push({
+                x: peakList.map((p) => p.freq),
+                y: peakList.map((p) => 20 * Math.log10(Math.max(p.magnitude, 1e-12))),
+                mode: 'markers',
+                name: 'Peaks',
+                marker: { size: 8, color: '#ff6f61', symbol: 'circle' },
+                xaxis: 'x',
+                yaxis: 'y',
+                hovertemplate: 'f=%{x:.3f} Hz<extra></extra>'
+            });
+        }
+
+        if (analysis.fftShowHarmonics !== false && showMagnitude) {
+            const fundamental = analysis.fftHarmonicFundamental || peakList[0]?.freq || null;
+            const harmonics = SpectralMetrics.computeHarmonics(primarySpec.freq, primarySpec.linearMagnitude, fundamental, analysis.fftHarmonicCount);
+            if (harmonics.length) {
+                traces.push({
+                    x: harmonics.map((h) => h.freq),
+                    y: harmonics.map((h) => 20 * Math.log10(Math.max(h.magnitude || 0, 1e-12))),
+                    mode: 'markers',
+                    name: 'Harmonics',
+                    marker: { size: 7, color: '#7dd3fc', symbol: 'x' },
+                    xaxis: 'x',
+                    yaxis: 'y',
+                    hovertemplate: 'h%{text}: %{x:.3f} Hz<extra></extra>',
+                    text: harmonics.map((h) => h.order)
+                });
+            }
         }
 
         const layout = {
-            title: "Frequency Domain (FFT)",
+            title: 'Frequency Domain (FFT)',
             paper_bgcolor: paperBg,
             plot_bgcolor: plotBg,
             font: { color: fontColor },
             showlegend: true,
-
+            grid: showMagnitude && showPhase ? { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom' } : undefined,
             xaxis: {
-                title: "Frequency (Hz)",
+                title: 'Frequency (Hz)',
                 type: 'log',
                 autorange: true,
-                gridcolor: gridColor
+                gridcolor: gridColor,
+                domain: showMagnitude && showPhase ? [0, 1] : undefined
             },
             yaxis: {
-                title: "Magnitude (dB)",
-                gridcolor: gridColor
+                title: showMagnitude ? 'Magnitude (dB)' : 'Phase (deg)',
+                gridcolor: gridColor,
+                domain: showMagnitude && showPhase ? [0.55, 1] : [0, 1]
             },
-            yaxis2: {
-                title: "Filter Gain (dB)",
-                overlaying: 'y',
-                side: 'right',
-                range: [-100, 5], // Fixed range for transfer function
-                showgrid: false
-            }
+            shapes: []
         };
 
+        if (showMagnitude && showPhase) {
+            layout.xaxis2 = {
+                title: 'Frequency (Hz)',
+                type: 'log',
+                anchor: 'y2',
+                gridcolor: gridColor,
+                match: 'x'
+            };
+            layout.yaxis2 = {
+                title: 'Phase (deg)',
+                anchor: 'x2',
+                gridcolor: gridColor,
+                domain: [0, 0.45]
+            };
+        }
+
         Plotly.react(PLOT_ID, traces, layout);
-        
+
         const statusEl = document.getElementById(STATUS_ID);
-        if(statusEl) statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(fs)} Hz)`;
+        if (statusEl) {
+            statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(primarySpec.meta.fs)} Hz · Δf ≈ ${primarySpec.meta.deltaF.toPrecision(3)} Hz)`;
+        }
     },
 
     renderMultiFreqDomain(timeX, seriesList) {
         if (!seriesList || seriesList.length === 0) return;
         const config = State.config.graph;
+        const analysis = State.ensureAnalysisConfig();
+        const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
         const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
 
-        let fs = 1.0;
-        if(timeX.length > 1) {
-            const limit = Math.min(100, timeX.length-1);
-            let sum = 0;
-            for(let i=0; i<limit; i++) sum += (timeX[i+1]-timeX[i]);
-            if(sum > 0) fs = 1.0 / (sum/limit);
-        }
+        const baseOptions = {
+            selection,
+            windowType: analysis.fftWindow,
+            detrend: analysis.fftDetrend,
+            zeroPadMode: analysis.fftZeroPad,
+            zeroPadFactor: analysis.fftZeroPadFactor
+        };
 
         const traces = [];
+        let referenceSpec = null;
 
         seriesList.forEach((series) => {
             const { rawY, filteredY, columnId, isMath } = series;
-            if (!rawY || rawY.length === 0) return;
+            if (!rawY || !rawY.length) return;
 
-            const { re: rawRe, im: rawIm } = FFT.forward(rawY);
-            const rawMag = FFT.getMagnitudeDB(rawRe, rawIm);
+            const cacheKeyBase = [
+                columnId || 'Series',
+                isMath ? 'math' : 'raw',
+                selection ? `${selection.i0}-${selection.i1}` : 'full',
+                analysis.fftWindow,
+                analysis.fftDetrend,
+                analysis.fftZeroPad,
+                analysis.fftZeroPadFactor
+            ].join('|');
 
-            const freqAxis = [];
-            const binWidth = (fs/2) / rawMag.length;
-            for(let i=0; i<rawMag.length; i++) freqAxis.push(i * binWidth);
+            const spectrum = FFT.computeSpectrum(rawY, timeX, { ...baseOptions, cacheKey: `${cacheKeyBase}|raw` });
+            if (!referenceSpec) referenceSpec = spectrum;
 
-            if (isMath) {
+            if (isMath || config.showRaw !== false) {
                 traces.push({
-                    x: freqAxis,
-                    y: rawMag,
+                    x: spectrum.freq,
+                    y: spectrum.magnitude,
                     mode: 'lines',
-                    name: `${columnId} Spectrum`,
-                    line: { width: 2 }
+                    name: `${columnId} ${isMath ? 'Math' : 'Raw'} Spectrum`,
+                    line: { width: isMath ? 2 : 1 }
                 });
-            } else {
-                if (config.showRaw !== false) {
-                    traces.push({
-                        x: freqAxis,
-                        y: rawMag,
-                        mode: 'lines',
-                        name: `${columnId} Raw Spectrum`,
-                        line: { width: 1 }
-                    });
-                }
+            }
 
-                if (filteredY && filteredY.length > 0) {
-                    const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
-                    const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
-                    traces.push({
-                        x: freqAxis,
-                        y: filtMag,
-                        mode: 'lines',
-                        name: `${columnId} Filtered Spectrum`,
-                        line: { width: 1.5 }
-                    });
-                }
+            if (!isMath && filteredY && filteredY.length) {
+                const filteredSpec = FFT.computeSpectrum(filteredY, timeX, { ...baseOptions, cacheKey: `${cacheKeyBase}|filtered` });
+                traces.push({
+                    x: filteredSpec.freq,
+                    y: filteredSpec.magnitude,
+                    mode: 'lines',
+                    name: `${columnId} Filtered Spectrum`,
+                    line: { width: 1.5 }
+                });
             }
         });
 
         const layout = {
-            title: "Frequency Domain (FFT)",
+            title: 'Frequency Domain (FFT)',
             paper_bgcolor: paperBg,
             plot_bgcolor: plotBg,
             font: { color: fontColor },
             showlegend: true,
-            xaxis: { title: "Frequency (Hz)", type: 'log', autorange: true, gridcolor: gridColor },
-            yaxis: { title: "Magnitude (dB)", gridcolor: gridColor }
+            xaxis: { title: 'Frequency (Hz)', type: 'log', autorange: true, gridcolor: gridColor },
+            yaxis: { title: 'Magnitude (dB)', gridcolor: gridColor }
         };
 
         Plotly.react(PLOT_ID, traces, layout);
 
         const statusEl = document.getElementById(STATUS_ID);
-        if(statusEl) statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(fs)} Hz)`;
+        if (statusEl && referenceSpec) statusEl.textContent = `Frequency Analysis (Fs ≈ ${Math.round(referenceSpec.meta.fs)} Hz · Δf ≈ ${referenceSpec.meta.deltaF.toPrecision(3)} Hz)`;
+    },
+
+    // --- Time-Frequency Renderer (Spectrogram) ---
+    renderSpectrogram(rawX, rawY, filteredY, options = {}) {
+        const analysis = State.ensureAnalysisConfig();
+        const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
+        const { isMath = false, seriesName = 'Series' } = options || {};
+        const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+
+        let targetY = rawY;
+        const preferredSource = analysis.spectrogramSource || analysis.fftSource || 'auto';
+        if (!isMath && preferredSource === 'filtered' && filteredY && filteredY.length) {
+            targetY = filteredY;
+        } else if (!isMath && preferredSource === 'auto' && filteredY && filteredY.length) {
+            targetY = filteredY;
+        }
+
+        const spectrogram = TimeFrequency.computeSpectrogram(targetY || [], rawX || [], {
+            selection,
+            windowSize: analysis.spectrogramSize,
+            overlap: analysis.spectrogramOverlap,
+            windowType: analysis.spectrogramWindow || analysis.fftWindow,
+            detrend: analysis.fftDetrend,
+            maxPoints: analysis.spectrogramMaxPoints,
+            freqMin: analysis.spectrogramFreqMin,
+            freqMax: analysis.spectrogramFreqMax
+        });
+
+        const colorscale = this.getActiveTheme() === 'light' ? 'Portland' : 'Turbo';
+
+        const traces = [{
+            x: spectrogram.timeBins,
+            y: spectrogram.freqBins,
+            z: spectrogram.magnitudeDb,
+            type: 'heatmap',
+            colorscale,
+            colorbar: { title: 'Magnitude (dB)' },
+            hovertemplate: 't=%{x:.6f}s<br>f=%{y:.3f}Hz<br>%{z:.2f} dB<extra></extra>'
+        }];
+
+        const layout = {
+            title: `Spectrogram${seriesName ? ` — ${seriesName}` : ''}`,
+            paper_bgcolor: paperBg,
+            plot_bgcolor: plotBg,
+            font: { color: fontColor },
+            xaxis: { title: 'Time (s)', gridcolor: gridColor },
+            yaxis: { title: 'Frequency (Hz)', gridcolor: gridColor },
+            margin: { t: 60, r: 80, b: 60, l: 60 }
+        };
+
+        Plotly.react(PLOT_ID, traces, layout);
+
+        const statusEl = document.getElementById(STATUS_ID);
+        if (statusEl) {
+            const parts = [];
+            const frames = spectrogram.meta?.nFrames || 0;
+            if (frames) parts.push(`${frames} frame(s)`);
+            if (spectrogram.meta?.freqResolution) {
+                parts.push(`Δf ≈ ${spectrogram.meta.freqResolution.toPrecision(3)} Hz`);
+            }
+            if (spectrogram.meta?.hop && spectrogram.meta?.fs) {
+                const hopSeconds = spectrogram.meta.hop / spectrogram.meta.fs;
+                parts.push(`hop ≈ ${hopSeconds.toExponential(2)} s`);
+            }
+            const warnText = spectrogram.warnings && spectrogram.warnings.length
+                ? ` · ${spectrogram.warnings.join(' ')}`
+                : '';
+            statusEl.textContent = `Spectrogram${parts.length ? ` (${parts.join(' · ')})` : ''}${warnText}`;
+        }
     },
 
     // --- Time Domain Renderer (Existing Logic) ---
@@ -636,11 +872,11 @@ export const Graph = {
                 });
             }
 
-            if (showDiff) {
-                if (showRaw) {
-                    const dRaw = this.calculateDerivative(displayX, displayY);
-                    traces.push({
-                        x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
+        if (showDiff) {
+            if (showRaw) {
+                const dRaw = this.calculateDerivative(displayX, displayY);
+                traces.push({
+                    x: displayX, y: dRaw, mode: 'lines', name: 'Raw Deriv.',
                         line: { color: this.hexToRgba(diffRawColor, config.rawOpacity || 0.5), width: 1 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
@@ -651,6 +887,38 @@ export const Graph = {
                         line: { color: diffFiltColor, width: 1.5 }, xaxis: 'x', yaxis: 'y2'
                     });
                 }
+            }
+        }
+
+        const overlay = this.eventOverlay || {};
+        const eventShapes = [];
+        if (overlay.show && this.currentEvents.length) {
+            const amplitudeSource = displayF && displayF.length ? displayF : displayY;
+            const markerTimes = this.currentEvents.map((evt) => evt.time);
+            const markerAmps = this.currentEvents.map((evt) => this.getEventAmplitude(evt, amplitudeSource));
+            const markerColors = this.currentEvents.map((_, idx) => (idx === overlay.activeIndex ? '#ff6f61' : '#7dd3fc'));
+            traces.push({
+                x: markerTimes,
+                y: markerAmps,
+                mode: 'markers',
+                name: 'Events',
+                marker: { size: 10, symbol: 'x', color: markerColors },
+                hovertemplate: 't=%{x}<extra>Event</extra>',
+                yaxis: 'y'
+            });
+
+            const activeEvent = Number.isInteger(overlay.activeIndex) ? this.currentEvents[overlay.activeIndex] : null;
+            if (activeEvent && Number.isFinite(activeEvent.time)) {
+                eventShapes.push({
+                    type: 'line',
+                    x0: activeEvent.time,
+                    x1: activeEvent.time,
+                    y0: 0,
+                    y1: 1,
+                    xref: 'x',
+                    yref: 'paper',
+                    line: { color: '#ff6f61', width: 1, dash: 'dot' }
+                });
             }
         }
 
@@ -696,7 +964,8 @@ export const Graph = {
                 showgrid: config.showGrid,
                 gridcolor: gridColor,
                 ...secondaryYAxisFormat
-            }
+            },
+            shapes: eventShapes
         };
 
         Plotly.react(PLOT_ID, traces, layout);
@@ -711,9 +980,10 @@ export const Graph = {
     },
 
     handleZoom(event) {
-        if(State.config.graph.showFreqDomain) return; // No custom zoom logic for FFT yet
+        if (this.getViewMode() !== 'time') return; // Custom zoom only for time domain
 
         const ranges = { ...this.lastRanges };
+        let xRangeUpdated = false;
 
         if (event['xaxis.range[0]'] || event['xaxis.range']) {
             let min, max;
@@ -724,6 +994,7 @@ export const Graph = {
                 max = event['xaxis.range[1]'];
             }
             ranges.x = [min, max];
+            xRangeUpdated = true;
         }
 
         if (event['yaxis.range[0]'] || event['yaxis.range']) {
@@ -738,8 +1009,17 @@ export const Graph = {
         }
 
         if (event['xaxis.autorange'] === true || event['yaxis.autorange'] === true) {
+            if (event['xaxis.autorange'] === true) {
+                AnalysisEngine.clearSelection();
+            }
             this.triggerRefresh(null);
             return;
+        }
+
+        if (xRangeUpdated && ranges.x) {
+            const xCol = State.data.timeColumn;
+            const timeArray = xCol ? State.data.raw.map((r) => parseFloat(r[xCol])) : [];
+            AnalysisEngine.updateSelectionFromRange(ranges.x, timeArray);
         }
 
         this.triggerRefresh(ranges);

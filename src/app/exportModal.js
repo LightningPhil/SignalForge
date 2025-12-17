@@ -44,6 +44,20 @@ function showExportModal() {
         </div>
 
         <div class="panel">
+            <h4>Analysis Exports</h4>
+            <p>Save current measurements, detected events, spectral summary, or a full HTML report.</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button id="btn-export-measure-json">Measurements (JSON)</button>
+                <button id="btn-export-measure-csv">Measurements (CSV)</button>
+                <button id="btn-export-events">Events (CSV)</button>
+                <button id="btn-export-spectral">Spectral Summary (JSON)</button>
+            </div>
+            <div style="margin-top:8px;">
+                <button id="btn-export-report">Download Analysis Report</button>
+            </div>
+        </div>
+
+        <div class="panel">
             <h4>Graph Image</h4>
             <p>Save the current graph view as an image.</p>
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
@@ -189,6 +203,31 @@ function showExportModal() {
             heightCm: parseFloat(heightCmInput?.value || '0'),
             useWindowSize: useWindowToggle?.checked !== false
         });
+    });
+
+    modal.querySelector('#btn-export-measure-json')?.addEventListener('click', () => {
+        if (!hasData()) return;
+        Exporter.downloadMeasurementsJSON();
+    });
+
+    modal.querySelector('#btn-export-measure-csv')?.addEventListener('click', () => {
+        if (!hasData()) return;
+        Exporter.downloadMeasurementsCSV();
+    });
+
+    modal.querySelector('#btn-export-events')?.addEventListener('click', () => {
+        if (!hasData()) return;
+        Exporter.downloadEventsCSV();
+    });
+
+    modal.querySelector('#btn-export-spectral')?.addEventListener('click', () => {
+        if (!hasData()) return;
+        Exporter.downloadSpectralSummaryJSON();
+    });
+
+    modal.querySelector('#btn-export-report')?.addEventListener('click', async () => {
+        if (!hasData()) return;
+        await Exporter.downloadReport();
     });
 
     modal.querySelector('#btn-save-browser')?.addEventListener('click', () => {

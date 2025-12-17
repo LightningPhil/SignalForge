@@ -2,6 +2,10 @@ import { State } from '../state.js';
 import { Filter } from '../processing/filter.js';
 import { MathEngine } from '../processing/math.js';
 import { Graph } from '../ui/graph.js';
+import { MeasurementPanel } from '../ui/measurementPanel.js';
+import { EventPanel } from '../ui/eventPanel.js';
+import { SpectralPanel } from '../ui/spectralPanel.js';
+import { SystemPanel } from '../ui/systemPanel.js';
 
 function hasData(alertUser = true) {
     if (!State.data.raw || State.data.raw.length === 0) {
@@ -39,6 +43,23 @@ function runPipelineAndRender(range = null) {
 
     if (State.ui.activeMultiViewId) {
         Graph.renderMultiViewFromState(range);
+        const activeView = State.multiViews.find((v) => v.id === State.ui.activeMultiViewId);
+        const targetCol = activeView?.activeColumnIds?.[0] || null;
+        if (targetCol) {
+            const { rawX, rawY } = getRawSeries(targetCol);
+            const isMath = !!State.getMathDefinition(targetCol);
+            const filteredCandidate = isMath ? null : Filter.applyPipeline(rawY, rawX, State.getPipelineForColumn(targetCol));
+            const seriesPayload = { rawX, rawY, filteredY: isMath ? null : filteredCandidate, seriesName: targetCol, isMath };
+            MeasurementPanel.setSeries(seriesPayload);
+            EventPanel.setSeries(seriesPayload);
+            SpectralPanel.setSeries(seriesPayload);
+            SystemPanel.refreshFromState();
+        } else {
+            MeasurementPanel.clear();
+            EventPanel.clear();
+            SpectralPanel.clear();
+            SystemPanel.refreshFromState();
+        }
         return;
     }
 
@@ -48,14 +69,24 @@ function runPipelineAndRender(range = null) {
     const isMath = !!State.getMathDefinition(State.data.dataColumn);
     if (isMath) {
         State.data.processed = [];
+        const payload = { rawX, rawY, filteredY: null, seriesName: State.data.dataColumn, isMath: true };
         Graph.render(rawX, rawY, null, range, { isMath: true, seriesName: State.data.dataColumn });
+        MeasurementPanel.setSeries(payload);
+        EventPanel.setSeries(payload);
+        SpectralPanel.setSeries(payload);
+        SystemPanel.refreshFromState();
         return;
     }
 
     const filteredY = Filter.applyPipeline(rawY, rawX, State.getPipeline());
     State.data.processed = filteredY;
 
+    const payload = { rawX, rawY, filteredY, seriesName: State.data.dataColumn, isMath: false };
     Graph.render(rawX, rawY, filteredY, range);
+    MeasurementPanel.setSeries(payload);
+    EventPanel.setSeries(payload);
+    SpectralPanel.setSeries(payload);
+    SystemPanel.refreshFromState();
 }
 
 function triggerGraphUpdateOnly() {
