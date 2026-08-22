@@ -59,6 +59,20 @@ export const HelpSystem = {
                         <div class="tree-node expanded">
                             <div class="tree-node-header" data-toggle>
                                 <span class="tree-caret">▾</span>
+                                <span class="tree-title">Analysis</span>
+                            </div>
+                            <div class="tree-children">
+                                <div class="tree-item" data-target="analysis-measurements">Measurements</div>
+                                <div class="tree-item" data-target="analysis-events">Events & Triggers</div>
+                                <div class="tree-item" data-target="analysis-fft">FFT & Spectral Metrics</div>
+                                <div class="tree-item" data-target="analysis-spectrogram">Spectrogram</div>
+                                <div class="tree-item" data-target="analysis-system">Cross-Channel / FRF</div>
+                            </div>
+                        </div>
+
+                        <div class="tree-node expanded">
+                            <div class="tree-node-header" data-toggle>
+                                <span class="tree-caret">▾</span>
                                 <span class="tree-title">Reference</span>
                             </div>
                             <div class="tree-children">
@@ -124,14 +138,12 @@ export const HelpSystem = {
 
                     <div id="content-cursor-functions" class="help-section">
                         <h3>Hover Readouts & Zoom</h3>
-                        <p>Dedicated X/Y measurement cursors are not in this version. Use the Plotly graph tools for inspection:</p>
+                        <p>Zooming the time-domain plot also sets the analysis selection used by measurements, events, and spectral metrics.</p>
                         <ul>
                             <li><strong>Hover:</strong> Point at a trace to read time/frequency and amplitude at that sample.</li>
-                            <li><strong>Box zoom:</strong> Drag to isolate a region. Double-click the plot to restore the full view.</li>
-                            <li><strong>Compare traces:</strong> Enable Raw overlay or a Multi-View tab when you need two signals in the same frame.</li>
-                            <li><strong>Export:</strong> Download filtered CSV when you need exact numeric measurements outside the browser.</li>
+                            <li><strong>Box zoom:</strong> Drag to isolate a region. Double-click the plot to restore the full view and clear the selection.</li>
+                            <li><strong>Measure tab:</strong> Shows RMS, duty cycle, rise/fall, and other stats for the current zoom window.</li>
                         </ul>
-                        <p class="hint">Display calibration is used for physical image export sizes, not for on-plot cursor readouts.</p>
                     </div>
 
                     <div id="content-pipeline" class="help-section">
@@ -151,7 +163,7 @@ export const HelpSystem = {
                         <ul>
                             <li><strong>Raw trace:</strong> Overlay the unprocessed signal to validate that key morphology is preserved.</li>
                             <li><strong>Derivative (dy/dx):</strong> Inspect slope changes, rising-edge rates, and inflection points without exporting to another tool.</li>
-                            <li><strong>Frequency domain:</strong> Switch to FFT view to inspect harmonics, noise floors, and the effect of spectral filters.</li>
+                            <li><strong>View menu:</strong> Switch between time, windowed FFT, and spectrogram.</li>
                             <li><strong>Math engine:</strong> Compute expressions across columns (e.g., <code>V*I</code> for power or <code>V/I</code> for impedance). Filter the source traces first; math tabs do not have their own pipeline.</li>
                         </ul>
                     </div>
@@ -288,6 +300,27 @@ export const HelpSystem = {
                             <li><em>Enable switches:</em> Toggle start or end processing independently if only one boundary needs correction.</li>
                         </ul>
                         <p><strong>Usage tips:</strong> Apply this step early in the pipeline when preparing for FFT operations to minimize wrap-around discontinuities that create ringing. Re-run <em>Auto Start Offset</em> after changing the data selection to keep the taper aligned with the current segment.</p>
+                    </div>
+
+                    <div id="content-analysis-measurements" class="help-section">
+                        <h3>Measurements</h3>
+                        <p>The Measure sidebar tab computes scope-style statistics on the active trace. Zoom the plot to limit the calculation to a region. Presets switch between general, power-electronics, and pulsed metrics.</p>
+                    </div>
+                    <div id="content-analysis-events" class="help-section">
+                        <h3>Events & Triggers</h3>
+                        <p>Detect level crossings, edges, pulse widths, and runt pulses. Trigger on raw, filtered, math, or derivative data. Markers appear on the time plot; use previous/next to jump between events.</p>
+                    </div>
+                    <div id="content-analysis-fft" class="help-section">
+                        <h3>FFT & Spectral Metrics</h3>
+                        <p>The FFT view now uses a windowed, detrended spectrum with optional zero-padding. The Spectral tab reports peaks, harmonics, THD, SNR, bandpower, and the largest spur. These settings also drive the plotted FFT.</p>
+                    </div>
+                    <div id="content-analysis-spectrogram" class="help-section">
+                        <h3>Spectrogram</h3>
+                        <p>Choose <em>Spectrogram</em> in the toolbar View menu to render an STFT heatmap. Window size and overlap are in the Spectral tab. Large records are downsampled before the STFT to keep the UI responsive.</p>
+                    </div>
+                    <div id="content-analysis-system" class="help-section">
+                        <h3>Cross-Channel / FRF</h3>
+                        <p>The System / Bode panel estimates delay by cross-correlation and computes a transfer function with coherence. <em>Apply alignment</em> shifts the output trace by the estimated sample delay so the channels line up. Delay is measured on the currently offset traces, so a second apply is a no-op once they already match.</p>
                     </div>
 
                     <div id="content-data-integrity" class="help-section">

@@ -14,7 +14,10 @@ Signal Forge is a high-performance, client-side application for visualizing, fil
 ### 1. Data Ingestion & Visualization
 *   **Oscilloscope Friendly:** "Smart Parsing" allows you to skip metadata headers common in scope exports (Tektronix, Keysight, Siglent, etc.).
 *   **Performance:** Handles large datasets (>100k points) using **LTTB (Largest-Triangle-Three-Buckets)** downsampling for rendering, while processing the full resolution data in the background.
-*   **Frequency Domain:** One-click FFT (Fast Fourier Transform) view to analyze spectral content with Bode-plot style visualization (Log-Log).
+*   **Frequency Domain:** Windowed FFT with detrend, zero-padding, peaks, and spectral metrics (THD, SNR, bandpower).
+*   **Spectrogram:** STFT heatmap for time-varying spectra.
+*   **Measurements & Events:** Zoom-linked stats plus level/edge/pulse/runt triggers with plot markers.
+*   **Cross-Channel:** Delay estimation, FRF/coherence, and apply-alignment to a trace offset.
 *   **Comparison:** Toggle between Raw, Filtered, and Differential (dy/dx) views instantly. Live opacity sliders allow for precise visual comparison.
 *   **Hover & Zoom:** Inspect samples with Plotly hover readouts, box-zoom a region, and overlay raw vs filtered traces for comparison.
 *   **Multi-View Tabs:** Create side-by-side composite tabs so multiple traces (raw, filtered, or math) stay visible together for overlays or channel comparisons.
@@ -69,10 +72,10 @@ Then open the local URL printed by Vite (typically `http://localhost:5173`).
 ## 📚 User Guide
 
 ### 1. The Interface
-*   **Sidebar (Left):** Contains the Filter Pipeline and Math configuration. On smaller screens, open it with the menu button in the header.
+*   **Sidebar (Left):** Filter, Measure, Spectral, and Events panels, plus math/jitter controls. On smaller screens, open it with the menu button in the header.
 *   **Main Area (Center):** The interactive Plotly graph.
 *   **Tabs (Top of Graph):** Switches the *Active Column*. The pipeline applies to whichever column is selected here. Cyan tabs represent Virtual Math traces.
-*   **Toolbar (Above Plot):** Live controls for toggling Raw Data, Differential Plot, Opacity, and Frequency Domain view.
+*   **Toolbar (Above Plot):** Live controls for Raw overlay, Differential, View (Time / FFT / Spectrogram), and Events.
 
 ### 2. Filter Types
 
@@ -114,6 +117,7 @@ These convert the signal to the frequency domain, apply a mask, and convert back
 *   **CSV:** Downloads the processed data.
     *   *Filtered Only:* Time + Active Column (Filtered).
     *   *Original + Filtered:* All raw columns + All numeric columns processed through the current pipeline.
+*   **Analysis:** Measurements (JSON/CSV), events CSV, spectral JSON, system/FRF JSON, or a full HTML report with a plot snapshot.
 *   **Images:** Save the current graph view as SVG (Vector) or PNG.
 *   **Settings:** Save your pipeline configuration to a JSON file to reload later.
 *   **Workspace Snapshots:** Use browser-memory save/load to persist pipelines, math traces, view ranges, theme, and calibration between sessions without downloading files.

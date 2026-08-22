@@ -1,9 +1,10 @@
 import { State } from '../state';
+import type { ViewMode } from '../types';
 import { elements } from './domElements';
 import { triggerGraphUpdateOnly } from './dataPipeline';
 
 export function bindToolbarEvents(): void {
-  const { liveShowRaw, liveRawOpacity, liveShowDiff, liveFreqDomain, diffGroup } = elements;
+  const { liveShowRaw, liveRawOpacity, liveShowDiff, liveViewMode, liveShowEvents, diffGroup } = elements;
 
   liveShowRaw?.addEventListener('change', (e) => {
     const checked = (e.target as HTMLInputElement).checked;
@@ -25,23 +26,31 @@ export function bindToolbarEvents(): void {
     triggerGraphUpdateOnly();
   });
 
-  liveFreqDomain?.addEventListener('change', (e) => {
-    const checked = (e.target as HTMLInputElement).checked;
-    State.config.graph.showFreqDomain = checked;
-    if (diffGroup) diffGroup.classList.toggle('hidden', checked);
+  liveViewMode?.addEventListener('change', (e) => {
+    const mode = ((e.target as HTMLSelectElement).value || 'time') as ViewMode;
+    State.config.graph.viewMode = mode;
+    State.config.graph.showFreqDomain = mode === 'fft';
+    if (diffGroup) diffGroup.classList.toggle('hidden', mode !== 'time');
+    triggerGraphUpdateOnly();
+  });
+
+  liveShowEvents?.addEventListener('change', (e) => {
+    State.ensureAnalysisConfig().showEvents = (e.target as HTMLInputElement).checked;
     triggerGraphUpdateOnly();
   });
 }
 
 export function updateToolbarUIFromState(): void {
-  const { liveShowRaw, liveRawOpacity, liveShowDiff, liveFreqDomain, diffGroup } = elements;
+  const { liveShowRaw, liveRawOpacity, liveShowDiff, liveViewMode, liveShowEvents, diffGroup } = elements;
   const cfg = State.config.graph;
+  const mode = cfg.viewMode || (cfg.showFreqDomain ? 'fft' : 'time');
   if (liveShowRaw) {
     liveShowRaw.checked = cfg.showRaw !== false;
     if (liveRawOpacity) liveRawOpacity.disabled = !liveShowRaw.checked;
   }
   if (liveRawOpacity) liveRawOpacity.value = String(cfg.rawOpacity || 0.5);
   if (liveShowDiff) liveShowDiff.checked = cfg.showDifferential;
-  if (liveFreqDomain) liveFreqDomain.checked = cfg.showFreqDomain;
-  if (diffGroup) diffGroup.classList.toggle('hidden', !!cfg.showFreqDomain);
+  if (liveViewMode) liveViewMode.value = mode;
+  if (diffGroup) diffGroup.classList.toggle('hidden', mode !== 'time');
+  if (liveShowEvents) liveShowEvents.checked = State.ensureAnalysisConfig().showEvents !== false;
 }

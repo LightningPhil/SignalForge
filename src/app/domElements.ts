@@ -69,7 +69,8 @@ export const elements = {
   liveShowRaw: byId<HTMLInputElement>('live-show-raw'),
   liveRawOpacity: byId<HTMLInputElement>('live-raw-opacity'),
   liveShowDiff: byId<HTMLInputElement>('live-show-diff'),
-  liveFreqDomain: byId<HTMLInputElement>('live-freq-domain'),
+  liveViewMode: byId<HTMLSelectElement>('live-view-mode'),
+  liveShowEvents: byId<HTMLInputElement>('live-show-events'),
   liveStatus: byId<HTMLElement>('live-status'),
   diffGroup: byId<HTMLElement>('tool-group-diff'),
 

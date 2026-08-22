@@ -99,6 +99,15 @@ export const SettingsManager = {
           ...State.config.displayCalibration,
           ...(incomingConfig.displayCalibration || {})
         },
+        analysis: {
+          ...State.config.analysis,
+          ...(incomingConfig.analysis || {}),
+          trigger: {
+            ...(State.config.analysis?.trigger || {}),
+            ...(incomingConfig.analysis?.trigger || {})
+          }
+        },
+        settingsVersion: incomingConfig.settingsVersion || 2,
         pipeline: incomingConfig.pipeline || State.config.pipeline,
         columnPipelines: incomingConfig.columnPipelines || {},
         pipelineScope: incomingConfig.pipelineScope !== undefined
@@ -109,6 +118,7 @@ export const SettingsManager = {
       };
       delete (State.config as SettingsPayload).workspace;
       this.applyWorkspace(workspace);
+      State.ensureAnalysisConfig();
       return true;
     } catch (e) {
       alert(`Error loading settings: ${e instanceof Error ? e.message : String(e)}`);

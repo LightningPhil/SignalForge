@@ -283,6 +283,14 @@
   .data-grid-virtual {
     @apply absolute top-0 left-0 w-full;
   }
+
+  .sf-sidebar-tab {
+    @apply rounded-md px-1.5 py-1.5 text-xs font-semibold text-muted hover:bg-btn-hover hover:text-main focus-visible:outline-2 focus-visible:outline-accent;
+  }
+
+  .sf-sidebar-tab.is-active {
+    @apply bg-panel text-main shadow-sm;
+  }
 }
 
 @keyframes sf-fade-in {

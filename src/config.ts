@@ -1,6 +1,7 @@
 import type { AppConfig } from './types';
 
 export const Config: AppConfig = {
+  settingsVersion: 2,
   graph: {
     title: 'Signal Analysis',
     xAxisTitle: 'Time',
@@ -13,6 +14,7 @@ export const Config: AppConfig = {
     showDifferential: false,
     showGrid: true,
     showFreqDomain: false,
+    viewMode: 'time',
     showRaw: true,
     rawOpacity: 0.5,
     enableDownsampling: false,
@@ -83,5 +85,48 @@ export const Config: AppConfig = {
   },
   displayCalibration: {
     pixelsPerCm: 96 / 2.54
+  },
+  analysis: {
+    enabled: true,
+    selectionOnly: true,
+    impedanceOhms: 50,
+    fftWindow: 'hann',
+    fftZeroPad: 'nextPow2',
+    fftZeroPadFactor: 2,
+    fftDetrend: 'removeMean',
+    fftView: 'magnitude',
+    fftPeakCount: 5,
+    fftPeakProminence: 0.02,
+    fftShowHarmonics: false,
+    fftHarmonicCount: 5,
+    fftHarmonicFundamental: null,
+    fftSource: 'auto',
+    spectrogramWindow: 'hann',
+    spectrogramSize: 512,
+    spectrogramOverlap: 0.5,
+    spectrogramMaxPoints: 40000,
+    spectrogramFreqMin: 0,
+    spectrogramFreqMax: null,
+    spectrogramSource: 'auto',
+    showEvents: true,
+    systemSelectionOnly: true,
+    systemMaxLagSeconds: null,
+    systemInput: 'auto',
+    systemOutput: 'auto',
+    measurementPreset: 'general',
+    trigger: {
+      enabled: true,
+      type: 'level',
+      direction: 'rising',
+      threshold: 0,
+      hysteresis: 0,
+      slopeThreshold: 0,
+      minWidth: 0,
+      maxWidth: 1,
+      highThreshold: 1,
+      lowThreshold: 0,
+      source: 'raw',
+      selectionOnly: true
+    }
   }
 };

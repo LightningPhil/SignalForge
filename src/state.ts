@@ -1,5 +1,9 @@
 import { Config } from './config';
 import type {
+  AnalysisConfig,
+  AnalysisEvent,
+  AnalysisSelection,
+  AnalysisUiState,
   AppConfig,
   AppData,
   ComposerState,
@@ -8,6 +12,7 @@ import type {
   CsvRow,
   FilterStep,
   FilterType,
+  FftZeroPad,
   MathDefinition,
   MultiView,
   TraceConfig,
@@ -37,7 +42,8 @@ export const State = {
   ui: {
     selectedStepId: null,
     activeMultiViewId: null,
-    viewRanges: {}
+    viewRanges: {},
+    analysis: { selection: null, events: [], activeEventIndex: 0 }
   } as UiState,
 
   setData(raw: CsvRow[], headers: string[]): void {
@@ -52,6 +58,69 @@ export const State = {
     this.composer = { views: {} };
     this.traceConfigs = {};
     this.config.mathDefinitions = [];
+    this.resetAnalysisUi();
+  },
+
+  ensureAnalysisConfig(): AnalysisConfig {
+    const defaults = Config.analysis;
+    const current = this.config.analysis || ({} as Partial<AnalysisConfig>);
+    let zeroPad: FftZeroPad = current.fftZeroPad ?? defaults.fftZeroPad;
+    if ((current.fftZeroPad as unknown) === true) zeroPad = 'nextPow2';
+    if ((current.fftZeroPad as unknown) === false) zeroPad = 'none';
+
+    this.config.analysis = {
+      ...defaults,
+      ...current,
+      fftZeroPad: zeroPad,
+      trigger: { ...defaults.trigger, ...(current.trigger || {}) }
+    };
+    return this.config.analysis;
+  },
+
+  ensureAnalysisUi(): AnalysisUiState {
+    if (!this.ui.analysis) {
+      this.ui.analysis = { selection: null, events: [], activeEventIndex: 0 };
+    }
+    if (!Array.isArray(this.ui.analysis.events)) this.ui.analysis.events = [];
+    if (typeof this.ui.analysis.activeEventIndex !== 'number') this.ui.analysis.activeEventIndex = 0;
+    return this.ui.analysis;
+  },
+
+  resetAnalysisUi(): void {
+    this.ui.analysis = { selection: null, events: [], activeEventIndex: 0 };
+  },
+
+  setAnalysisSelection(selection: AnalysisSelection | null): void {
+    this.ensureAnalysisUi();
+    this.ui.analysis.selection = selection ? { ...selection } : null;
+  },
+
+  getAnalysisSelection(): AnalysisSelection | null {
+    return this.ensureAnalysisUi().selection;
+  },
+
+  setAnalysisEvents(events: AnalysisEvent[] = []): void {
+    const ui = this.ensureAnalysisUi();
+    ui.events = Array.isArray(events) ? events.slice() : [];
+    ui.activeEventIndex = Math.min(ui.activeEventIndex, Math.max(0, ui.events.length - 1));
+  },
+
+  getAnalysisEvents(): AnalysisEvent[] {
+    return this.ensureAnalysisUi().events;
+  },
+
+  setActiveEventIndex(idx = 0): number {
+    const ui = this.ensureAnalysisUi();
+    const clamped = Math.max(0, Math.min(idx, Math.max(0, ui.events.length - 1)));
+    ui.activeEventIndex = clamped;
+    return clamped;
+  },
+
+  getActiveEvent(): AnalysisEvent | null {
+    const ui = this.ensureAnalysisUi();
+    if (!ui.events.length) return null;
+    const idx = Math.max(0, Math.min(ui.activeEventIndex, ui.events.length - 1));
+    return ui.events[idx];
   },
 
   createNullFilterStep(): FilterStep {
