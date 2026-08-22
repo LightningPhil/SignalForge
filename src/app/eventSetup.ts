@@ -1,0 +1,173 @@
+import { State } from '../state';
+import { GraphConfig } from '../ui/graphConfig';
+import { GridView } from '../ui/gridView';
+import { HelpSystem } from '../ui/helpSystem';
+import { bindComposerEvents } from './composerUi';
+import { handleFileSelection } from './dataImport';
+import { hasData, runPipelineAndRender } from './dataPipeline';
+import { elements } from './domElements';
+import { showExportModal } from './exportModal';
+import { renderPipelineList, showAddStepMenu, updateParamEditor, updateParamsFromUI } from './pipelineUi';
+import { bindToolbarEvents } from './toolbar';
+
+export function setupEventListeners(): void {
+  const {
+    fileInput,
+    btnLoad,
+    btnViewGrid,
+    btnGraphConfig,
+    btnExport,
+    btnHelp,
+    btnAddStep,
+    btnRemoveStep,
+    btnMoveUp,
+    btnMoveDown,
+    inputWindow,
+    sliderWindow,
+    inputPoly,
+    sliderPoly,
+    inputAlpha,
+    sliderAlpha,
+    inputSigma,
+    sliderSigma,
+    inputIters,
+    sliderIters,
+    inputStartDecay,
+    inputEndDecay,
+    chkApplyStart,
+    chkApplyEnd,
+    inputStartOffset,
+    inputAutoOffsetPoints,
+    chkAutoOffset,
+    sliderStartDecay,
+    sliderEndDecay,
+    inputFreq,
+    selFreqUnit,
+    inputBW,
+    selBWUnit,
+    inputSlope,
+    sliderSlope,
+    inputQ,
+    sliderQ,
+    liveStatus,
+    chkSyncTabs
+  } = elements;
+
+  if (chkSyncTabs) chkSyncTabs.checked = State.isGlobalScope();
+
+  btnLoad?.addEventListener('click', () => fileInput?.click());
+
+  fileInput?.addEventListener('change', (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    handleFileSelection(file, (status) => {
+      if (liveStatus) liveStatus.textContent = status;
+    });
+    fileInput.value = '';
+  });
+
+  btnViewGrid?.addEventListener('click', () => GridView.show());
+  btnGraphConfig?.addEventListener('click', () => {
+    if (hasData()) GraphConfig.show();
+  });
+  btnExport?.addEventListener('click', showExportModal);
+  btnHelp?.addEventListener('click', () => HelpSystem.show());
+  btnAddStep?.addEventListener('click', showAddStepMenu);
+
+  btnRemoveStep?.addEventListener('click', () => {
+    if (!State.ui.selectedStepId) return;
+    State.removeStep(State.ui.selectedStepId);
+    renderPipelineList();
+    updateParamEditor();
+    runPipelineAndRender();
+  });
+
+  btnMoveUp?.addEventListener('click', () => {
+    if (!State.ui.selectedStepId) return;
+    State.moveStep(State.ui.selectedStepId, -1);
+    renderPipelineList();
+    runPipelineAndRender();
+  });
+
+  btnMoveDown?.addEventListener('click', () => {
+    if (!State.ui.selectedStepId) return;
+    State.moveStep(State.ui.selectedStepId, 1);
+    renderPipelineList();
+    runPipelineAndRender();
+  });
+
+  const scheduleParamUpdate = (() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return () => {
+      const stepId = State.ui.selectedStepId;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (State.ui.selectedStepId !== stepId) return;
+        updateParamsFromUI();
+      }, 300);
+    };
+  })();
+
+  const bindInput = (numInput: HTMLInputElement | null, sliderInput: HTMLInputElement | null) => {
+    numInput?.addEventListener('input', () => {
+      if (sliderInput) sliderInput.value = numInput.value;
+      scheduleParamUpdate();
+    });
+    sliderInput?.addEventListener('input', () => {
+      if (numInput) numInput.value = sliderInput.value;
+      scheduleParamUpdate();
+    });
+  };
+
+  bindInput(inputWindow, sliderWindow);
+  bindInput(inputPoly, sliderPoly);
+  bindInput(inputAlpha, sliderAlpha);
+  bindInput(inputSigma, sliderSigma);
+  bindInput(inputIters, sliderIters);
+  bindInput(inputStartDecay, sliderStartDecay);
+  bindInput(inputEndDecay, sliderEndDecay);
+  bindInput(inputSlope, sliderSlope);
+  bindInput(inputQ, sliderQ);
+
+  [inputFreq, selFreqUnit, inputBW, selBWUnit, inputStartOffset, inputAutoOffsetPoints, chkApplyStart, chkApplyEnd, chkAutoOffset]
+    .forEach((el) => el?.addEventListener('input', scheduleParamUpdate));
+
+  const updateAutoOffsetInputs = () => {
+    if (inputStartOffset) inputStartOffset.disabled = !!chkAutoOffset?.checked;
+  };
+
+  chkAutoOffset?.addEventListener('change', () => {
+    scheduleParamUpdate();
+    updateAutoOffsetInputs();
+  });
+
+  updateAutoOffsetInputs();
+
+  chkSyncTabs?.addEventListener('change', () => {
+    const wantsSync = !!chkSyncTabs.checked;
+    const headers = State.data.headers || [];
+    const xCol = State.data.timeColumn;
+    const allColumns = [...new Set(headers.filter((h) => h !== xCol))];
+
+    if (wantsSync) {
+      const ok = confirm('Enable Sync All Tabs? This will overwrite individual tab settings with the current view.');
+      if (!ok) {
+        chkSyncTabs.checked = false;
+        return;
+      }
+      State.setPipelineScope(true, allColumns);
+    } else {
+      State.setPipelineScope(false, allColumns);
+    }
+
+    chkSyncTabs.checked = State.isGlobalScope();
+    const activePipeline = State.getPipeline();
+    State.ui.selectedStepId = activePipeline[0]?.id || null;
+    renderPipelineList();
+    updateParamEditor();
+    runPipelineAndRender();
+  });
+
+  bindToolbarEvents();
+  bindComposerEvents();
+}
