@@ -5,7 +5,7 @@ Signal Forge is a high-performance, client-side application for visualizing, fil
 **Current Version:** 6.0
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Stack](https://img.shields.io/badge/tech-Vanilla%20JS%20%7C%20Plotly%20%7C%20PapaParse-green)
+![Stack](https://img.shields.io/badge/tech-TypeScript%20%7C%20Vite%20%7C%20Tailwind%20%7C%20Plotly-green)
 
 ---
 
@@ -16,12 +16,12 @@ Signal Forge is a high-performance, client-side application for visualizing, fil
 *   **Performance:** Handles large datasets (>100k points) using **LTTB (Largest-Triangle-Three-Buckets)** downsampling for rendering, while processing the full resolution data in the background.
 *   **Frequency Domain:** One-click FFT (Fast Fourier Transform) view to analyze spectral content with Bode-plot style visualization (Log-Log).
 *   **Comparison:** Toggle between Raw, Filtered, and Differential (dy/dx) views instantly. Live opacity sliders allow for precise visual comparison.
-*   **Cursors & Readouts:** Drop scope-style X/Y cursors, snap them to samples, and read off ΔX/ΔY, slope, and frequency without exporting data.
+*   **Hover & Zoom:** Inspect samples with Plotly hover readouts, box-zoom a region, and overlay raw vs filtered traces for comparison.
 *   **Multi-View Tabs:** Create side-by-side composite tabs so multiple traces (raw, filtered, or math) stay visible together for overlays or channel comparisons.
 
 ### 2. The Filter Pipeline
 Unlike simple tools that apply one filter at a time, this application uses a **Sequential Pipeline**. Data flows through a user-defined chain of filters.
-*   **Reorderable:** Drag and drop or move steps up/down to change the processing order (e.g., *Despeckle* → *Smoothing* → *Notch Filter*).
+*   **Reorderable:** Move steps up/down to change the processing order (e.g., *Despeckle* → *Smoothing* → *Notch Filter*).
 *   **Live Tuning:** All parameters (Window Size, Alpha, Q-Factor, etc.) have sliders for fluid, real-time visual feedback.
 *   **Time & Frequency Domain:** Mix time-domain smoothing with frequency-domain hard cuts in the same pipeline.
 *   **Per-Column vs Global Pipelines:** Choose whether the same pipeline applies to every trace or maintain unique pipelines per column when channels need different conditioning.
@@ -31,12 +31,12 @@ Create new dynamic data columns based on math operations.
 *   **Arithmetic:** Add, Subtract, Multiply, Divide (e.g., `Voltage / Current = Impedance`).
 *   **Time Alignment:** Apply sample-based time offsets to correct for probe skew or cable length delays.
 *   **Calculus:** Apply Differentiation ($dy/dx$) or Integration ($\int y dx$) to the result.
-*   **Non-Destructive:** Math traces are calculated on the fly. You can apply the Filter Pipeline to these virtual traces just like raw data.
+*   **Non-Destructive:** Math traces are calculated on the fly. Filter the source waveform first; math tabs do not have their own pipeline.
 *   **Expression Library:** Use helpers like `diff(x)`, `cumsum(x)`, `mean(...)`, `abs(...)`, boolean comparisons, and `t`/`dt` for time-aware math. Combine raw and virtual traces freely.
 
 ### 4. Workspace & Appearance
 *   **Theme Toggle:** Switch between light and dark modes from the toolbar.
-*   **Display Calibration:** Calibrate pixels-per-centimeter with an on-screen ruler so cursor readouts reflect physical scale when capturing screenshots.
+*   **Display Calibration:** Calibrate pixels-per-centimeter with an on-screen ruler so exported images match a chosen physical size.
 *   **Graph Layout:** Use the graph settings modal to change axes, grid visibility, and legends without touching code.
 
 ### 5. Data Entry & Management
@@ -49,28 +49,29 @@ Create new dynamic data columns based on math operations.
 ## 🚀 Quick Start
 
 ### Prerequisites
-Because this project uses modern ES6 Modules (`import/export`), **it cannot be run by simply double-clicking `index.html`** due to browser CORS security policies. You must serve it via a local web server.
+Node.js 20 or later.
 
-### Option A: VS Code (Recommended)
-1.  Install the **Live Server** extension.
-2.  Right-click `index.html` and select **"Open with Live Server"**.
-
-### Option B: Python
-Open a terminal in the project folder and run:
 ```bash
-# Python 3
-python -m http.server 8000
+npm install
+npm run dev
 ```
-Then open `http://localhost:8000` in your browser.
+
+Then open the local URL printed by Vite (typically `http://localhost:5173`).
+
+| Script | Purpose |
+| :--- | :--- |
+| `npm run dev` | Start the Vite development server |
+| `npm run build` | Type-check and produce a production build in `dist/` |
+| `npm run preview` | Preview the production build locally |
 
 ---
 
 ## 📚 User Guide
 
 ### 1. The Interface
-*   **Sidebar (Left):** Contains the Filter Pipeline and Math configuration.
+*   **Sidebar (Left):** Contains the Filter Pipeline and Math configuration. On smaller screens, open it with the menu button in the header.
 *   **Main Area (Center):** The interactive Plotly graph.
-*   **Tabs (Top of Graph):** Switches the *Active Column*. The pipeline applies to whichever column is selected here. Blue tabs represent Virtual Math traces.
+*   **Tabs (Top of Graph):** Switches the *Active Column*. The pipeline applies to whichever column is selected here. Cyan tabs represent Virtual Math traces.
 *   **Toolbar (Above Plot):** Live controls for toggling Raw Data, Differential Plot, Opacity, and Frequency Domain view.
 
 ### 2. Filter Types
@@ -102,7 +103,7 @@ These convert the signal to the frequency domain, apply a mask, and convert back
     *   Thresholding & logic: `V > 0.5` creates a boolean mask; combine with `mean(V > 0.5) * 100` for duty cycle (% high time).
     *   Alignment: `(shift(V, 3) - V) / dt` to compare a trace against a time-shifted copy (see *Tips*).
 4.  **Name:** Give the output trace a label.
-5.  Click **Create Trace**. The virtual trace appears as a new tab that can be filtered and combined with other signals.
+5.  Click **Create Trace**. The virtual trace appears as a new tab.
 
 **Tips:**
 * `shift(trace, samples)` and `delay(trace, seconds)` help align probes before differencing.
@@ -113,7 +114,7 @@ These convert the signal to the frequency domain, apply a mask, and convert back
 *   **CSV:** Downloads the processed data.
     *   *Filtered Only:* Time + Active Column (Filtered).
     *   *Original + Filtered:* All raw columns + All numeric columns processed through the current pipeline.
-*   **Images:** Save the current graph view as SVG (Vector) or JPG.
+*   **Images:** Save the current graph view as SVG (Vector) or PNG.
 *   **Settings:** Save your pipeline configuration to a JSON file to reload later.
 *   **Workspace Snapshots:** Use browser-memory save/load to persist pipelines, math traces, view ranges, theme, and calibration between sessions without downloading files.
 
@@ -127,39 +128,29 @@ These convert the signal to the frequency domain, apply a mask, and convert back
 
 ## 🛠 Technical Architecture
 
-The project is built as a **Modular Monolith** using vanilla JavaScript.
+The project is a **Vite + TypeScript** client-side app. There is no backend.
 
 ### File Structure
 ```text
 /
-├── index.html            # Entry point / UI Skeleton
-├── css/                  # Styling
-│   ├── style.css         # Layout & Theming
-│   └── components.css    # Modals & Widgets
-└── src/                  # Application Logic
-    ├── main.js           # Bootloader & Event Wiring
-    ├── config.js         # Default constants & colors
-    ├── state.js          # Central State Store (Singleton)
-    ├── io/
-    │   ├── csvParser.js  # PapaParse wrapper (Header detection)
-    │   ├── exporter.js   # CSV/Image generation
-    │   └── settingsManager.js # JSON/LocalStorage persistence
-    ├── processing/
-    │   ├── filter.js     # The Signal Processing Core
-    │   ├── fft.js        # Custom Radix-2 FFT implementation
-    │   ├── math.js       # Virtual Column arithmetic & Calculus
-    │   └── lttb.js       # Downsampling algorithm for rendering
-    └── ui/
-        ├── graph.js      # Plotly wrapper & Rendering logic
-        ├── graphConfig.js # Graph settings modal
-        ├── gridView.js   # Data table view
-        ├── helpSystem.js # Documentation modal
-        └── uiHelpers.js  # DOM utilities
+├── index.html            # Entry point / UI skeleton
+├── src/
+│   ├── main.ts           # Bootloader
+│   ├── styles.css        # Tailwind theme + a small set of structural styles
+│   ├── config.ts         # Default constants & colors
+│   ├── state.ts          # Central state store
+│   ├── types.ts          # Shared TypeScript types
+│   ├── app/              # Tabs, pipeline UI, modals, event wiring
+│   ├── io/               # CSV parsing, export, settings persistence
+│   ├── processing/       # Filters, FFT, math, LTTB, sampling
+│   └── ui/               # Graph, theme, help, grid, shared classes
 ```
 
 ### Key Libraries
-*   **[Plotly.js](https://plotly.com/javascript/):** Handles the scientific graphing, zooming, and SVG export.
+*   **[Plotly.js](https://plotly.com/javascript/):** Scientific graphing, zooming, and image export.
 *   **[PapaParse](https://www.papaparse.com/):** High-speed CSV parsing.
+*   **[math.js](https://mathjs.org/):** Expression evaluation for math traces.
+*   **[Tailwind CSS](https://tailwindcss.com/):** Utility-first styling.
 
 ---
 

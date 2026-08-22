@@ -1,0 +1,297 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant light (&:where([data-theme=light], [data-theme=light] *));
+
+@theme {
+  --font-sans: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --font-mono: Consolas, Monaco, ui-monospace, monospace;
+  --color-app: var(--bg-app);
+  --color-panel: var(--bg-panel);
+  --color-surface: var(--bg-surface);
+  --color-header: var(--bg-header);
+  --color-toolbar: var(--bg-toolbar);
+  --color-tabs: var(--bg-tabs);
+  --color-main: var(--text-main);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-math: var(--math-accent);
+  --color-line: var(--border-color);
+  --color-input: var(--input-bg);
+  --color-tab-active: var(--tab-active-bg);
+  --color-selected: var(--selected-step-bg);
+  --color-btn: var(--button-bg);
+  --color-btn-hover: var(--button-hover);
+  --color-btn-border: var(--button-border);
+  --color-btn-text: var(--button-text);
+  --color-list-hover: var(--list-hover-bg);
+  --color-pill: var(--pill-bg);
+  --color-plot: var(--plot-bg);
+  --color-plot-grid: var(--plot-grid);
+}
+
+:root,
+:root[data-theme="dark"] {
+  --bg-app: #1e1e1e;
+  --bg-panel: #2d2d2d;
+  --bg-surface: #111111;
+  --bg-header: #111111;
+  --bg-toolbar: #222222;
+  --bg-tabs: #252525;
+  --text-main: #e0e0e0;
+  --text-muted: #a0a0a0;
+  --accent: #4caf50;
+  --accent-hover: #45a049;
+  --math-accent: #00bcd4;
+  --border-color: #444444;
+  --input-bg: #111111;
+  --tab-active-bg: #444444;
+  --selected-step-bg: #383838;
+  --button-bg: #333333;
+  --button-hover: #444444;
+  --button-border: #555555;
+  --button-text: #ffffff;
+  --list-hover-bg: #222222;
+  --pill-bg: #444444;
+  --plot-bg: #1e1e1e;
+  --plot-grid: #333333;
+}
+
+:root[data-theme="light"] {
+  --bg-app: #f6f7fb;
+  --bg-panel: #ffffff;
+  --bg-surface: #f0f4f8;
+  --bg-header: #0f172a;
+  --bg-toolbar: #f1f5f9;
+  --bg-tabs: #eef2f7;
+  --text-main: #102a43;
+  --text-muted: #6b7280;
+  --accent: #3ba363;
+  --accent-hover: #2f8c53;
+  --math-accent: #008ea1;
+  --border-color: #d7deea;
+  --input-bg: #f5f7fb;
+  --tab-active-bg: #e3f2e8;
+  --selected-step-bg: #f0fff4;
+  --button-bg: #e7ecf3;
+  --button-hover: #d9e3f1;
+  --button-border: #cbd5e1;
+  --button-text: #0f172a;
+  --list-hover-bg: #f4f7fb;
+  --pill-bg: #dbeafe;
+  --plot-bg: #ffffff;
+  --plot-grid: #d7deea;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    @apply m-0 overflow-hidden bg-app font-sans text-main antialiased;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+}
+
+@layer components {
+  .sf-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-btn-border bg-btn px-3 py-1.5 text-sm text-btn-text transition hover:bg-btn-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+  }
+
+  .sf-btn-primary {
+    @apply border-accent bg-accent font-semibold text-white hover:bg-accent-hover;
+  }
+
+  .sf-field {
+    @apply w-full rounded-md border border-line bg-input px-2.5 py-2 text-sm text-main focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent;
+  }
+
+  .sf-label {
+    @apply mt-3 mb-1.5 block text-sm text-main;
+  }
+
+  .sf-hint {
+    @apply mt-0.5 block text-xs text-muted;
+  }
+
+  .sf-panel-title {
+    @apply mb-3 text-sm font-semibold uppercase tracking-wider text-accent;
+  }
+
+  #main-plot {
+    flex: 1 1 auto;
+    min-height: 240px;
+    width: 100%;
+  }
+
+  .tabs-viewport::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .tabs-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(200 200 200 / 0.25) transparent;
+  }
+
+  .tabs-scrollbar::-webkit-scrollbar {
+    height: 12px;
+  }
+
+  .tabs-scrollbar::-webkit-scrollbar-thumb {
+    background: rgb(200 200 200 / 0.25);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .js-modal-enter {
+    animation: sf-fade-in 0.2s ease-out;
+  }
+
+  .no-tab-overflow #tabs-scrollbar,
+  .no-tab-overflow .tabs-scrollbar-filler {
+    display: none;
+  }
+
+  .help-container {
+    @apply flex min-h-0 flex-1 flex-col md:flex-row;
+  }
+
+  .help-sidebar {
+    @apply max-h-48 shrink-0 overflow-auto border-b border-line bg-surface p-3 md:max-h-none md:w-64 md:border-r md:border-b-0;
+  }
+
+  .help-content {
+    @apply min-w-0 flex-1 overflow-auto p-5;
+  }
+
+  .help-content h3 {
+    @apply mb-3 text-xl font-semibold;
+  }
+
+  .help-content h4 {
+    @apply mt-4 mb-2 text-base font-semibold;
+  }
+
+  .help-content p,
+  .help-content li {
+    @apply text-sm leading-relaxed;
+  }
+
+  .help-content ul,
+  .help-content ol {
+    @apply my-3 ml-5 space-y-1;
+  }
+
+  .help-content ul {
+    @apply list-disc;
+  }
+
+  .help-content ol {
+    @apply list-decimal;
+  }
+
+  .help-content kbd {
+    @apply rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-xs;
+  }
+
+  .help-content code,
+  .help-content .hint code {
+    @apply rounded bg-surface px-1 py-0.5 font-mono text-[0.85em];
+  }
+
+  .help-content a {
+    @apply text-math underline;
+  }
+
+  .help-content .hint,
+  .sf-hint {
+    @apply text-xs text-muted;
+  }
+
+  .help-section {
+    @apply hidden;
+  }
+
+  .help-section.active {
+    @apply block;
+  }
+
+  .tree-node .tree-children {
+    @apply hidden pl-2;
+  }
+
+  .tree-node.expanded .tree-children {
+    @apply block;
+  }
+
+  .tree-node-header {
+    @apply mb-1 flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 font-semibold select-none hover:bg-btn-hover;
+  }
+
+  .tree-item {
+    @apply my-0.5 cursor-pointer rounded-md px-2.5 py-2 text-sm text-muted hover:bg-btn-hover hover:text-main;
+  }
+
+  .tree-item.active {
+    @apply bg-accent font-semibold text-white hover:bg-accent hover:text-white;
+  }
+
+  .help-license {
+    @apply overflow-auto rounded-md bg-surface p-3 font-mono text-xs leading-relaxed;
+  }
+
+  .virtual-grid-shell {
+    @apply overflow-hidden rounded-md border border-line;
+  }
+
+  .data-grid-viewport {
+    @apply relative max-h-[60vh] overflow-auto;
+  }
+
+  .data-grid-table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+
+  .data-grid-table th,
+  .data-grid-table td {
+    @apply border border-line px-2 py-1.5;
+  }
+
+  .data-grid-table th {
+    @apply bg-toolbar font-semibold;
+  }
+
+  .data-grid-table td.selected {
+    @apply bg-accent/25;
+  }
+
+  .data-grid-virtual {
+    @apply absolute top-0 left-0 w-full;
+  }
+}
+
+@keyframes sf-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

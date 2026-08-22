@@ -4,162 +4,144 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Signal Forge</title>
-    
-    <!-- Libraries -->
-    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.3.0/math.min.js"></script>
-    
-    <!-- Styles -->
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/components.css">
 </head>
 <body>
-
-    <div class="app-container">
-        <header>
-            <h1>Signal Forge</h1>
-            <nav>
-                <button id="btn-load-file">📂 Load</button>
-                <button id="btn-view-grid">📅 Grid</button>
-                <button id="btn-graph-config">⚙️ Graph</button>
-                <button id="btn-export">💾 Export</button>
-                <button id="btn-help">❓ Help</button>
-                <button id="btn-theme-toggle" class="theme-toggle" aria-pressed="false" title="Toggle light or dark appearance">
-                    <span class="theme-icon">🌙</span>
+    <div id="app" class="flex h-full flex-col">
+        <header class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-header px-4 py-2.5 text-white">
+            <div class="flex items-center gap-3">
+                <button
+                    id="btn-sidebar-toggle"
+                    class="sf-btn px-2.5 lg:hidden"
+                    type="button"
+                    aria-controls="app-sidebar"
+                    aria-expanded="false"
+                    aria-label="Toggle filter sidebar"
+                >☰</button>
+                <h1 class="m-0 text-lg font-semibold tracking-wide text-white">Signal Forge</h1>
+            </div>
+            <nav class="flex flex-wrap items-center gap-2" aria-label="Workspace">
+                <button id="btn-load-file" class="sf-btn" type="button">📂 Load</button>
+                <button id="btn-view-grid" class="sf-btn" type="button">📅 Grid</button>
+                <button id="btn-graph-config" class="sf-btn" type="button">⚙️ Graph</button>
+                <button id="btn-export" class="sf-btn" type="button">💾 Export</button>
+                <button id="btn-help" class="sf-btn" type="button">❓ Help</button>
+                <button id="btn-theme-toggle" class="sf-btn" type="button" aria-pressed="false" title="Toggle light or dark appearance">
+                    <span class="theme-icon" aria-hidden="true">🌙</span>
                     <span class="theme-label">Dark Mode</span>
                 </button>
             </nav>
         </header>
 
-        <main>
-            <!-- Sidebar -->
-            <aside class="controls">
-                
-                <div class="panel">
-                    <h3>Filter Pipeline</h3>
-                    <div class="checkbox-row" style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
-                        <label for="chk-sync-tabs" class="toggle-label" style="margin:0;">
-                            <input type="checkbox" id="chk-sync-tabs" checked>
+        <main class="relative flex min-h-0 flex-1 overflow-hidden">
+            <div id="sidebar-backdrop" class="fixed inset-0 z-30 hidden bg-black/50 lg:hidden"></div>
+
+            <aside
+                id="app-sidebar"
+                class="fixed inset-y-0 left-0 z-40 flex w-[min(20rem,88vw)] -translate-x-full flex-col overflow-y-auto border-r border-line bg-panel p-4 shadow-xl transition-transform lg:static lg:z-auto lg:w-80 lg:min-w-80 lg:max-w-80 lg:translate-x-0 lg:shadow-none"
+                aria-label="Filter controls"
+            >
+                <section id="pipeline-panel" class="mb-6 border-b border-line pb-4">
+                    <h2 class="sf-panel-title">Filter Pipeline</h2>
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <label for="chk-sync-tabs" class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="chk-sync-tabs" class="h-4 w-4 accent-accent" checked>
                             Sync All Tabs
                         </label>
-                        <small style="color:#aaa;">Apply this pipeline across every tab.</small>
+                        <small class="text-xs text-muted">Apply this pipeline across every tab.</small>
                     </div>
-                    <div id="pipeline-list"></div>
-                    <div class="pipeline-actions">
-                        <button id="btn-add-step" title="Add Step">➕ Add</button>
-                        <button id="btn-remove-step" title="Remove Step">🗑️</button>
-                        <button id="btn-move-up" title="Move Up">⬆️</button>
-                        <button id="btn-move-down" title="Move Down">⬇️</button>
+                    <div id="pipeline-list" class="max-h-60 min-h-24 overflow-y-auto rounded-md border border-line bg-surface" role="listbox" aria-label="Filter steps"></div>
+                    <div class="pipeline-actions mt-2 flex flex-wrap gap-2">
+                        <button id="btn-add-step" class="sf-btn" type="button" title="Add Step">➕ Add</button>
+                        <button id="btn-remove-step" class="sf-btn" type="button" title="Remove Step" aria-label="Remove selected step">🗑️</button>
+                        <button id="btn-move-up" class="sf-btn" type="button" title="Move Up" aria-label="Move selected step up">⬆️</button>
+                        <button id="btn-move-down" class="sf-btn" type="button" title="Move Down" aria-label="Move selected step down">⬇️</button>
                     </div>
-                    <div id="math-trace-note" class="hint" style="display:none; margin-top:8px;">
-                        Math traces don’t have their own filter pipeline. Apply filtering in the source waveform tab(s) first.
-                    </div>
-                </div>
+                </section>
+                <p id="math-trace-note" class="sf-hint mb-6 hidden">
+                    Math traces don’t have their own filter pipeline. Apply filtering in the source waveform tab(s) first.
+                </p>
 
-                <div class="panel" id="trace-selector-panel" style="display:none;">
-                    <h3>Trace Selector</h3>
-                    <p>Select which columns to display in this multi-view tab.</p>
-                    <div id="trace-selector-list" class="checkbox-column"></div>
-                </div>
+                <section id="trace-selector-panel" class="mb-6 hidden border-b border-line pb-4">
+                    <h2 class="sf-panel-title">Trace Selector</h2>
+                    <p class="mb-3 text-sm text-muted">Select which columns to display in this multi-view tab.</p>
+                    <div id="trace-selector-list" class="grid gap-2"></div>
+                </section>
 
-                <div class="panel" id="param-editor">
-                    <h3>Parameters</h3>
-                    <div class="step-type-label" id="step-type-display">Select a step</div>
-                    
+                <section id="param-editor" class="mb-6 border-b border-line pb-4">
+                    <h2 class="sf-panel-title">Parameters</h2>
+                    <div class="mb-3 rounded bg-surface px-2 py-1.5 text-sm font-semibold text-accent" id="step-type-display">Select a step</div>
+
                     <div id="filter-params">
-                        
-                        <!-- Window Size -->
                         <div id="group-window">
-                            <label for="param-window">Window / Kernel</label>
-                            <input type="number" id="param-window" value="5" min="1" step="2">
-                            <div class="slider-group">
-                                <input type="range" id="slider-window" min="1" max="101" step="2">
-                            </div>
-                            <small class="hint">Odd numbers only</small>
+                            <label class="sf-label" for="param-window">Window / Kernel</label>
+                            <input type="number" id="param-window" class="sf-field" value="5" min="1" step="2">
+                            <input type="range" id="slider-window" class="mt-2 w-full" min="1" max="101" step="2" aria-label="Window size slider">
+                            <small class="sf-hint">Odd numbers only</small>
                         </div>
 
-                        <!-- Polynomial Order -->
-                        <div id="group-poly" style="display:none;">
-                            <label for="param-poly">Poly Order</label>
-                            <input type="number" id="param-poly" value="3" min="1" max="10">
-                            <div class="slider-group">
-                                <input type="range" id="slider-poly" min="1" max="6" step="1">
-                            </div>
+                        <div id="group-poly" class="hidden">
+                            <label class="sf-label" for="param-poly">Poly Order</label>
+                            <input type="number" id="param-poly" class="sf-field" value="3" min="1" max="10">
+                            <input type="range" id="slider-poly" class="mt-2 w-full" min="1" max="6" step="1" aria-label="Polynomial order slider">
                         </div>
 
-                        <!-- Iterations -->
-                        <div id="group-iters" style="display:none;">
-                            <label for="param-iters">Iterations</label>
-                            <input type="number" id="param-iters" value="1" min="1" max="16">
-                            <div class="slider-group">
-                                <input type="range" id="slider-iters" min="1" max="16" step="1">
-                            </div>
+                        <div id="group-iters" class="hidden">
+                            <label class="sf-label" for="param-iters">Iterations</label>
+                            <input type="number" id="param-iters" class="sf-field" value="1" min="1" max="16">
+                            <input type="range" id="slider-iters" class="mt-2 w-full" min="1" max="16" step="1" aria-label="Iterations slider">
                         </div>
 
-                        <!-- Alpha -->
-                        <div id="group-alpha" style="display:none;">
-                            <label for="param-alpha">Alpha</label>
-                            <input type="number" id="param-alpha" value="0.1" min="0.001" max="1.0" step="0.01">
-                            <div class="slider-group">
-                                <input type="range" id="slider-alpha" min="0.001" max="1.0" step="0.001">
-                            </div>
+                        <div id="group-alpha" class="hidden">
+                            <label class="sf-label" for="param-alpha">Alpha</label>
+                            <input type="number" id="param-alpha" class="sf-field" value="0.1" min="0.001" max="1.0" step="0.01">
+                            <input type="range" id="slider-alpha" class="mt-2 w-full" min="0.001" max="1.0" step="0.001" aria-label="Alpha slider">
                         </div>
 
-                        <!-- Sigma -->
-                        <div id="group-sigma" style="display:none;">
-                            <label for="param-sigma">Sigma</label>
-                            <input type="number" id="param-sigma" value="1.0" min="0.1" step="0.1">
-                            <div class="slider-group">
-                                <input type="range" id="slider-sigma" min="0.1" max="20.0" step="0.1">
-                            </div>
+                        <div id="group-sigma" class="hidden">
+                            <label class="sf-label" for="param-sigma">Sigma</label>
+                            <input type="number" id="param-sigma" class="sf-field" value="1.0" min="0.1" step="0.1">
+                            <input type="range" id="slider-sigma" class="mt-2 w-full" min="0.1" max="20.0" step="0.1" aria-label="Sigma slider">
                         </div>
 
-                        <!-- Decay Length -->
-                        <div id="group-decay" style="display:none;">
-                            <div class="checkbox-row" style="display:flex; gap:10px; margin-bottom:10px;">
-                                <label style="display:flex; align-items:center; gap:6px;">
-                                    <input type="checkbox" id="param-apply-start" checked>
+                        <div id="group-decay" class="hidden">
+                            <div class="mb-2.5 flex flex-wrap gap-3">
+                                <label class="inline-flex items-center gap-1.5 text-sm">
+                                    <input type="checkbox" id="param-apply-start" class="h-4 w-4 accent-accent" checked>
                                     Apply Start Taper
                                 </label>
-                                <label style="display:flex; align-items:center; gap:6px;">
-                                    <input type="checkbox" id="param-apply-end" checked>
+                                <label class="inline-flex items-center gap-1.5 text-sm">
+                                    <input type="checkbox" id="param-apply-end" class="h-4 w-4 accent-accent" checked>
                                     Apply End Taper
                                 </label>
                             </div>
 
-                            <label for="param-start-decay">Start Fade Length</label>
-                            <input type="number" id="param-start-decay" value="50" min="0">
-                            <div class="slider-group">
-                                <input type="range" id="slider-start-decay" min="0" max="500" step="1">
-                            </div>
+                            <label class="sf-label" for="param-start-decay">Start Fade Length</label>
+                            <input type="number" id="param-start-decay" class="sf-field" value="50" min="0">
+                            <input type="range" id="slider-start-decay" class="mt-2 w-full" min="0" max="500" step="1" aria-label="Start fade length slider">
 
-                            <label for="param-end-decay">End Fade Length</label>
-                            <input type="number" id="param-end-decay" value="50" min="0">
-                            <div class="slider-group">
-                                <input type="range" id="slider-end-decay" min="0" max="500" step="1">
-                            </div>
+                            <label class="sf-label" for="param-end-decay">End Fade Length</label>
+                            <input type="number" id="param-end-decay" class="sf-field" value="50" min="0">
+                            <input type="range" id="slider-end-decay" class="mt-2 w-full" min="0" max="500" step="1" aria-label="End fade length slider">
 
-                            <label for="param-start-offset">Start Offset</label>
-                            <input type="number" id="param-start-offset" value="0" step="0.000001">
+                            <label class="sf-label" for="param-start-offset">Start Offset</label>
+                            <input type="number" id="param-start-offset" class="sf-field" value="0" step="0.000001">
 
-                            <div class="auto-offset-group">
-                                <label class="toggle-label" for="param-auto-offset">
-                                    <input type="checkbox" id="param-auto-offset">
+                            <label class="sf-label" for="param-auto-offset">
+                                <span class="inline-flex items-center gap-2">
+                                    <input type="checkbox" id="param-auto-offset" class="h-4 w-4 accent-accent">
                                     Auto Start Offset
-                                </label>
-                                <label for="param-offset-points">Auto Offset Sample Count</label>
-                                <input type="number" id="param-offset-points" value="200" min="1">
-                            </div>
-                            <small class="hint">Automatically averages the first N points when enabled.</small>
+                                </span>
+                            </label>
+                            <label class="sf-label" for="param-offset-points">Auto Offset Sample Count</label>
+                            <input type="number" id="param-offset-points" class="sf-field" value="200" min="1">
+                            <small class="sf-hint">Automatically averages the first N points when enabled.</small>
                         </div>
 
-                        <!-- Frequency Domain (No sliders for huge ranges usually) -->
-                        <div id="group-freq" style="display:none;">
-                            <label for="param-freq">Cutoff Frequency</label>
-                            <div class="input-with-unit">
-                                <input type="number" id="param-freq" value="100" min="0.1" step="0.1">
-                                <select id="unit-freq">
+                        <div id="group-freq" class="hidden">
+                            <label class="sf-label" for="param-freq">Cutoff Frequency</label>
+                            <div class="flex gap-2">
+                                <input type="number" id="param-freq" class="sf-field min-w-0 flex-1" value="100" min="0.1" step="0.1">
+                                <select id="unit-freq" class="sf-field w-24" aria-label="Frequency unit">
                                     <option value="1">Hz</option>
                                     <option value="1000">kHz</option>
                                     <option value="1000000" selected>MHz</option>
@@ -168,27 +150,23 @@
                             </div>
                         </div>
 
-                        <div id="group-slope" style="display:none;">
-                            <label for="param-slope">Slope (dB/Octave)</label>
-                            <input type="number" id="param-slope" value="12" min="6" step="6">
-                            <div class="slider-group">
-                                <input type="range" id="slider-slope" min="6" max="96" step="6">
-                            </div>
+                        <div id="group-slope" class="hidden">
+                            <label class="sf-label" for="param-slope">Slope (dB/Octave)</label>
+                            <input type="number" id="param-slope" class="sf-field" value="12" min="6" step="6">
+                            <input type="range" id="slider-slope" class="mt-2 w-full" min="6" max="96" step="6" aria-label="Slope slider">
                         </div>
 
-                        <div id="group-q" style="display:none;">
-                            <label for="param-q">Q Factor</label>
-                            <input type="number" id="param-q" value="0.707" min="0.1" step="0.01">
-                            <div class="slider-group">
-                                <input type="range" id="slider-q" min="0.1" max="10.0" step="0.1">
-                            </div>
+                        <div id="group-q" class="hidden">
+                            <label class="sf-label" for="param-q">Q Factor</label>
+                            <input type="number" id="param-q" class="sf-field" value="0.707" min="0.1" step="0.01">
+                            <input type="range" id="slider-q" class="mt-2 w-full" min="0.1" max="10.0" step="0.1" aria-label="Q factor slider">
                         </div>
 
-                        <div id="group-bw" style="display:none;">
-                            <label for="param-bw">Bandwidth</label>
-                            <div class="input-with-unit">
-                                <input type="number" id="param-bw" value="1" min="0.1" step="0.1">
-                                <select id="unit-bw">
+                        <div id="group-bw" class="hidden">
+                            <label class="sf-label" for="param-bw">Bandwidth</label>
+                            <div class="flex gap-2">
+                                <input type="number" id="param-bw" class="sf-field min-w-0 flex-1" value="1" min="0.1" step="0.1">
+                                <select id="unit-bw" class="sf-field w-24" aria-label="Bandwidth unit">
                                     <option value="1">Hz</option>
                                     <option value="1000">kHz</option>
                                     <option value="1000000" selected>MHz</option>
@@ -196,66 +174,67 @@
                                 </select>
                             </div>
                         </div>
-
                     </div>
-                </div>
+                </section>
 
-                <div class="panel" id="composer-panel" style="display:none;">
-                    <h3>Jitter Correction</h3>
-                    <div id="composer-list" class="composer-list"></div>
-                </div>
+                <section id="composer-panel" class="hidden">
+                    <h2 class="sf-panel-title">Jitter Correction</h2>
+                    <div id="composer-list" class="grid gap-2"></div>
+                </section>
             </aside>
 
-            <section class="graph-container">
-                <div id="tabs-wrapper" class="tabs-wrapper">
-                    <div class="tabs-row">
-                        <div id="tabs-scroll-viewport" class="tabs-viewport" aria-label="Trace tabs">
-                            <div id="column-tabs" class="tabs-strip">
-                                <div class="tab-placeholder">Load data to see columns</div>
+            <section class="flex min-w-0 flex-1 flex-col bg-app" aria-label="Graph workspace">
+                <div id="tabs-wrapper" class="border-b border-line bg-tabs">
+                    <div class="flex items-stretch">
+                        <div id="tabs-scroll-viewport" class="tabs-viewport min-w-0 flex-1 overflow-x-auto" aria-label="Trace tabs">
+                            <div id="column-tabs" class="flex min-w-max" role="tablist" aria-label="Data columns">
+                                <div class="flex h-[35px] items-center px-3.5 text-sm text-muted">Load data to see columns</div>
                             </div>
                         </div>
-
                         <button
                             id="btn-add-multiview"
-                            class="tabs-add"
+                            class="flex h-[35px] w-10 shrink-0 items-center justify-center border-l border-line bg-transparent text-lg text-muted hover:bg-btn-hover hover:text-main focus-visible:outline-2 focus-visible:outline-accent"
                             title="Add Multi-View or Math Trace"
                             aria-label="Add Multi-View or Math Trace"
                             type="button"
                         >+</button>
                     </div>
-
-                    <div id="tabs-scrollbar" class="tabs-scrollbar" aria-hidden="true">
-                        <div id="tabs-scrollbar-spacer" class="tabs-scrollbar-spacer"></div>
+                    <div id="tabs-scrollbar" class="tabs-scrollbar overflow-x-auto" aria-hidden="true">
+                        <div id="tabs-scrollbar-spacer" class="h-3"></div>
                     </div>
-
-                    <div class="tabs-scrollbar-filler" aria-hidden="true"></div>
+                    <div class="tabs-scrollbar-filler h-0" aria-hidden="true"></div>
                 </div>
 
-                <div class="graph-toolbar">
-                    <div class="tool-group">
-                        <label class="toggle-label"><input type="checkbox" id="live-show-raw" checked> Raw</label>
+                <div class="flex flex-wrap items-center gap-3 border-b border-line bg-toolbar px-3 py-2">
+                    <label class="inline-flex items-center gap-2 text-sm">
+                        <input type="checkbox" id="live-show-raw" class="h-4 w-4 accent-accent" checked>
+                        Raw
+                    </label>
+                    <div id="container-opacity" class="flex items-center gap-2">
+                        <label class="text-sm" for="live-raw-opacity">Opacity</label>
+                        <input type="range" id="live-raw-opacity" class="w-24" min="0" max="1" step="0.05" value="0.5">
                     </div>
-                    <div class="tool-group" id="container-opacity">
-                        <label>Opacity</label>
-                        <input type="range" id="live-raw-opacity" min="0" max="1" step="0.05" value="0.5">
+                    <div id="tool-group-diff" class="flex items-center gap-2 border-l border-line pl-3">
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="live-show-diff" class="h-4 w-4 accent-accent">
+                            Diff
+                        </label>
                     </div>
-                    <div class="tool-group tool-divider">
-                        <label class="toggle-label"><input type="checkbox" id="live-show-diff"> Diff</label>
+                    <div class="flex items-center gap-2 border-l border-line pl-3">
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="live-freq-domain" class="h-4 w-4 accent-accent">
+                            Freq Domain (FFT)
+                        </label>
                     </div>
-                    <div class="tool-group tool-divider">
-                        <label class="toggle-label"><input type="checkbox" id="live-freq-domain"> Freq Domain (FFT)</label>
-                    </div>
-                    <div class="tool-item" style="margin-left: auto;">
-                        <span id="live-status" style="font-size: 0.8em; color: var(--text-muted);">Ready</span>
-                    </div>
+                    <span id="live-status" class="ml-auto text-xs text-muted" aria-live="polite">Ready</span>
                 </div>
 
-                <div id="main-plot"></div>
+                <div id="main-plot" class="min-h-60 flex-1" role="img" aria-label="Signal plot"></div>
             </section>
         </main>
     </div>
 
-    <input type="file" id="file-input" accept=".csv,.txt" style="display: none;">
-    <script type="module" src="src/main.js"></script>
+    <input type="file" id="file-input" accept=".csv,.txt" class="hidden" aria-hidden="true">
+    <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
