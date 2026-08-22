@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Graph.init();
   bindSidebarToggle();
 
+  State.ensureAnalysisConfig();
   const initialPipeline = State.getPipeline();
   if (initialPipeline.length > 0) {
     State.ui.selectedStepId = initialPipeline[0].id;

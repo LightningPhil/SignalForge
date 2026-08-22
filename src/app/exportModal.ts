@@ -38,6 +38,19 @@ export function showExportModal(): void {
     </section>
 
     <section class="${ui.modalPanel}">
+      <h4 class="mb-2 font-semibold">Analysis Exports</h4>
+      <p class="mb-3 text-sm text-muted">Save measurements, events, spectral metrics, or a full HTML report.</p>
+      <div class="flex flex-wrap gap-2.5">
+        <button class="sf-btn" id="btn-export-measure-json" type="button">Measurements (JSON)</button>
+        <button class="sf-btn" id="btn-export-measure-csv" type="button">Measurements (CSV)</button>
+        <button class="sf-btn" id="btn-export-events" type="button">Events (CSV)</button>
+        <button class="sf-btn" id="btn-export-spectral" type="button">Spectral (JSON)</button>
+        <button class="sf-btn" id="btn-export-system" type="button">System / FRF (JSON)</button>
+        <button class="sf-btn" id="btn-export-report" type="button">Full Report (HTML)</button>
+      </div>
+    </section>
+
+    <section class="${ui.modalPanel}">
       <h4 class="mb-2 font-semibold">Graph Image</h4>
       <p class="mb-3 text-sm text-muted">Save the current graph view as an image.</p>
       <div class="mb-3 flex flex-wrap items-center gap-2.5">
@@ -152,6 +165,12 @@ export function showExportModal(): void {
   });
   modal.querySelector('#btn-export-filtered')?.addEventListener('click', () => Exporter.downloadCSV(false));
   modal.querySelector('#btn-export-full')?.addEventListener('click', () => Exporter.downloadCSV(true));
+  modal.querySelector('#btn-export-measure-json')?.addEventListener('click', () => Exporter.downloadMeasurementsJSON());
+  modal.querySelector('#btn-export-measure-csv')?.addEventListener('click', () => Exporter.downloadMeasurementsCSV());
+  modal.querySelector('#btn-export-events')?.addEventListener('click', () => Exporter.downloadEventsCSV());
+  modal.querySelector('#btn-export-spectral')?.addEventListener('click', () => Exporter.downloadSpectralSummaryJSON());
+  modal.querySelector('#btn-export-system')?.addEventListener('click', () => Exporter.downloadSystemJSON());
+  modal.querySelector('#btn-export-report')?.addEventListener('click', () => { void Exporter.downloadReport(); });
 
   const exportImage = (format: 'png' | 'svg') => {
     if (!hasData()) return;

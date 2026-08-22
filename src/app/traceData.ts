@@ -1,4 +1,4 @@
-import { Filter } from '../processing/filter';
+import { applyXOffset, Filter } from '../processing/filter';
 import { MathEngine } from '../processing/math';
 import { State } from '../state';
 import type { ColumnSeries, SeriesPair } from '../types';
@@ -47,4 +47,16 @@ export function getSeriesForColumn(columnId: string | null, rawX: number[]): Col
   const time = rawX.slice(0, rawY.length);
   const filteredY = Filter.applyPipeline(rawY, time, State.getPipelineForColumn(columnId));
   return { columnId, rawY, filteredY, time, isMath: false };
+}
+
+export function getAlignedSeriesForColumn(columnId: string | null, rawX: number[]): ColumnSeries | null {
+  const series = getSeriesForColumn(columnId, rawX);
+  if (!series) return null;
+  const offset = State.getTraceConfig(columnId).xOffset || 0;
+  if (!offset) return series;
+  return {
+    ...series,
+    rawY: applyXOffset(series.rawY, offset),
+    filteredY: series.filteredY ? applyXOffset(series.filteredY, offset) : null
+  };
 }

@@ -8,6 +8,10 @@ import { hasData, runPipelineAndRender } from './dataPipeline';
 import { elements } from './domElements';
 import { showExportModal } from './exportModal';
 import { renderPipelineList, showAddStepMenu, updateParamEditor, updateParamsFromUI } from './pipelineUi';
+import { EventPanel } from '../ui/eventPanel';
+import { MeasurementPanel } from '../ui/measurementPanel';
+import { SpectralPanel } from '../ui/spectralPanel';
+import { SystemPanel } from '../ui/systemPanel';
 import { bindToolbarEvents } from './toolbar';
 
 export function setupEventListeners(): void {
@@ -170,4 +174,22 @@ export function setupEventListeners(): void {
 
   bindToolbarEvents();
   bindComposerEvents();
+  setupSidebarTabs();
+  MeasurementPanel.init();
+  EventPanel.init();
+  SpectralPanel.init();
+  SystemPanel.init();
+}
+
+function setupSidebarTabs(): void {
+  const tabs = document.querySelectorAll<HTMLButtonElement>('.sidebar-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const targetId = `tab-${tab.dataset.tab}`;
+      tabs.forEach((t) => t.classList.toggle('is-active', t === tab));
+      document.querySelectorAll<HTMLElement>('.sidebar-tab-content').forEach((panel) => {
+        panel.classList.toggle('hidden', panel.id !== targetId);
+      });
+    });
+  });
 }

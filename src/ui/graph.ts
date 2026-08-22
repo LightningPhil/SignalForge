@@ -7,14 +7,19 @@ import { FFT } from '../processing/fft';
 import { Filter } from '../processing/filter';
 import { applyComposerOffsets, getComposerTrace } from '../processing/composer';
 import { estimateSampleRate, buildFrequencyAxis } from '../processing/sampling';
+import { AnalysisEngine } from '../analysis/analysisEngine';
+import { SpectralMetrics } from '../analysis/spectralMetrics';
+import { TimeFrequency } from '../analysis/timeFrequency';
 import { getActiveTheme, getColorsForTheme, hexToRgba } from './colors';
 import { getRawSeries, getSeriesForColumn } from '../app/traceData';
 import type {
+  AnalysisEvent,
   AxisFormat,
   AxisFormatOptions,
   PlotSeries,
   PlotStyling,
   RenderOptions,
+  ViewMode,
   ViewRange
 } from '../types';
 
@@ -42,6 +47,8 @@ function toPlotAxis(format: AxisFormatOptions): Partial<Layout['xaxis']> {
 export const Graph = {
 
   lastRanges: { x: null, y: null } as ViewRange,
+  currentEvents: [] as AnalysisEvent[],
+  eventOverlay: { show: true, activeIndex: null as number | null, amplitudes: null as ArrayLike<number> | null },
   _ignoreRelayoutCount: 0,
 
   beginIgnoreRelayout(): void {
@@ -63,6 +70,96 @@ export const Graph = {
       this.endIgnoreRelayout();
     });
     return result;
+  },
+
+  getViewMode(): ViewMode {
+    const cfg = State.config.graph || {};
+    if (cfg.viewMode) return cfg.viewMode;
+    return cfg.showFreqDomain ? 'fft' : 'time';
+  },
+
+  setEventOverlay(events: AnalysisEvent[] = [], options: { show?: boolean; activeIndex?: number | null; amplitudes?: ArrayLike<number> | null } = {}): void {
+    this.currentEvents = Array.isArray(events) ? events : [];
+    this.eventOverlay = {
+      show: options.show !== false,
+      activeIndex: Number.isInteger(options.activeIndex) ? options.activeIndex as number : null,
+      amplitudes: options.amplitudes || null
+    };
+  },
+
+  getEventAmplitude(event: AnalysisEvent | null | undefined, fallbackY: ArrayLike<number> = []): number {
+    if (!event) return 0;
+    if (this.eventOverlay.amplitudes && Number.isInteger(event.index) && Number.isFinite(this.eventOverlay.amplitudes[event.index as number])) {
+      return this.eventOverlay.amplitudes[event.index as number];
+    }
+    if (Number.isFinite(event.metadata?.amplitude as number)) return event.metadata.amplitude as number;
+    if (Number.isInteger(event.index) && Number.isFinite(fallbackY[event.index as number])) return fallbackY[event.index as number];
+    return 0;
+  },
+
+  eventsVisible(): boolean {
+    return State.ensureAnalysisConfig().showEvents !== false && this.eventOverlay.show !== false;
+  },
+
+  appendEventTraces(traces: Data[], fallbackY: ArrayLike<number> = []): void {
+    if (!this.eventsVisible() || !this.currentEvents.length) return;
+    const times: number[] = [];
+    const amps: number[] = [];
+    const colors: string[] = [];
+    this.currentEvents.forEach((event, idx) => {
+      if (!Number.isFinite(event.time)) return;
+      times.push(event.time as number);
+      amps.push(this.getEventAmplitude(event, fallbackY));
+      colors.push(idx === this.eventOverlay.activeIndex ? '#ff6f61' : '#7dd3fc');
+    });
+    if (!times.length) return;
+    traces.push({
+      x: times,
+      y: amps,
+      mode: 'markers',
+      name: 'Events',
+      marker: { size: 10, symbol: 'x', color: colors },
+      hovertemplate: 't=%{x}<extra>Event</extra>',
+      yaxis: 'y'
+    });
+  },
+
+  buildEventShapes(): NonNullable<Layout['shapes']> {
+    const shapes: NonNullable<Layout['shapes']> = [];
+    if (!this.eventsVisible() || !this.currentEvents.length) return shapes;
+    const activeEvent = Number.isInteger(this.eventOverlay.activeIndex)
+      ? this.currentEvents[this.eventOverlay.activeIndex as number]
+      : null;
+    if (activeEvent && Number.isFinite(activeEvent.time)) {
+      shapes.push({
+        type: 'line',
+        x0: activeEvent.time as number,
+        x1: activeEvent.time as number,
+        y0: 0,
+        y1: 1,
+        xref: 'x',
+        yref: 'paper',
+        line: { color: '#ff6f61', width: 1, dash: 'dot' }
+      });
+    }
+    return shapes;
+  },
+
+  zoomToEvent(time: number | null | undefined): void {
+    if (!Number.isFinite(time)) return;
+    const plotElement = document.getElementById(PLOT_ID) as PlotlyHTMLElement | null;
+    if (!plotElement?.layout) return;
+    const currentRange = plotElement.layout.xaxis?.range as [number, number] | undefined;
+    const rawX = State.data.timeColumn
+      ? State.data.raw.map((r) => parseFloat(String(r[State.data.timeColumn as string])))
+      : [];
+    const span = currentRange && currentRange.length === 2
+      ? (currentRange[1] - currentRange[0])
+      : Math.max(1e-9, (rawX[rawX.length - 1] || 0) - (rawX[0] || 0)) / 10;
+    const nextRange: [number, number] = [(time as number) - span / 2, (time as number) + span / 2];
+    this.lastRanges = { x: nextRange, y: this.lastRanges.y };
+    this.beginIgnoreRelayout();
+    Promise.resolve(Plotly.relayout(PLOT_ID, { 'xaxis.range': nextRange })).finally(() => this.endIgnoreRelayout());
   },
 
   setStatus(text: string): void {
@@ -210,11 +307,11 @@ export const Graph = {
     const composerTrace = getComposerTrace(State.ui.activeMultiViewId || null, State.data.dataColumn);
     const { adjustedRawY, adjustedFilteredY } = applyComposerOffsets(rawY, filteredY, composerTrace);
 
-    const config = State.config.graph;
-
-    // --- Mode Switching ---
-    if (config.showFreqDomain) {
+    const mode = this.getViewMode();
+    if (mode === 'fft') {
       this.renderFreqDomain(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, { isMath, seriesName });
+    } else if (mode === 'spectrogram') {
+      this.renderSpectrogram(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, { isMath, seriesName });
     } else {
       this.renderTimeDomain(rawX, adjustedRawY, isMath ? null : adjustedFilteredY, range, { isMath, seriesName });
     }
@@ -227,10 +324,17 @@ export const Graph = {
     viewId: string | null = null
   ): void {
     if (!rawX || rawX.length === 0) return;
-    const config = State.config.graph;
-
-    if (config.showFreqDomain) {
+    const mode = this.getViewMode();
+    if (mode === 'fft') {
       this.renderMultiFreqDomain(rawX, seriesList);
+    } else if (mode === 'spectrogram') {
+      const primary = seriesList.find((s) => s && s.rawY && s.rawY.length);
+      if (primary) {
+        this.renderSpectrogram(rawX, primary.rawY, primary.isMath ? null : primary.filteredY, {
+          isMath: primary.isMath,
+          seriesName: primary.columnId || 'Series'
+        });
+      }
     } else {
       this.renderMultiTimeDomain(rawX, seriesList, ranges, viewId);
     }
@@ -345,6 +449,8 @@ export const Graph = {
       }
     });
 
+    this.appendEventTraces(traces);
+
     const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear', config.currencySymbol, config.significantFigures);
     const yAxisBaseType = config.logScaleY ? 'log' : 'linear';
     const yAxisFormat = this.getAxisFormat(config.yAxisFormat, yAxisBaseType, config.currencySymbol, config.significantFigures);
@@ -386,7 +492,8 @@ export const Graph = {
         showgrid: config.showGrid,
         gridcolor: gridColor,
         ...toPlotAxis(secondaryYAxisFormat)
-      }
+      },
+      shapes: this.buildEventShapes()
     };
 
     this.reactPlot(traces, layout);
@@ -402,60 +509,95 @@ export const Graph = {
   // --- Frequency Domain Renderer ---
   renderFreqDomain(timeX: number[], rawY: number[], filteredY: number[] | null, options: RenderOptions = {}): void {
     const config = State.config.graph;
+    const analysis = State.ensureAnalysisConfig();
     const colors = this.getColorsForTheme();
     const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
     const { isMath = false, seriesName = 'Series' } = options || {};
+    const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
+    const showMagnitude = analysis.fftView !== 'phase';
+    const showPhase = analysis.fftView === 'phase' || analysis.fftView === 'both';
 
-    const fs = estimateSampleRate(timeX);
-    const { re: rawRe, im: rawIm } = FFT.forward(rawY);
-    const rawMag = FFT.getMagnitudeDB(rawRe, rawIm);
-    const { axis: freqAxis, nBins } = buildFrequencyAxis(rawRe.length, fs);
+    const baseOptions = {
+      selection,
+      windowType: analysis.fftWindow,
+      detrend: analysis.fftDetrend,
+      zeroPadMode: analysis.fftZeroPad,
+      zeroPadFactor: analysis.fftZeroPadFactor
+    };
+
+    const rawSpectrum = FFT.computeSpectrum(rawY, timeX, { ...baseOptions, cacheKey: `${seriesName}|raw` });
+    const filteredSpectrum = (!isMath && filteredY && filteredY.length)
+      ? FFT.computeSpectrum(filteredY, timeX, { ...baseOptions, cacheKey: `${seriesName}|filtered` })
+      : null;
 
     const traces: Data[] = [];
-
     const showRawSpectrum = isMath ? true : (config.showRaw !== false);
 
-    if (showRawSpectrum) {
+    if (showRawSpectrum && showMagnitude) {
       traces.push({
-        x: freqAxis,
-        y: rawMag,
+        x: rawSpectrum.freq,
+        y: rawSpectrum.magnitude,
         mode: 'lines',
         name: isMath ? `${seriesName} Spectrum` : 'Raw Spectrum',
         line: { color: isMath ? colors.filtered : this.hexToRgba(colors.raw, config.rawOpacity || 0.5), width: isMath ? 2 : 1 }
       });
     }
-
-    if (!isMath && filteredY) {
-      const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
-      const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
-
+    if (showRawSpectrum && showPhase) {
       traces.push({
-        x: freqAxis, // Assumes same length
-        y: filtMag,
+        x: rawSpectrum.freq,
+        y: rawSpectrum.phase,
+        mode: 'lines',
+        name: isMath ? `${seriesName} Phase` : 'Raw Phase',
+        line: { width: 1, dash: 'dot' },
+        yaxis: showMagnitude ? 'y2' : 'y'
+      });
+    }
+    if (!isMath && filteredSpectrum && showMagnitude) {
+      traces.push({
+        x: filteredSpectrum.freq,
+        y: filteredSpectrum.magnitude,
         mode: 'lines',
         name: 'Filtered Spectrum',
         line: { color: colors.filtered, width: 1.5 }
       });
     }
 
-    // Trace 3: Transfer Function (Filter Shape)
-    // Only if we have active FFT filters
+    const peaks = SpectralMetrics.computePeaks(rawSpectrum.freq, rawSpectrum.linearMagnitude, {
+      maxPeaks: analysis.fftPeakCount,
+      prominence: analysis.fftPeakProminence
+    });
+    if (showMagnitude && peaks.length) {
+      traces.push({
+        x: peaks.map((p) => p.freq),
+        y: peaks.map((p) => 20 * Math.log10(Math.max(p.magnitude, 1e-12))),
+        mode: 'markers',
+        name: 'Peaks',
+        marker: { size: 8, color: '#fbbf24', symbol: 'diamond' }
+      });
+    }
+    if (showMagnitude && analysis.fftShowHarmonics) {
+      const fundamental = analysis.fftHarmonicFundamental || peaks[0]?.freq || null;
+      const harmonics = SpectralMetrics.computeHarmonics(rawSpectrum.freq, rawSpectrum.linearMagnitude, fundamental, analysis.fftHarmonicCount);
+      if (harmonics.length) {
+        traces.push({
+          x: harmonics.map((h) => h.freq),
+          y: harmonics.map((h) => 20 * Math.log10(Math.max(h.magnitude || 0, 1e-12))),
+          mode: 'markers',
+          name: 'Harmonics',
+          marker: { size: 7, color: '#7dd3fc', symbol: 'x' },
+          text: harmonics.map((h) => String(h.order))
+        });
+      }
+    }
+
     const pipeline = State.getPipeline();
     const hasFFTFilters = pipeline.some((p) => p.enabled !== false && ['lowPassFFT', 'highPassFFT', 'notchFFT'].includes(p.type));
-
-    if (hasFFTFilters) {
-      const transfer = Filter.calculateTransferFunction(pipeline, fs, nBins, rawRe.length);
-      // Convert to dB
-      const transferDB = transfer.map((g) => 20 * Math.log10(g + 1e-9));
-
-      // Shift Transfer curve visually?
-      // Usually Transfer function is 0dB max. Data might be -40dB.
-      // Plot on secondary Y axis? Or just overlay.
-      // Let's put it on Y2 to avoid scaling issues.
-
+    if (hasFFTFilters && showMagnitude) {
+      const { nBins } = buildFrequencyAxis(rawSpectrum.length || 1, rawSpectrum.meta.fs);
+      const transfer = Filter.calculateTransferFunction(pipeline, rawSpectrum.meta.fs, nBins, rawSpectrum.length);
       traces.push({
-        x: freqAxis,
-        y: transferDB,
+        x: rawSpectrum.freq,
+        y: transfer.map((g) => 20 * Math.log10(g + 1e-9)),
         mode: 'lines',
         name: 'Filter Transfer H(f)',
         line: { color: colors.transfer || '#00bcd4', width: 2, dash: 'dot' },
@@ -469,80 +611,73 @@ export const Graph = {
       plot_bgcolor: plotBg,
       font: { color: fontColor },
       showlegend: true,
-
-      xaxis: {
-        title: 'Frequency (Hz)',
-        type: 'log',
-        autorange: true,
-        gridcolor: gridColor
-      },
+      xaxis: { title: 'Frequency (Hz)', type: 'log', autorange: true, gridcolor: gridColor },
       yaxis: {
-        title: 'Magnitude (dB)',
-        gridcolor: gridColor
+        title: showMagnitude ? 'Magnitude (dB)' : 'Phase (deg)',
+        gridcolor: gridColor,
+        domain: showMagnitude && showPhase ? [0.55, 1] : [0, 1]
       },
-      yaxis2: {
-        title: 'Filter Gain (dB)',
-        overlaying: 'y',
-        side: 'right',
-        range: [-100, 5], // Fixed range for transfer function
-        showgrid: false
-      }
+      yaxis2: showMagnitude && showPhase
+        ? { title: 'Phase (deg)', domain: [0, 0.45], anchor: 'x', gridcolor: gridColor }
+        : {
+          title: 'Filter Gain (dB)',
+          overlaying: 'y',
+          side: 'right',
+          range: [-100, 5],
+          showgrid: false
+        }
     };
 
     this.reactPlot(traces, layout);
-    this.setStatus(`Frequency Analysis (Fs ≈ ${Math.round(fs)} Hz)`);
+    this.setStatus(`Frequency Analysis (Fs ≈ ${Math.round(rawSpectrum.meta.fs)} Hz · Δf ≈ ${rawSpectrum.meta.deltaF.toPrecision(3)} Hz)`);
   },
 
   renderMultiFreqDomain(timeX: number[], seriesList: PlotSeries[]): void {
     if (!seriesList || seriesList.length === 0) return;
     const config = State.config.graph;
+    const analysis = State.ensureAnalysisConfig();
     const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+    const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
+    const baseOptions = {
+      selection,
+      windowType: analysis.fftWindow,
+      detrend: analysis.fftDetrend,
+      zeroPadMode: analysis.fftZeroPad,
+      zeroPadFactor: analysis.fftZeroPadFactor
+    };
 
-    const fs = estimateSampleRate(timeX);
     const traces: Data[] = [];
+    let referenceFs = estimateSampleRate(timeX);
+    let referenceDf = 0;
 
     seriesList.forEach((series) => {
       const { rawY, filteredY, columnId, isMath } = series;
       if (!rawY || rawY.length === 0) return;
-
-      const { re: rawRe, im: rawIm } = FFT.forward(rawY);
-      const rawMag = FFT.getMagnitudeDB(rawRe, rawIm);
-      const { axis: freqAxis } = buildFrequencyAxis(rawRe.length, fs);
-
-      if (isMath) {
+      const spectrum = FFT.computeSpectrum(rawY, timeX, { ...baseOptions, cacheKey: `${columnId}|raw` });
+      referenceFs = spectrum.meta.fs;
+      referenceDf = spectrum.meta.deltaF;
+      if (isMath || config.showRaw !== false) {
         traces.push({
-          x: freqAxis,
-          y: rawMag,
+          x: spectrum.freq,
+          y: spectrum.magnitude,
           mode: 'lines',
-          name: `${columnId} Spectrum`,
-          line: { width: 2 }
+          name: `${columnId} ${isMath ? 'Math' : 'Raw'} Spectrum`,
+          line: { width: isMath ? 2 : 1 }
         });
-      } else {
-        if (config.showRaw !== false) {
-          traces.push({
-            x: freqAxis,
-            y: rawMag,
-            mode: 'lines',
-            name: `${columnId} Raw Spectrum`,
-            line: { width: 1 }
-          });
-        }
-
-        if (filteredY && filteredY.length > 0) {
-          const { re: filtRe, im: filtIm } = FFT.forward(filteredY);
-          const filtMag = FFT.getMagnitudeDB(filtRe, filtIm);
-          traces.push({
-            x: freqAxis,
-            y: filtMag,
-            mode: 'lines',
-            name: `${columnId} Filtered Spectrum`,
-            line: { width: 1.5 }
-          });
-        }
+      }
+      if (!isMath && filteredY && filteredY.length > 0) {
+        const filteredSpec = FFT.computeSpectrum(filteredY, timeX, { ...baseOptions, cacheKey: `${columnId}|filtered` });
+        traces.push({
+          x: filteredSpec.freq,
+          y: filteredSpec.magnitude,
+          mode: 'lines',
+          name: `${columnId} Filtered Spectrum`,
+          line: { width: 1.5 }
+        });
       }
     });
 
-    const layout: Partial<Layout> = {
+    this.reactPlot(traces, {
       title: 'Frequency Domain (FFT)',
       paper_bgcolor: paperBg,
       plot_bgcolor: plotBg,
@@ -550,10 +685,55 @@ export const Graph = {
       showlegend: true,
       xaxis: { title: 'Frequency (Hz)', type: 'log', autorange: true, gridcolor: gridColor },
       yaxis: { title: 'Magnitude (dB)', gridcolor: gridColor }
-    };
+    });
+    this.setStatus(`Frequency Analysis (Fs ≈ ${Math.round(referenceFs)} Hz${referenceDf ? ` · Δf ≈ ${referenceDf.toPrecision(3)} Hz` : ''})`);
+  },
 
-    this.reactPlot(traces, layout);
-    this.setStatus(`Frequency Analysis (Fs ≈ ${Math.round(fs)} Hz)`);
+  renderSpectrogram(rawX: number[], rawY: number[], filteredY: number[] | null, options: RenderOptions = {}): void {
+    const analysis = State.ensureAnalysisConfig();
+    const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
+    const { isMath = false, seriesName = 'Series' } = options || {};
+    const { paperBg, plotBg, fontColor, gridColor } = this.getPlotStyling();
+    const preferredSource = analysis.spectrogramSource || analysis.fftSource || 'auto';
+    let targetY = rawY;
+    if (!isMath && (preferredSource === 'filtered' || preferredSource === 'auto') && filteredY?.length) {
+      targetY = filteredY;
+    }
+
+    const spectrogram = TimeFrequency.computeSpectrogram(targetY || [], rawX || [], {
+      selection,
+      windowSize: analysis.spectrogramSize,
+      overlap: analysis.spectrogramOverlap,
+      windowType: analysis.spectrogramWindow || analysis.fftWindow,
+      detrend: analysis.fftDetrend,
+      maxPoints: analysis.spectrogramMaxPoints,
+      freqMin: analysis.spectrogramFreqMin,
+      freqMax: analysis.spectrogramFreqMax
+    });
+
+    this.reactPlot([{
+      x: spectrogram.timeBins,
+      y: spectrogram.freqBins,
+      z: spectrogram.magnitudeDb,
+      type: 'heatmap',
+      colorscale: this.getActiveTheme() === 'light' ? 'Portland' : 'Turbo',
+      colorbar: { title: { text: 'Magnitude (dB)' } },
+      hovertemplate: 't=%{x:.6f}s<br>f=%{y:.3f}Hz<br>%{z:.2f} dB<extra></extra>'
+    }], {
+      title: `Spectrogram${seriesName ? ` — ${seriesName}` : ''}`,
+      paper_bgcolor: paperBg,
+      plot_bgcolor: plotBg,
+      font: { color: fontColor },
+      xaxis: { title: 'Time (s)', gridcolor: gridColor },
+      yaxis: { title: 'Frequency (Hz)', gridcolor: gridColor },
+      margin: { t: 60, r: 80, b: 60, l: 60 }
+    });
+
+    const parts = [];
+    if (spectrogram.meta.nFrames) parts.push(`${spectrogram.meta.nFrames} frame(s)`);
+    if (spectrogram.meta.freqResolution) parts.push(`Δf ≈ ${spectrogram.meta.freqResolution.toPrecision(3)} Hz`);
+    const warnText = spectrogram.warnings.length ? ` · ${spectrogram.warnings.join(' ')}` : '';
+    this.setStatus(`Spectrogram${parts.length ? ` (${parts.join(' · ')})` : ''}${warnText}`);
   },
 
   // --- Time Domain Renderer (Existing Logic) ---
@@ -676,6 +856,9 @@ export const Graph = {
       }
     }
 
+    const amplitudeSource = !isMath && displayF.length ? displayF : displayY;
+    this.appendEventTraces(traces, amplitudeSource);
+
     const xAxisFormat = this.getAxisFormat(config.xAxisFormat, 'linear', config.currencySymbol, config.significantFigures);
     const yAxisBaseType = config.logScaleY ? 'log' : 'linear';
     const yAxisFormat = this.getAxisFormat(config.yAxisFormat, yAxisBaseType, config.currencySymbol, config.significantFigures);
@@ -718,7 +901,8 @@ export const Graph = {
         showgrid: config.showGrid,
         gridcolor: gridColor,
         ...toPlotAxis(secondaryYAxisFormat)
-      }
+      },
+      shapes: this.buildEventShapes()
     };
 
     this.reactPlot(traces, layout);
@@ -731,7 +915,7 @@ export const Graph = {
 
   handleZoom(event: Record<string, unknown> | null | undefined): void {
     if (this.isIgnoringRelayout()) return;
-    if (State.config.graph.showFreqDomain) return;
+    if (this.getViewMode() !== 'time') return;
     if (!event) return;
 
     const hasX = event['xaxis.range[0]'] !== undefined || event['xaxis.range'] !== undefined || event['xaxis.autorange'] === true;
@@ -740,10 +924,10 @@ export const Graph = {
 
     const ranges: ViewRange = { ...this.lastRanges };
 
-    if (event['xaxis.range[0]'] || event['xaxis.range']) {
+    if (event['xaxis.range'] !== undefined || event['xaxis.range[0]'] !== undefined) {
       let min: number;
       let max: number;
-      if (event['xaxis.range']) {
+      if (event['xaxis.range'] !== undefined) {
         [min, max] = asRangePair(event['xaxis.range']);
       } else {
         min = event['xaxis.range[0]'] as number;
@@ -752,10 +936,10 @@ export const Graph = {
       ranges.x = [min, max];
     }
 
-    if (event['yaxis.range[0]'] || event['yaxis.range']) {
+    if (event['yaxis.range'] !== undefined || event['yaxis.range[0]'] !== undefined) {
       let minY: number;
       let maxY: number;
-      if (event['yaxis.range']) {
+      if (event['yaxis.range'] !== undefined) {
         [minY, maxY] = asRangePair(event['yaxis.range']);
       } else {
         minY = event['yaxis.range[0]'] as number;
@@ -765,8 +949,15 @@ export const Graph = {
     }
 
     if (event['xaxis.autorange'] === true || event['yaxis.autorange'] === true) {
+      if (event['xaxis.autorange'] === true) AnalysisEngine.clearSelection();
       this.triggerRefresh(null);
       return;
+    }
+
+    if (ranges.x) {
+      const xCol = State.data.timeColumn;
+      const timeArray = xCol ? State.data.raw.map((r) => parseFloat(String(r[xCol]))) : [];
+      AnalysisEngine.updateSelectionFromRange(ranges.x, timeArray);
     }
 
     this.triggerRefresh(ranges);
