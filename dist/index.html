@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Forge</title>
+  <script type="module" crossorigin src="/SignalForge/assets/index-CPyIFMcn.js"></script>
+  <link rel="stylesheet" crossorigin href="/SignalForge/assets/index-fCbzUvnl.css">
+</head>
+<body>
+    <div id="app" class="flex h-full flex-col">
+        <header class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-header px-4 py-2.5 text-white">
+            <div class="flex items-center gap-3">
+                <button
+                    id="btn-sidebar-toggle"
+                    class="sf-btn px-2.5 lg:hidden"
+                    type="button"
+                    aria-controls="app-sidebar"
+                    aria-expanded="false"
+                    aria-label="Toggle filter sidebar"
+                >☰</button>
+                <h1 class="m-0 text-lg font-semibold tracking-wide text-white">Signal Forge</h1>
+            </div>
+            <nav class="flex flex-wrap items-center gap-2" aria-label="Workspace">
+                <button id="btn-load-file" class="sf-btn" type="button">📂 Load</button>
+                <button id="btn-view-grid" class="sf-btn" type="button">📅 Grid</button>
+                <button id="btn-graph-config" class="sf-btn" type="button">⚙️ Graph</button>
+                <button id="btn-export" class="sf-btn" type="button">💾 Export</button>
+                <button id="btn-help" class="sf-btn" type="button">❓ Help</button>
+                <button id="btn-theme-toggle" class="sf-btn" type="button" aria-pressed="false" title="Toggle light or dark appearance">
+                    <span class="theme-icon" aria-hidden="true">🌙</span>
+                    <span class="theme-label">Dark Mode</span>
+                </button>
+            </nav>
+        </header>
+
+        <main class="relative flex min-h-0 flex-1 overflow-hidden">
+            <div id="sidebar-backdrop" class="fixed inset-0 z-30 hidden bg-black/50 lg:hidden"></div>
+
+            <aside
+                id="app-sidebar"
+                class="fixed inset-y-0 left-0 z-40 flex w-[min(22rem,90vw)] -translate-x-full flex-col overflow-y-auto border-r border-line bg-panel p-4 shadow-xl transition-transform lg:static lg:z-auto lg:w-96 lg:min-w-96 lg:max-w-96 lg:translate-x-0 lg:shadow-none"
+                aria-label="Filter and analysis controls"
+            >
+                <div class="mb-4 grid grid-cols-4 gap-1 rounded-lg bg-surface p-1" role="tablist" aria-label="Sidebar panels">
+                    <button type="button" class="sidebar-tab sf-sidebar-tab is-active" data-tab="filter" title="Filter Pipeline">Filter</button>
+                    <button type="button" class="sidebar-tab sf-sidebar-tab" data-tab="measure" title="Measurements">Measure</button>
+                    <button type="button" class="sidebar-tab sf-sidebar-tab" data-tab="spectral" title="Spectral Analysis">Spectral</button>
+                    <button type="button" class="sidebar-tab sf-sidebar-tab" data-tab="events" title="Events">Events</button>
+                </div>
+
+                <div id="tab-filter" class="sidebar-tab-content">
+                <section id="pipeline-panel" class="mb-6 border-b border-line pb-4">
+                    <h2 class="sf-panel-title">Filter Pipeline</h2>
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <label for="chk-sync-tabs" class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="chk-sync-tabs" class="h-4 w-4 accent-accent" checked>
+                            Sync All Tabs
+                        </label>
+                        <small class="text-xs text-muted">Apply this pipeline across every tab.</small>
+                    </div>
+                    <div id="pipeline-list" class="max-h-60 min-h-24 overflow-y-auto rounded-md border border-line bg-surface" role="listbox" aria-label="Filter steps"></div>
+                    <div class="pipeline-actions mt-2 flex flex-wrap gap-2">
+                        <button id="btn-add-step" class="sf-btn" type="button" title="Add Step">➕ Add</button>
+                        <button id="btn-remove-step" class="sf-btn" type="button" title="Remove Step" aria-label="Remove selected step">🗑️</button>
+                        <button id="btn-move-up" class="sf-btn" type="button" title="Move Up" aria-label="Move selected step up">⬆️</button>
+                        <button id="btn-move-down" class="sf-btn" type="button" title="Move Down" aria-label="Move selected step down">⬇️</button>
+                    </div>
+                </section>
+                <p id="math-trace-note" class="sf-hint mb-6 hidden">
+                    Math traces don’t have their own filter pipeline. Apply filtering in the source waveform tab(s) first.
+                </p>
+
+                <section id="trace-selector-panel" class="mb-6 hidden border-b border-line pb-4">
+                    <h2 class="sf-panel-title">Trace Selector</h2>
+                    <p class="mb-3 text-sm text-muted">Select which columns to display in this multi-view tab.</p>
+                    <div id="trace-selector-list" class="grid gap-2"></div>
+                </section>
+
+                <section id="param-editor" class="mb-6 border-b border-line pb-4">
+                    <h2 class="sf-panel-title">Parameters</h2>
+                    <div class="mb-3 rounded bg-surface px-2 py-1.5 text-sm font-semibold text-accent" id="step-type-display">Select a step</div>
+
+                    <div id="filter-params">
+                        <div id="group-window">
+                            <label class="sf-label" for="param-window">Window / Kernel</label>
+                            <input type="number" id="param-window" class="sf-field" value="5" min="1" step="2">
+                            <input type="range" id="slider-window" class="mt-2 w-full" min="1" max="101" step="2" aria-label="Window size slider">
+                            <small class="sf-hint">Odd numbers only</small>
+                        </div>
+
+                        <div id="group-poly" class="hidden">
+                            <label class="sf-label" for="param-poly">Poly Order</label>
+                            <input type="number" id="param-poly" class="sf-field" value="3" min="1" max="10">
+                            <input type="range" id="slider-poly" class="mt-2 w-full" min="1" max="6" step="1" aria-label="Polynomial order slider">
+                        </div>
+
+                        <div id="group-iters" class="hidden">
+                            <label class="sf-label" for="param-iters">Iterations</label>
+                            <input type="number" id="param-iters" class="sf-field" value="1" min="1" max="16">
+                            <input type="range" id="slider-iters" class="mt-2 w-full" min="1" max="16" step="1" aria-label="Iterations slider">
+                        </div>
+
+                        <div id="group-alpha" class="hidden">
+                            <label class="sf-label" for="param-alpha">Alpha</label>
+                            <input type="number" id="param-alpha" class="sf-field" value="0.1" min="0.001" max="1.0" step="0.01">
+                            <input type="range" id="slider-alpha" class="mt-2 w-full" min="0.001" max="1.0" step="0.001" aria-label="Alpha slider">
+                        </div>
+
+                        <div id="group-sigma" class="hidden">
+                            <label class="sf-label" for="param-sigma">Sigma</label>
+                            <input type="number" id="param-sigma" class="sf-field" value="1.0" min="0.1" step="0.1">
+                            <input type="range" id="slider-sigma" class="mt-2 w-full" min="0.1" max="20.0" step="0.1" aria-label="Sigma slider">
+                        </div>
+
+                        <div id="group-decay" class="hidden">
+                            <div class="mb-2.5 flex flex-wrap gap-3">
+                                <label class="inline-flex items-center gap-1.5 text-sm">
+                                    <input type="checkbox" id="param-apply-start" class="h-4 w-4 accent-accent" checked>
+                                    Apply Start Taper
+                                </label>
+                                <label class="inline-flex items-center gap-1.5 text-sm">
+                                    <input type="checkbox" id="param-apply-end" class="h-4 w-4 accent-accent" checked>
+                                    Apply End Taper
+                                </label>
+                            </div>
+
+                            <label class="sf-label" for="param-start-decay">Start Fade Length</label>
+                            <input type="number" id="param-start-decay" class="sf-field" value="50" min="0">
+                            <input type="range" id="slider-start-decay" class="mt-2 w-full" min="0" max="500" step="1" aria-label="Start fade length slider">
+
+                            <label class="sf-label" for="param-end-decay">End Fade Length</label>
+                            <input type="number" id="param-end-decay" class="sf-field" value="50" min="0">
+                            <input type="range" id="slider-end-decay" class="mt-2 w-full" min="0" max="500" step="1" aria-label="End fade length slider">
+
+                            <label class="sf-label" for="param-start-offset">Start Offset</label>
+                            <input type="number" id="param-start-offset" class="sf-field" value="0" step="0.000001">
+
+                            <label class="sf-label" for="param-auto-offset">
+                                <span class="inline-flex items-center gap-2">
+                                    <input type="checkbox" id="param-auto-offset" class="h-4 w-4 accent-accent">
+                                    Auto Start Offset
+                                </span>
+                            </label>
+                            <label class="sf-label" for="param-offset-points">Auto Offset Sample Count</label>
+                            <input type="number" id="param-offset-points" class="sf-field" value="200" min="1">
+                            <small class="sf-hint">Automatically averages the first N points when enabled.</small>
+                        </div>
+
+                        <div id="group-freq" class="hidden">
+                            <label class="sf-label" for="param-freq">Cutoff Frequency</label>
+                            <div class="flex gap-2">
+                                <input type="number" id="param-freq" class="sf-field min-w-0 flex-1" value="100" min="0.1" step="0.1">
+                                <select id="unit-freq" class="sf-field w-24" aria-label="Frequency unit">
+                                    <option value="1">Hz</option>
+                                    <option value="1000">kHz</option>
+                                    <option value="1000000" selected>MHz</option>
+                                    <option value="1000000000">GHz</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="group-slope" class="hidden">
+                            <label class="sf-label" for="param-slope">Slope (dB/Octave)</label>
+                            <input type="number" id="param-slope" class="sf-field" value="12" min="6" step="6">
+                            <input type="range" id="slider-slope" class="mt-2 w-full" min="6" max="96" step="6" aria-label="Slope slider">
+                        </div>
+
+                        <div id="group-q" class="hidden">
+                            <label class="sf-label" for="param-q">Q Factor</label>
+                            <input type="number" id="param-q" class="sf-field" value="0.707" min="0.1" step="0.01">
+                            <input type="range" id="slider-q" class="mt-2 w-full" min="0.1" max="10.0" step="0.1" aria-label="Q factor slider">
+                        </div>
+
+                        <div id="group-bw" class="hidden">
+                            <label class="sf-label" for="param-bw">Bandwidth</label>
+                            <div class="flex gap-2">
+                                <input type="number" id="param-bw" class="sf-field min-w-0 flex-1" value="1" min="0.1" step="0.1">
+                                <select id="unit-bw" class="sf-field w-24" aria-label="Bandwidth unit">
+                                    <option value="1">Hz</option>
+                                    <option value="1000">kHz</option>
+                                    <option value="1000000" selected>MHz</option>
+                                    <option value="1000000000">GHz</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="composer-panel" class="hidden">
+                    <h2 class="sf-panel-title">Jitter Correction</h2>
+                    <div id="composer-list" class="grid gap-2"></div>
+                </section>
+                </div>
+
+                <div id="tab-measure" class="sidebar-tab-content hidden">
+                    <section id="measurement-panel">
+                        <h2 class="sf-panel-title">Measurements</h2>
+                        <label class="sf-label" for="measurement-preset">Preset</label>
+                        <select id="measurement-preset" class="sf-field mb-3"></select>
+                        <div class="mb-2 text-sm font-semibold" id="measurement-trace">No trace selected</div>
+                        <div class="mb-3 text-xs text-muted" id="measurement-selection">Load data to view measurements</div>
+                        <table class="mb-3 w-full border-collapse text-left text-xs">
+                            <tbody id="measurement-rows"></tbody>
+                        </table>
+                        <div id="measurement-summary" class="mb-2 text-xs text-muted"></div>
+                        <ul id="measurement-warnings" class="hidden list-disc pl-4 text-xs text-muted"></ul>
+                    </section>
+                </div>
+
+                <div id="tab-spectral" class="sidebar-tab-content hidden">
+                    <section id="spectral-panel" class="mb-6 border-b border-line pb-4">
+                        <h2 class="sf-panel-title">FFT / Spectrum</h2>
+                        <label class="sf-label" for="fft-window">Window</label>
+                        <select id="fft-window" class="sf-field mb-2">
+                            <option value="hann">Hann</option>
+                            <option value="hamming">Hamming</option>
+                            <option value="blackman">Blackman</option>
+                            <option value="blackman-harris">Blackman-Harris</option>
+                            <option value="flattop">Flattop</option>
+                            <option value="kaiser">Kaiser</option>
+                            <option value="rectangular">Rectangular</option>
+                        </select>
+                        <label class="sf-label" for="fft-detrend">Detrend</label>
+                        <select id="fft-detrend" class="sf-field mb-2">
+                            <option value="removeMean">Remove mean</option>
+                            <option value="linear">Remove linear</option>
+                            <option value="none">None</option>
+                        </select>
+                        <div class="mb-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="sf-label" for="fft-zero-pad">Zero pad</label>
+                                <select id="fft-zero-pad" class="sf-field">
+                                    <option value="nextPow2">Next pow2</option>
+                                    <option value="factor">Factor</option>
+                                    <option value="none">Off</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="sf-label" for="fft-zero-factor">Factor</label>
+                                <input type="number" id="fft-zero-factor" class="sf-field" min="1" step="1" value="2">
+                            </div>
+                        </div>
+                        <div class="mb-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="sf-label" for="fft-view">View</label>
+                                <select id="fft-view" class="sf-field">
+                                    <option value="magnitude">Magnitude</option>
+                                    <option value="phase">Phase</option>
+                                    <option value="both">Both</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="sf-label" for="fft-source">Source</label>
+                                <select id="fft-source" class="sf-field">
+                                    <option value="auto">Auto</option>
+                                    <option value="raw">Raw</option>
+                                    <option value="filtered">Filtered</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="sf-label" for="fft-peak-count">Peaks</label>
+                                <input type="number" id="fft-peak-count" class="sf-field" min="1" max="20" value="5">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="fft-peak-prominence">Prominence</label>
+                                <input type="number" id="fft-peak-prominence" class="sf-field" min="0" step="0.001" value="0.02">
+                            </div>
+                        </div>
+                        <label class="mb-2 inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="fft-show-harmonics" class="h-4 w-4 accent-accent">
+                            Show harmonics
+                        </label>
+                        <div class="mb-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="sf-label" for="fft-harmonic-count">Harmonic count</label>
+                                <input type="number" id="fft-harmonic-count" class="sf-field" min="1" max="12" value="5">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="fft-fundamental">Fundamental (Hz)</label>
+                                <input type="number" id="fft-fundamental" class="sf-field" step="0.001" placeholder="Auto">
+                            </div>
+                        </div>
+                        <div id="fft-meta" class="mb-2 text-xs text-muted">Load data to view spectrum</div>
+                        <ul id="fft-warnings" class="mb-2 hidden list-disc pl-4 text-xs text-muted"></ul>
+                        <h3 class="mb-1 text-sm font-semibold">Peaks</h3>
+                        <table id="fft-peaks-table" class="mb-3 w-full border-collapse text-xs"></table>
+                        <h3 class="mb-1 text-sm font-semibold">Metrics</h3>
+                        <table id="fft-metrics-table" class="mb-4 w-full border-collapse text-xs"></table>
+                        <h3 class="sf-panel-title">Spectrogram</h3>
+                        <label class="sf-label" for="spectrogram-window">Window</label>
+                        <select id="spectrogram-window" class="sf-field mb-2">
+                            <option value="hann">Hann</option>
+                            <option value="hamming">Hamming</option>
+                            <option value="blackman">Blackman</option>
+                            <option value="rectangular">Rectangular</option>
+                        </select>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="sf-label" for="spectrogram-size">Window size</label>
+                                <input type="number" id="spectrogram-size" class="sf-field" min="16" step="16" value="512">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="spectrogram-overlap">Overlap</label>
+                                <input type="number" id="spectrogram-overlap" class="sf-field" min="0" max="0.95" step="0.05" value="0.5">
+                            </div>
+                        </div>
+                    </section>
+                    <section id="system-panel">
+                        <h2 class="sf-panel-title">System / Bode</h2>
+                        <label class="sf-label" for="system-input">Input</label>
+                        <select id="system-input" class="sf-field mb-2"></select>
+                        <label class="sf-label" for="system-output">Output</label>
+                        <select id="system-output" class="sf-field mb-2"></select>
+                        <label class="mb-2 inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="system-use-selection" class="h-4 w-4 accent-accent" checked>
+                            Selection only
+                        </label>
+                        <label class="sf-label" for="system-max-lag">Max lag (s)</label>
+                        <input type="number" id="system-max-lag" class="sf-field mb-3" step="0.000001" min="0" placeholder="Auto">
+                        <button id="system-apply-alignment" class="sf-btn mb-3" type="button" disabled title="Applies the estimated delay as a sample offset on the output trace">Apply alignment to output</button>
+                        <div id="system-summary" class="mb-2 text-xs text-muted">Select input/output channels to compute FRF.</div>
+                        <table id="system-frf-table" class="mb-2 w-full border-collapse text-xs"></table>
+                        <ul id="system-warnings" class="hidden list-disc pl-4 text-xs text-muted"></ul>
+                    </section>
+                </div>
+
+                <div id="tab-events" class="sidebar-tab-content hidden">
+                    <section id="events-panel">
+                        <div class="mb-3 flex items-center justify-between gap-2">
+                            <h2 class="sf-panel-title mb-0">Events</h2>
+                            <div class="flex items-center gap-2">
+                                <div id="event-count" class="text-xs text-muted">0 events</div>
+                                <button id="btn-event-prev" class="sf-btn px-2" type="button" title="Previous event">◀</button>
+                                <button id="btn-event-next" class="sf-btn px-2" type="button" title="Next event">▶</button>
+                            </div>
+                        </div>
+                        <label class="sf-label" for="event-type">Type</label>
+                        <select id="event-type" class="sf-field mb-2">
+                            <option value="level">Level</option>
+                            <option value="edge">Edge</option>
+                            <option value="pulse">Pulse Width</option>
+                            <option value="runt">Runt</option>
+                        </select>
+                        <label class="sf-label" for="event-direction">Direction</label>
+                        <select id="event-direction" class="sf-field mb-2">
+                            <option value="rising">Rising</option>
+                            <option value="falling">Falling</option>
+                            <option value="either">Either</option>
+                        </select>
+                        <label class="sf-label" for="event-source">Source</label>
+                        <select id="event-source" class="sf-field mb-1">
+                            <option value="raw">Raw</option>
+                            <option value="filtered">Filtered</option>
+                            <option value="math">Math</option>
+                            <option value="derivative">Derivative (dy/dt)</option>
+                        </select>
+                        <div id="event-source-hint" class="sf-hint mb-2"></div>
+                        <div class="mb-2 grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="sf-label" for="event-threshold">Threshold</label>
+                                <input type="number" id="event-threshold" class="sf-field" step="0.001" value="0">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="event-hysteresis">Hysteresis</label>
+                                <input type="number" id="event-hysteresis" class="sf-field" step="0.001" value="0">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="event-slope">Slope Threshold</label>
+                                <input type="number" id="event-slope" class="sf-field" step="0.001" value="0">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="event-min-width">Min Width (s)</label>
+                                <input type="number" id="event-min-width" class="sf-field" step="0.000001" value="0">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="event-max-width">Max Width (s)</label>
+                                <input type="number" id="event-max-width" class="sf-field" step="0.000001" value="1">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="event-high-threshold">High (runt)</label>
+                                <input type="number" id="event-high-threshold" class="sf-field" step="0.001" value="1">
+                            </div>
+                            <div>
+                                <label class="sf-label" for="event-low-threshold">Low (runt)</label>
+                                <input type="number" id="event-low-threshold" class="sf-field" step="0.001" value="0">
+                            </div>
+                        </div>
+                        <div id="event-slope-hint" class="sf-hint mb-2">Edge detection uses slope thresholds per second.</div>
+                        <label class="mb-3 inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="event-use-selection" class="h-4 w-4 accent-accent" checked>
+                            Limit to selection
+                        </label>
+                        <ul id="event-warnings" class="mb-2 hidden list-disc pl-4 text-xs text-muted"></ul>
+                        <div id="event-list" class="grid gap-1"></div>
+                    </section>
+                </div>
+            </aside>
+
+            <section class="flex min-w-0 flex-1 flex-col bg-app" aria-label="Graph workspace">
+                <div id="tabs-wrapper" class="border-b border-line bg-tabs">
+                    <div class="flex items-stretch">
+                        <div id="tabs-scroll-viewport" class="tabs-viewport min-w-0 flex-1 overflow-x-auto" aria-label="Trace tabs">
+                            <div id="column-tabs" class="flex min-w-max" role="tablist" aria-label="Data columns">
+                                <div class="flex h-[35px] items-center px-3.5 text-sm text-muted">Load data to see columns</div>
+                            </div>
+                        </div>
+                        <button
+                            id="btn-add-multiview"
+                            class="flex h-[35px] w-10 shrink-0 items-center justify-center border-l border-line bg-transparent text-lg text-muted hover:bg-btn-hover hover:text-main focus-visible:outline-2 focus-visible:outline-accent"
+                            title="Add Multi-View or Math Trace"
+                            aria-label="Add Multi-View or Math Trace"
+                            type="button"
+                        >+</button>
+                    </div>
+                    <div id="tabs-scrollbar" class="tabs-scrollbar overflow-x-auto" aria-hidden="true">
+                        <div id="tabs-scrollbar-spacer" class="h-3"></div>
+                    </div>
+                    <div class="tabs-scrollbar-filler h-0" aria-hidden="true"></div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3 border-b border-line bg-toolbar px-3 py-2">
+                    <label class="inline-flex items-center gap-2 text-sm">
+                        <input type="checkbox" id="live-show-raw" class="h-4 w-4 accent-accent" checked>
+                        Raw
+                    </label>
+                    <div id="container-opacity" class="flex items-center gap-2">
+                        <label class="text-sm" for="live-raw-opacity">Opacity</label>
+                        <input type="range" id="live-raw-opacity" class="w-24" min="0" max="1" step="0.05" value="0.5">
+                    </div>
+                    <div id="tool-group-diff" class="flex items-center gap-2 border-l border-line pl-3">
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input type="checkbox" id="live-show-diff" class="h-4 w-4 accent-accent">
+                            Diff
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2 border-l border-line pl-3">
+                        <label class="text-sm" for="live-view-mode">View</label>
+                        <select id="live-view-mode" class="sf-field w-36 py-1">
+                            <option value="time">Time</option>
+                            <option value="fft">FFT</option>
+                            <option value="spectrogram">Spectrogram</option>
+                        </select>
+                    </div>
+                    <label class="inline-flex items-center gap-2 border-l border-line pl-3 text-sm">
+                        <input type="checkbox" id="live-show-events" class="h-4 w-4 accent-accent" checked>
+                        Events
+                    </label>
+                    <span id="live-status" class="ml-auto text-xs text-muted" aria-live="polite">Ready</span>
+                </div>
+
+                <div id="main-plot" class="min-h-60 flex-1" role="img" aria-label="Signal plot"></div>
+            </section>
+        </main>
+    </div>
+
+    <input type="file" id="file-input" accept=".csv,.txt" class="hidden" aria-hidden="true">
+</body>
+</html>
