@@ -1,5 +1,5 @@
 import { FFT, type SpectrumOptions } from '../processing/fft';
-import type { SpectrumResult } from '../types';
+import type { SpectrumMeta, SpectrumResult } from '../types';
 
 export interface SpectralPeak {
   freq: number;
@@ -24,14 +24,17 @@ function integrateBand(freq: number[] = [], power: number[] = [], f1 = 0, f2 = I
   let total = 0;
   for (let i = 0; i < freq.length; i += 1) {
     if (freq[i] < f1 || freq[i] > f2) continue;
-    const prev = i === 0 ? (freq[1] !== undefined ? freq[1] - freq[0] : 0) : (freq[i] - freq[i - 1]);
-    total += power[i] * Math.max(prev, 0);
+    const binWidth = i < freq.length - 1 ? freq[i + 1] - freq[i] : i > 0 ? freq[i] - freq[i - 1] : 0;
+    total += power[i] * Math.max(binWidth, 0);
   }
   return total;
 }
 
 function nearestBin(freqAxis: number[] = [], targetFreq: number): { index: number; freq: number | null } {
   if (!freqAxis.length || !Number.isFinite(targetFreq)) return { index: -1, freq: null };
+  if (targetFreq < freqAxis[0] || targetFreq > freqAxis[freqAxis.length - 1]) {
+    return { index: -1, freq: null };
+  }
   let bestIdx = 0;
   let bestErr = Math.abs(freqAxis[0] - targetFreq);
   for (let i = 1; i < freqAxis.length; i += 1) {
@@ -49,24 +52,55 @@ function sanitizeMagnitude(mags: number[] = []): number[] {
 }
 
 export const SpectralMetrics = {
-  computePeaks(freq: number[] = [], mag: number[] = [], options: { maxPeaks?: number; prominence?: number } = {}): SpectralPeak[] {
+  computePeaks(
+    freq: number[] = [],
+    mag: number[] = [],
+    options: { maxPeaks?: number; prominence?: number } = {}
+  ): SpectralPeak[] {
     const { maxPeaks = 5, prominence = 0.01 } = options;
     if (!freq.length || !mag.length) return [];
     const cleanMag = sanitizeMagnitude(mag);
-    const maxVal = Math.max(...cleanMag, 0);
-    const minProm = maxVal * (prominence || 0);
+    let maxVal = 0;
+    for (const value of cleanMag) maxVal = Math.max(maxVal, value);
+    if (maxVal <= 0) return [];
+    const minProm = maxVal * Math.max(0, prominence || 0);
     const peaks: SpectralPeak[] = [];
-    for (let i = 1; i < cleanMag.length - 1; i += 1) {
+    const count = cleanMag.length;
+    for (let i = 1; i < count - 1; i += 1) {
       const val = cleanMag[i];
-      if (val < cleanMag[i - 1] || val < cleanMag[i + 1]) continue;
-      if (Math.min(val - cleanMag[i - 1], val - cleanMag[i + 1]) >= minProm) {
+      // One candidate per plateau: strictly above the left neighbour, not below the right one.
+      if (!(val > cleanMag[i - 1]) || val < cleanMag[i + 1]) continue;
+      // Topographic prominence: descend on each side to the lowest point before a higher bin (or the
+      // edge). Walks stop early once that side has already dropped by the required prominence, so
+      // smooth zero-padded lobes are measured against their true base rather than their neighbours.
+      const target = val - minProm;
+      let leftMin = val;
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const v = cleanMag[j];
+        if (v > val) break;
+        if (v < leftMin) leftMin = v;
+        if (leftMin <= target) break;
+      }
+      let rightMin = val;
+      for (let j = i + 1; j < count; j += 1) {
+        const v = cleanMag[j];
+        if (v > val) break;
+        if (v < rightMin) rightMin = v;
+        if (rightMin <= target) break;
+      }
+      if (val - Math.max(leftMin, rightMin) >= minProm) {
         peaks.push({ freq: freq[i], magnitude: val, index: i });
       }
     }
     return peaks.sort((a, b) => b.magnitude - a.magnitude).slice(0, maxPeaks);
   },
 
-  computeHarmonics(freq: number[] = [], mag: number[] = [], fundamentalHz: number | null, count = 5): Array<SpectralPeak & { order: number }> {
+  computeHarmonics(
+    freq: number[] = [],
+    mag: number[] = [],
+    fundamentalHz: number | null,
+    count = 5
+  ): Array<SpectralPeak & { order: number }> {
     if (!Number.isFinite(fundamentalHz) || !fundamentalHz || fundamentalHz <= 0) return [];
     const cleanMag = sanitizeMagnitude(mag);
     const harmonics: Array<SpectralPeak & { order: number }> = [];
@@ -87,21 +121,66 @@ export const SpectralMetrics = {
     return Math.sqrt(noisePower) / fundamental.magnitude;
   },
 
-  snr(freq: number[] = [], mag: number[] = [], fundamentalHz: number | null, bandwidthHz: number | null = null): number | null {
+  snr(
+    freq: number[] = [],
+    psd: number[] = [],
+    fundamentalHz: number | null,
+    bandwidthHz: number | null = null,
+    harmonicCount = 5,
+    signalHalfWidthBins = 2
+  ): number | null {
     if (!fundamentalHz) return null;
-    const power = sanitizeMagnitude(mag).map((m) => m * m);
-    const totalPower = integrateBand(freq, power, 0, bandwidthHz || Infinity);
+    if (!Number.isInteger(signalHalfWidthBins) || signalHalfWidthBins < 0) return null;
+    const powerDensity = sanitizeMagnitude(psd);
+    const totalPower = integrateBand(freq, powerDensity, 0, bandwidthHz || Infinity);
     const { index } = nearestBin(freq, fundamentalHz);
     if (index < 0) return null;
-    const noisePower = Math.max(totalPower - power[index], 0);
-    return noisePower <= 0 ? null : power[index] / noisePower;
+    const excludedBins = new Set<number>();
+    let signalPower = 0;
+    for (let order = 1; order <= harmonicCount; order += 1) {
+      const harmonic = nearestBin(freq, fundamentalHz * order).index;
+      if (harmonic < 0 || freq[harmonic] > (bandwidthHz || Infinity)) continue;
+      for (
+        let bin = Math.max(0, harmonic - signalHalfWidthBins);
+        bin <= Math.min(freq.length - 1, harmonic + signalHalfWidthBins);
+        bin += 1
+      ) {
+        if (excludedBins.has(bin)) continue;
+        excludedBins.add(bin);
+        const binWidth = bin < freq.length - 1 ? freq[bin + 1] - freq[bin] : bin > 0 ? freq[bin] - freq[bin - 1] : 0;
+        if (order === 1) signalPower += powerDensity[bin] * Math.max(0, binWidth);
+      }
+    }
+    let noisePower = 0;
+    for (let bin = 0; bin < freq.length; bin += 1) {
+      if (freq[bin] > (bandwidthHz || Infinity) || excludedBins.has(bin)) continue;
+      const binWidth = bin < freq.length - 1 ? freq[bin + 1] - freq[bin] : bin > 0 ? freq[bin] - freq[bin - 1] : 0;
+      noisePower += powerDensity[bin] * Math.max(0, binWidth);
+    }
+    return noisePower <= Math.max(Number.EPSILON, totalPower * 1e-14) ? null : signalPower / noisePower;
   },
 
-  bandpower(freq: number[] = [], mag: number[] = [], f1 = 0, f2 = Infinity): number {
-    return integrateBand(freq, sanitizeMagnitude(mag).map((m) => m * m), f1, f2);
+  /**
+   * Number of transform bins on each side of a harmonic that belong to the tone itself. The window's
+   * main lobe is `mainLobeHalfWidthBins` record bins wide; zero-padding multiplies that by
+   * `fftLength / sampleCount`, and one extra bin allows for a tone that is not bin-centred.
+   */
+  signalHalfWidthBins(meta: Pick<SpectrumMeta, 'fftLength' | 'sampleCount' | 'mainLobeHalfWidthBins'>): number {
+    const padRatio = meta.sampleCount > 0 && meta.fftLength > 0 ? meta.fftLength / meta.sampleCount : 1;
+    const mainLobe = meta.mainLobeHalfWidthBins ?? 2;
+    return Math.ceil(mainLobe * padRatio) + 1;
   },
 
-  spur(freq: number[] = [], mag: number[] = [], fundamentalHz: number | null, harmonicCount = 5): { freq: number | null; magnitude: number } {
+  bandpower(freq: number[] = [], psd: number[] = [], f1 = 0, f2 = Infinity): number {
+    return integrateBand(freq, sanitizeMagnitude(psd), f1, f2);
+  },
+
+  spur(
+    freq: number[] = [],
+    mag: number[] = [],
+    fundamentalHz: number | null,
+    harmonicCount = 5
+  ): { freq: number | null; magnitude: number } {
     const excluded = new Set(this.computeHarmonics(freq, mag, fundamentalHz, harmonicCount).map((h) => h.index));
     const cleanMag = sanitizeMagnitude(mag);
     let best = { freq: null as number | null, magnitude: 0 };
@@ -112,55 +191,110 @@ export const SpectralMetrics = {
     return best;
   },
 
-  summarizeFromSpectrum(spectrum: SpectrumResult | null, options: {
-    maxPeaks?: number;
-    prominence?: number;
-    harmonicCount?: number;
-    fundamentalHz?: number;
-    bandwidthHz?: number;
-    bandStartHz?: number;
-    bandEndHz?: number;
-  } = {}): SpectralSummary {
+  summarizeFromSpectrum(
+    spectrum: SpectrumResult | null,
+    options: {
+      maxPeaks?: number;
+      prominence?: number;
+      harmonicCount?: number;
+      fundamentalHz?: number;
+      bandwidthHz?: number;
+      bandStartHz?: number;
+      bandEndHz?: number;
+    } = {}
+  ): SpectralSummary {
     if (!spectrum) {
       return {
         spectrum: {
-          freq: [], linearMagnitude: [], magnitude: [], phase: [], warnings: [],
-          meta: { fs: 1, deltaF: 0, nyquist: 0, coherentGain: 1, enbw: 1 },
-          re: new Float64Array(0), im: new Float64Array(0), length: 0
+          freq: [],
+          linearMagnitude: [],
+          magnitude: [],
+          psd: [],
+          phase: [],
+          warnings: [],
+          meta: {
+            fs: 1,
+            deltaF: 0,
+            nyquist: 0,
+            coherentGain: 1,
+            enbw: 1,
+            enbwHz: 0,
+            windowPower: 0,
+            sampleCount: 0,
+            fftLength: 0,
+            resampled: false
+          },
+          re: new Float64Array(0),
+          im: new Float64Array(0),
+          length: 0
         },
-        peaks: [], harmonics: [], thd: null, snr: null,
-        spur: { freq: null, magnitude: null }, bandpower: 0, fundamentalHz: null, warnings: []
+        peaks: [],
+        harmonics: [],
+        thd: null,
+        snr: null,
+        spur: { freq: null, magnitude: null },
+        bandpower: 0,
+        fundamentalHz: null,
+        warnings: []
       };
     }
     const peaks = this.computePeaks(spectrum.freq, spectrum.linearMagnitude, {
       maxPeaks: options.maxPeaks || 5,
-      prominence: options.prominence || 0.01
+      prominence: options.prominence ?? 0.01
     });
-    const fundamentalHz = Number.isFinite(options.fundamentalHz) && options.fundamentalHz && options.fundamentalHz > 0
-      ? options.fundamentalHz
-      : (peaks[0]?.freq || null);
+    const fundamentalHz =
+      Number.isFinite(options.fundamentalHz) && options.fundamentalHz && options.fundamentalHz > 0
+        ? options.fundamentalHz
+        : peaks[0]?.freq || null;
     return {
       spectrum,
       peaks,
-      harmonics: this.computeHarmonics(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5),
-      thd: fundamentalHz ? this.thd(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5) : null,
-      snr: fundamentalHz ? this.snr(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.bandwidthHz || spectrum.meta?.nyquist) : null,
-      spur: fundamentalHz ? this.spur(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5) : { freq: null, magnitude: null },
-      bandpower: this.bandpower(spectrum.freq, spectrum.linearMagnitude, options.bandStartHz || 0, options.bandEndHz || spectrum.meta?.nyquist),
+      harmonics: this.computeHarmonics(
+        spectrum.freq,
+        spectrum.linearMagnitude,
+        fundamentalHz,
+        options.harmonicCount || 5
+      ),
+      thd: fundamentalHz
+        ? this.thd(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5)
+        : null,
+      snr: fundamentalHz
+        ? this.snr(
+            spectrum.freq,
+            spectrum.psd,
+            fundamentalHz,
+            options.bandwidthHz || spectrum.meta?.nyquist,
+            options.harmonicCount || 5,
+            this.signalHalfWidthBins(spectrum.meta)
+          )
+        : null,
+      spur: fundamentalHz
+        ? this.spur(spectrum.freq, spectrum.linearMagnitude, fundamentalHz, options.harmonicCount || 5)
+        : { freq: null, magnitude: null },
+      bandpower: this.bandpower(
+        spectrum.freq,
+        spectrum.psd,
+        options.bandStartHz || 0,
+        options.bandEndHz || spectrum.meta?.nyquist
+      ),
       fundamentalHz,
       warnings: spectrum.warnings || []
     };
   },
 
-  summarize(signal: ArrayLike<number> = [], time: ArrayLike<number> = [], options: SpectrumOptions & {
-    maxPeaks?: number;
-    prominence?: number;
-    harmonicCount?: number;
-    fundamentalHz?: number;
-    bandwidthHz?: number;
-    bandStartHz?: number;
-    bandEndHz?: number;
-  } = {}): SpectralSummary {
+  summarize(
+    signal: ArrayLike<number> = [],
+    time: ArrayLike<number> = [],
+    options: SpectrumOptions & {
+      maxPeaks?: number;
+      prominence?: number;
+      harmonicCount?: number;
+      fundamentalHz?: number;
+      bandwidthHz?: number;
+      bandStartHz?: number;
+      bandEndHz?: number;
+    } = {}
+  ): SpectralSummary {
     return this.summarizeFromSpectrum(FFT.computeSpectrum(signal, time, options), options);
   }
 };

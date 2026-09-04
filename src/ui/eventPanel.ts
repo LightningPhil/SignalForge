@@ -6,6 +6,7 @@ import { State } from '../state';
 import type { AnalysisSeries } from '../types';
 import { Graph } from './graph';
 import { cx, ui } from './classes';
+import { escapeHtml, renderWarningList } from './uiHelpers';
 
 const TYPE_LABELS: Record<string, string> = {
   level: 'Level Crossing',
@@ -21,7 +22,9 @@ const SOURCE_HINTS: Record<string, string> = {
   derivative: 'Slope (units / second)'
 };
 
-function formatEvent(event: { time?: number | null; type?: string; metadata?: Record<string, unknown> } | null): string {
+function formatEvent(
+  event: { time?: number | null; type?: string; metadata?: Record<string, unknown> } | null
+): string {
   if (!event) return '—';
   const time = Number.isFinite(event.time) ? formatSeconds(event.time as number) : 'n/a';
   const meta = event.metadata || {};
@@ -43,6 +46,7 @@ export const EventPanel = {
   slopeInput: null as HTMLInputElement | null,
   minWidthInput: null as HTMLInputElement | null,
   maxWidthInput: null as HTMLInputElement | null,
+  minSeparationInput: null as HTMLInputElement | null,
   highThresholdInput: null as HTMLInputElement | null,
   lowThresholdInput: null as HTMLInputElement | null,
   sourceSelect: null as HTMLSelectElement | null,
@@ -65,6 +69,7 @@ export const EventPanel = {
     this.slopeInput = document.getElementById('event-slope') as HTMLInputElement | null;
     this.minWidthInput = document.getElementById('event-min-width') as HTMLInputElement | null;
     this.maxWidthInput = document.getElementById('event-max-width') as HTMLInputElement | null;
+    this.minSeparationInput = document.getElementById('event-min-separation') as HTMLInputElement | null;
     this.highThresholdInput = document.getElementById('event-high-threshold') as HTMLInputElement | null;
     this.lowThresholdInput = document.getElementById('event-low-threshold') as HTMLInputElement | null;
     this.sourceSelect = document.getElementById('event-source') as HTMLSelectElement | null;
@@ -89,6 +94,7 @@ export const EventPanel = {
     if (this.slopeInput) this.slopeInput.value = String(cfg.slopeThreshold ?? 0);
     if (this.minWidthInput) this.minWidthInput.value = String(cfg.minWidth ?? 0);
     if (this.maxWidthInput) this.maxWidthInput.value = String(cfg.maxWidth ?? 1);
+    if (this.minSeparationInput) this.minSeparationInput.value = String(cfg.minSeparation ?? 0);
     if (this.highThresholdInput) this.highThresholdInput.value = String(cfg.highThreshold ?? 1);
     if (this.lowThresholdInput) this.lowThresholdInput.value = String(cfg.lowThreshold ?? 0);
     if (this.sourceSelect) this.sourceSelect.value = cfg.source || 'raw';
@@ -100,9 +106,19 @@ export const EventPanel = {
   bindInputs(): void {
     const debouncedUpdate = debounce(() => this.updateConfigFromInputs(), 120);
     [
-      this.typeSelect, this.directionSelect, this.thresholdInput, this.hysteresisInput,
-      this.slopeInput, this.minWidthInput, this.maxWidthInput, this.highThresholdInput,
-      this.lowThresholdInput, this.sourceSelect, this.useSelectionCheckbox, this.showEventsToggle
+      this.typeSelect,
+      this.directionSelect,
+      this.thresholdInput,
+      this.hysteresisInput,
+      this.slopeInput,
+      this.minWidthInput,
+      this.maxWidthInput,
+      this.highThresholdInput,
+      this.minSeparationInput,
+      this.lowThresholdInput,
+      this.sourceSelect,
+      this.useSelectionCheckbox,
+      this.showEventsToggle
     ].forEach((el) => {
       el?.addEventListener('input', debouncedUpdate);
       el?.addEventListener('change', debouncedUpdate);
@@ -121,6 +137,7 @@ export const EventPanel = {
     triggerCfg.slopeThreshold = parseFloat(this.slopeInput?.value || '0') || 0;
     triggerCfg.minWidth = parseFloat(this.minWidthInput?.value || '0') || 0;
     triggerCfg.maxWidth = parseFloat(this.maxWidthInput?.value || '1') || Infinity;
+    triggerCfg.minSeparation = Math.max(0, parseFloat(this.minSeparationInput?.value || '0') || 0);
     triggerCfg.highThreshold = parseFloat(this.highThresholdInput?.value || String(triggerCfg.highThreshold));
     triggerCfg.lowThreshold = parseFloat(this.lowThresholdInput?.value || String(triggerCfg.lowThreshold));
     triggerCfg.source = (this.sourceSelect?.value || triggerCfg.source) as typeof triggerCfg.source;
@@ -134,9 +151,10 @@ export const EventPanel = {
     const source = this.sourceSelect?.value || 'raw';
     if (this.sourceHint) this.sourceHint.textContent = SOURCE_HINTS[source] || '';
     if (this.slopeHint) {
-      this.slopeHint.textContent = source === 'derivative'
-        ? 'Slope thresholds are expressed in units/second.'
-        : 'Edge detection uses slope thresholds per second.';
+      this.slopeHint.textContent =
+        source === 'derivative'
+          ? 'Slope thresholds are expressed in units/second.'
+          : 'Edge detection uses slope thresholds per second.';
     }
     if (this.thresholdLabel) {
       this.thresholdLabel.textContent = source === 'derivative' ? 'Slope Threshold' : 'Threshold';
@@ -182,14 +200,7 @@ export const EventPanel = {
   },
 
   renderWarnings(warnings: string[] = []): void {
-    if (!this.warningEl) return;
-    if (!warnings.length) {
-      this.warningEl.innerHTML = '';
-      this.warningEl.classList.add('hidden');
-      return;
-    }
-    this.warningEl.classList.remove('hidden');
-    this.warningEl.innerHTML = warnings.map((w) => `<li>${w}</li>`).join('');
+    renderWarningList(this.warningEl, warnings);
   },
 
   renderList(events: Array<{ type: string; time?: number | null; metadata?: Record<string, unknown> }> = []): void {
@@ -200,12 +211,16 @@ export const EventPanel = {
       return;
     }
     const activeIdx = State.ui.analysis.activeEventIndex || 0;
-    this.listEl.innerHTML = events.map((evt, idx) => `
+    this.listEl.innerHTML = events
+      .map(
+        (evt, idx) => `
       <button type="button" class="${cx(ui.eventRow, idx === activeIdx && ui.eventRowActive)}" data-index="${idx}">
-        <div class="font-semibold">${TYPE_LABELS[evt.type] || evt.type}</div>
-        <div class="text-muted">${formatEvent(evt)}</div>
+        <div class="font-semibold">${escapeHtml(TYPE_LABELS[evt.type] || evt.type)}</div>
+        <div class="text-muted">${escapeHtml(formatEvent(evt))}</div>
       </button>
-    `).join('');
+    `
+      )
+      .join('');
     this.listEl.querySelectorAll<HTMLElement>('[data-index]').forEach((row) => {
       row.addEventListener('click', () => this.setActiveIndex(Number(row.dataset.index), true));
     });
@@ -220,8 +235,9 @@ export const EventPanel = {
     Graph.setEventOverlay(events, {
       show: State.ensureAnalysisConfig().showEvents,
       activeIndex: idx,
-      amplitudes: Graph.eventOverlay.amplitudes
-        || (this.lastSeries && (!this.lastSeries.isMath && this.lastSeries.filteredY?.length)
+      amplitudes:
+        Graph.eventOverlay.amplitudes ||
+        (this.lastSeries && !this.lastSeries.isMath && this.lastSeries.filteredY?.length
           ? this.lastSeries.filteredY
           : this.lastSeries?.rawY)
     });

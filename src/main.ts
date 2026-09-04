@@ -1,5 +1,6 @@
 import { elements } from './app/domElements';
 import { setupEventListeners } from './app/eventSetup';
+import { registerOfflineWorker } from './app/offline';
 import { renderPipelineList, updateParamEditor } from './app/pipelineUi';
 import { updateToolbarUIFromState } from './app/toolbar';
 import { SettingsManager } from './io/settingsManager';
@@ -65,4 +66,5 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   renderPipelineList();
   updateParamEditor();
+  registerOfflineWorker();
 });

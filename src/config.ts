@@ -1,7 +1,7 @@
 import type { AppConfig } from './types';
 
 export const Config: AppConfig = {
-  settingsVersion: 2,
+  settingsVersion: 4,
   graph: {
     title: 'Signal Analysis',
     xAxisTitle: 'Time',
@@ -12,6 +12,7 @@ export const Config: AppConfig = {
     significantFigures: 3,
     logScaleY: false,
     showDifferential: false,
+    showResidual: false,
     showGrid: true,
     showFreqDomain: false,
     viewMode: 'time',
@@ -22,31 +23,10 @@ export const Config: AppConfig = {
   },
   pipelineScope: true,
   columnPipelines: {},
-  pipeline: [
-    {
-      id: 'default-1',
-      type: 'startStopNorm',
-      startLength: 200,
-      endLength: 50,
-      startOffset: 0,
-      autoOffset: true,
-      autoOffsetPoints: 200,
-      applyStart: true,
-      applyEnd: false,
-      enabled: true
-    },
-    {
-      id: 'default-2',
-      type: 'savitzkyGolay',
-      windowSize: 20,
-      polyOrder: 2,
-      iterations: 1,
-      enabled: true
-    }
-  ],
+  pipeline: [{ id: 'null-filter', type: 'nullFilter', enabled: true }],
   defaults: {
     movingAverage: { windowSize: 5 },
-    savitzkyGolay: { windowSize: 20, polyOrder: 2, iterations: 1 },
+    savitzkyGolay: { windowSize: 21, polyOrder: 2, iterations: 1 },
     median: { windowSize: 5 },
     iir: { alpha: 0.1 },
     gaussian: { sigma: 1.0, kernelSize: 5 },
@@ -59,9 +39,56 @@ export const Config: AppConfig = {
       applyStart: true,
       applyEnd: true
     },
-    lowPassFFT: { cutoffFreq: 100000000, slope: 12, qFactor: 0.707 },
-    highPassFFT: { cutoffFreq: 100000000, slope: 12, qFactor: 0.707 },
-    notchFFT: { centerFreq: 100000000, bandwidth: 1000000 }
+    lowPassFFT: { cutoffFreq: 100000000, slope: 12 },
+    highPassFFT: { cutoffFreq: 100000000, slope: 12 },
+    notchFFT: { centerFreq: 100000000, bandwidth: 1000000 },
+    firLowPass: {
+      cutoffFreq: 100000000,
+      transitionWidth: 20000000,
+      passbandRippleDb: 0.1,
+      stopbandAttenuationDb: 80,
+      processingMode: 'zero-phase'
+    },
+    firHighPass: {
+      cutoffFreq: 1000000,
+      transitionWidth: 200000,
+      passbandRippleDb: 0.1,
+      stopbandAttenuationDb: 80,
+      processingMode: 'zero-phase'
+    },
+    firBandPass: {
+      centerFreq: 10000000,
+      bandwidth: 5000000,
+      transitionWidth: 1000000,
+      passbandRippleDb: 0.1,
+      stopbandAttenuationDb: 80,
+      processingMode: 'zero-phase'
+    },
+    firBandStop: {
+      centerFreq: 50000000,
+      bandwidth: 1000000,
+      transitionWidth: 500000,
+      passbandRippleDb: 0.1,
+      stopbandAttenuationDb: 80,
+      processingMode: 'zero-phase'
+    },
+    butterworthLowPass: { cutoffFreq: 100000000, order: 4, processingMode: 'zero-phase' },
+    butterworthHighPass: { cutoffFreq: 1000000, order: 4, processingMode: 'zero-phase' },
+    butterworthBandPass: {
+      centerFreq: 10000000,
+      bandwidth: 5000000,
+      order: 4,
+      processingMode: 'zero-phase'
+    },
+    iirNotch: { centerFreq: 50000000, bandwidth: 1000000, processingMode: 'zero-phase' },
+    iirComb: {
+      centerFreq: 50,
+      bandwidth: 2,
+      harmonicCount: 10,
+      processingMode: 'zero-phase'
+    },
+    hampel: { windowSize: 7, thresholdSigma: 3 },
+    waveletDenoise: { waveletLevels: 4 }
   },
   colors: {
     light: {
@@ -123,6 +150,7 @@ export const Config: AppConfig = {
       slopeThreshold: 0,
       minWidth: 0,
       maxWidth: 1,
+      minSeparation: 0,
       highThreshold: 1,
       lowThreshold: 0,
       source: 'raw',

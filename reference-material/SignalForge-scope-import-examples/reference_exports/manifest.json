@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "source": "scottprahl/RigolWFM commit 159e647c0b74e1d73d0ad589149e1c26e1610b26",
+  "licence": "BSD-3-Clause",
+  "files": [
+    {
+      "path": "rohde_schwarz/rs_rtp_float_and_int8_reference.Wfm.csv",
+      "sha256": "b2b9d7a12b733a4e5855aa978f8cc11a08bdc2873079bdeb21c1cd3241b6d297",
+      "source_path": "tests/files/rs/rs_rtp_01.Wfm.csv",
+      "role": "one-channel calibrated values; independent reference for float32 and int8 captures of the same waveform"
+    },
+    {
+      "path": "rohde_schwarz/rs_rtp_two_channel_reference.Wfm.csv",
+      "sha256": "bdbfd7882352275c349168fbb72d2c68eebc170157ba5d628dc28ba1646954c2",
+      "source_path": "tests/files/rs/rs_rtp_02.Wfm.csv",
+      "role": "two calibrated float32 channel columns"
+    },
+    {
+      "path": "rohde_schwarz/rs_rtp_explicit_time_reference.Wfm.csv",
+      "sha256": "792e663f7ca119e2f8206d9660c2a67ab4cbbbea07611e011a9dff097654f8d9",
+      "source_path": "tests/files/rs/rs_rtp_04.Wfm.csv",
+      "role": "explicit time column followed by one calibrated value column"
+    }
+  ]
+}

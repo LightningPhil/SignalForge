@@ -3,7 +3,12 @@ import { SettingsManager } from '../io/settingsManager';
 import { State } from '../state';
 import type { ThemeName } from '../types';
 import { ui } from '../ui/classes';
-import { DEFAULT_PIXELS_PER_CM, getPixelsPerCm, openCalibrationModal, resetCalibration } from '../ui/displayCalibration';
+import {
+  DEFAULT_PIXELS_PER_CM,
+  getPixelsPerCm,
+  openCalibrationModal,
+  resetCalibration
+} from '../ui/displayCalibration';
 import { Theme } from '../ui/theme';
 import { createModal } from '../ui/uiHelpers';
 import { hasData, runPipelineAndRender } from './dataPipeline';
@@ -138,9 +143,10 @@ export function showExportModal(): void {
   const refreshCalibrationStatus = () => {
     const pixelsPerCm = getPixelsPerCm();
     const ppi = (pixelsPerCm * 2.54).toFixed(1);
-    const isDefault = !State.config.displayCalibration
-      || !State.config.displayCalibration.pixelsPerCm
-      || Math.abs(pixelsPerCm - DEFAULT_PIXELS_PER_CM) < 0.01;
+    const isDefault =
+      !State.config.displayCalibration ||
+      !State.config.displayCalibration.pixelsPerCm ||
+      Math.abs(pixelsPerCm - DEFAULT_PIXELS_PER_CM) < 0.01;
     const note = isDefault ? 'Using default browser scale.' : 'Calibrated for this display.';
     if (calibrationStatus) {
       calibrationStatus.textContent = `${pixelsPerCm.toFixed(2)} px/cm (${ppi} PPI) — ${note}`;
@@ -170,7 +176,9 @@ export function showExportModal(): void {
   modal.querySelector('#btn-export-events')?.addEventListener('click', () => Exporter.downloadEventsCSV());
   modal.querySelector('#btn-export-spectral')?.addEventListener('click', () => Exporter.downloadSpectralSummaryJSON());
   modal.querySelector('#btn-export-system')?.addEventListener('click', () => Exporter.downloadSystemJSON());
-  modal.querySelector('#btn-export-report')?.addEventListener('click', () => { void Exporter.downloadReport(); });
+  modal.querySelector('#btn-export-report')?.addEventListener('click', () => {
+    void Exporter.downloadReport();
+  });
 
   const exportImage = (format: 'png' | 'svg') => {
     if (!hasData()) return;

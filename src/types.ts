@@ -10,20 +10,24 @@ export type FilterType =
   | 'startStopNorm'
   | 'lowPassFFT'
   | 'highPassFFT'
-  | 'notchFFT';
+  | 'notchFFT'
+  | 'firLowPass'
+  | 'firHighPass'
+  | 'firBandPass'
+  | 'firBandStop'
+  | 'butterworthLowPass'
+  | 'butterworthHighPass'
+  | 'butterworthBandPass'
+  | 'iirNotch'
+  | 'iirComb'
+  | 'hampel'
+  | 'waveletDenoise';
 
 export type SourceMode = 'raw' | 'filtered';
 
 export type ViewMode = 'time' | 'fft' | 'spectrogram';
 
-export type FftWindowType =
-  | 'hann'
-  | 'hamming'
-  | 'blackman'
-  | 'blackman-harris'
-  | 'flattop'
-  | 'kaiser'
-  | 'rectangular';
+export type FftWindowType = 'hann' | 'hamming' | 'blackman' | 'blackman-harris' | 'flattop' | 'kaiser' | 'rectangular';
 
 export type FftDetrend = 'none' | 'removeMean' | 'linear';
 
@@ -41,14 +45,7 @@ export type TriggerDirection = 'rising' | 'falling' | 'either';
 
 export type TriggerSource = 'raw' | 'filtered' | 'math' | 'derivative';
 
-export type AxisFormat =
-  | 'decimal'
-  | 'scientific'
-  | 'integer'
-  | 'currency'
-  | 'percentage'
-  | 'datetime'
-  | 'engineering';
+export type AxisFormat = 'decimal' | 'scientific' | 'integer' | 'currency' | 'percentage' | 'datetime' | 'engineering';
 
 export interface FilterStep {
   id: string;
@@ -62,7 +59,6 @@ export interface FilterStep {
   kernelSize?: number;
   startLength?: number;
   endLength?: number;
-  decayLength?: number;
   startOffset?: number;
   autoOffset?: boolean;
   autoOffsetPoints?: number;
@@ -71,8 +67,16 @@ export interface FilterStep {
   cutoffFreq?: number;
   centerFreq?: number;
   bandwidth?: number;
+  transitionWidth?: number;
+  passbandRippleDb?: number;
+  stopbandAttenuationDb?: number;
   slope?: number;
-  qFactor?: number;
+  order?: number;
+  processingMode?: 'causal' | 'zero-phase';
+  harmonicCount?: number;
+  thresholdSigma?: number;
+  waveletLevels?: number;
+  waveletThreshold?: number;
 }
 
 export interface GraphSettings {
@@ -85,6 +89,7 @@ export interface GraphSettings {
   significantFigures: number;
   logScaleY: boolean;
   showDifferential: boolean;
+  showResidual: boolean;
   showGrid: boolean;
   showFreqDomain: boolean;
   viewMode?: ViewMode;
@@ -128,9 +133,56 @@ export interface FilterDefaults {
     applyStart: boolean;
     applyEnd: boolean;
   };
-  lowPassFFT: { cutoffFreq: number; slope: number; qFactor: number };
-  highPassFFT: { cutoffFreq: number; slope: number; qFactor: number };
+  lowPassFFT: { cutoffFreq: number; slope: number };
+  highPassFFT: { cutoffFreq: number; slope: number };
   notchFFT: { centerFreq: number; bandwidth: number };
+  firLowPass: {
+    cutoffFreq: number;
+    transitionWidth: number;
+    passbandRippleDb: number;
+    stopbandAttenuationDb: number;
+    processingMode: 'causal' | 'zero-phase';
+  };
+  firHighPass: {
+    cutoffFreq: number;
+    transitionWidth: number;
+    passbandRippleDb: number;
+    stopbandAttenuationDb: number;
+    processingMode: 'causal' | 'zero-phase';
+  };
+  firBandPass: {
+    centerFreq: number;
+    bandwidth: number;
+    transitionWidth: number;
+    passbandRippleDb: number;
+    stopbandAttenuationDb: number;
+    processingMode: 'causal' | 'zero-phase';
+  };
+  firBandStop: {
+    centerFreq: number;
+    bandwidth: number;
+    transitionWidth: number;
+    passbandRippleDb: number;
+    stopbandAttenuationDb: number;
+    processingMode: 'causal' | 'zero-phase';
+  };
+  butterworthLowPass: { cutoffFreq: number; order: number; processingMode: 'causal' | 'zero-phase' };
+  butterworthHighPass: { cutoffFreq: number; order: number; processingMode: 'causal' | 'zero-phase' };
+  butterworthBandPass: {
+    centerFreq: number;
+    bandwidth: number;
+    order: number;
+    processingMode: 'causal' | 'zero-phase';
+  };
+  iirNotch: { centerFreq: number; bandwidth: number; processingMode: 'causal' | 'zero-phase' };
+  iirComb: {
+    centerFreq: number;
+    bandwidth: number;
+    harmonicCount: number;
+    processingMode: 'causal' | 'zero-phase';
+  };
+  hampel: { windowSize: number; thresholdSigma: number };
+  waveletDenoise: { waveletLevels: number; waveletThreshold?: number };
 }
 
 export interface AppLimits {
@@ -178,6 +230,7 @@ export interface AnalysisTrigger {
   slopeThreshold: number;
   minWidth: number;
   maxWidth: number;
+  minSeparation: number;
   highThreshold: number;
   lowThreshold: number;
   source: TriggerSource;
@@ -224,7 +277,9 @@ export interface AnalysisUiState {
 export interface AnalysisSeries {
   rawX: number[];
   rawY: number[];
+  rawQuality: Uint16Array;
   filteredY: number[] | null;
+  filteredQuality: Uint16Array | null;
   seriesName: string;
   columnId?: string;
   isMath: boolean;
@@ -236,13 +291,21 @@ export interface SpectrumMeta {
   nyquist: number;
   coherentGain: number;
   enbw: number;
+  enbwHz: number;
+  windowPower: number;
+  sampleCount: number;
+  fftLength: number;
+  resampled: boolean;
   medianDt?: number;
+  /** Half-width of the analysis window's spectral main lobe, in unpadded record bins. */
+  mainLobeHalfWidthBins?: number;
 }
 
 export interface SpectrumResult {
   freq: number[];
   magnitude: number[];
   linearMagnitude: number[];
+  psd: number[];
   phase: number[];
   warnings: string[];
   meta: SpectrumMeta;
@@ -304,12 +367,68 @@ export type CsvValue = string | number | boolean | null | undefined;
 
 export type CsvRow = Record<string, CsvValue>;
 
+export type QualityMasks = Record<string, Uint16Array>;
+
+export interface DataSourceRecord {
+  name: string;
+  text: string;
+  bytes: Uint8Array;
+  size: number;
+  lastModified: number | null;
+}
+
+export interface DataCellChange {
+  rowIndex: number;
+  columnId: string;
+  before: CsvValue;
+  after: CsvValue;
+  qualityBefore: number;
+  qualityAfter: number;
+}
+
+export interface DataRepairRecord {
+  id: string;
+  label: string;
+  timestamp: string;
+  changes: DataCellChange[];
+}
+
+export interface PipelineStepReport {
+  stepId: string;
+  type: FilterType;
+  changedSamples: number;
+  totalSamples: number;
+  warnings?: string[];
+  effectiveParameters?: Record<string, string | number | boolean | null>;
+}
+
+export interface SerializedFirDesign {
+  stepId: string;
+  sampleRate: number;
+  specificationKey: string;
+  coefficients: number[];
+  processingMode: 'causal' | 'zero-phase';
+}
+
 export interface AppData {
+  original: ReadonlyArray<Readonly<CsvRow>>;
   raw: CsvRow[];
+  originalColumns: Record<string, Float64Array>;
+  columns: Record<string, Float64Array>;
   headers: string[];
   processed: number[];
+  processedQuality: Uint16Array;
+  pipelineReport: PipelineStepReport[];
+  firDesigns: SerializedFirDesign[];
   timeColumn: string | null;
   dataColumn: string | null;
+  originalQuality: QualityMasks;
+  quality: QualityMasks;
+  repairHistory: DataRepairRecord[];
+  repairCursor: number;
+  source: DataSourceRecord | null;
+  /** Monotonic counter bumped whenever the working grid is replaced, appended to or repaired. */
+  generation: number;
 }
 
 export interface SeriesPair {
@@ -320,7 +439,9 @@ export interface SeriesPair {
 export interface ColumnSeries {
   columnId: string;
   rawY: number[];
+  rawQuality: Uint16Array;
   filteredY: number[] | null;
+  filteredQuality: Uint16Array | null;
   time: number[];
   isMath: boolean;
 }
@@ -328,7 +449,9 @@ export interface ColumnSeries {
 export interface PlotSeries {
   columnId: string;
   rawY: number[];
+  rawQuality?: Uint16Array;
   filteredY: number[] | null;
+  filteredQuality?: Uint16Array | null;
   time?: number[];
   isMath?: boolean;
 }
@@ -365,6 +488,8 @@ export interface PlotStyling {
 export interface RenderOptions {
   isMath?: boolean;
   seriesName?: string;
+  rawQuality?: Uint16Array;
+  filteredQuality?: Uint16Array | null;
 }
 
 export interface ImageExportOptions {
@@ -378,11 +503,17 @@ export interface ImageExportOptions {
 export interface MathValidation {
   ok: boolean;
   errors: string[];
+  /** Non-blocking notes, e.g. the number of NaN samples a guard or a missing input produced. */
+  warnings?: string[];
 }
 
 export interface MathResult {
   values: number[];
   time: number[];
+  /** Union of the input columns' quality flags (shifted with any applied x-offset) plus Processed. */
+  quality?: Uint16Array;
+  /** Set when evaluation failed; `values` is empty in that case. */
+  error?: string;
 }
 
 export interface ResolveMode {

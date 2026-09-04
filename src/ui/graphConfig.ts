@@ -4,7 +4,7 @@ import { Config } from '../config';
 import { State } from '../state';
 import type { AxisFormat, ThemeColors, ThemeName } from '../types';
 import { ui } from './classes';
-import { createModal, escapeHtml } from './uiHelpers';
+import { closeModal, createModal, escapeHtml } from './uiHelpers';
 
 const AXIS_FORMATS: Array<{ value: AxisFormat; label: string }> = [
   { value: 'decimal', label: 'Decimal Notation' },
@@ -55,8 +55,8 @@ export const GraphConfig = {
     };
 
     const createFormatOptions = (selectedVal: string) =>
-      AXIS_FORMATS.map((opt) =>
-        `<option value="${opt.value}" ${opt.value === selectedVal ? 'selected' : ''}>${opt.label}</option>`
+      AXIS_FORMATS.map(
+        (opt) => `<option value="${opt.value}" ${opt.value === selectedVal ? 'selected' : ''}>${opt.label}</option>`
       ).join('');
 
     const xFormat = config.xAxisFormat || (config.useScientificNotation ? 'scientific' : 'decimal');
@@ -64,14 +64,16 @@ export const GraphConfig = {
     const currencySymbol = config.currencySymbol || '£';
     const sigFigs = config.significantFigures || 3;
 
-    const createCurrencyOptions = () => CURRENCY_OPTIONS.map((opt) =>
-      `<option value="${escapeHtml(opt.value)}" ${opt.value === currencySymbol ? 'selected' : ''}>${opt.label}</option>`
-    ).join('');
+    const createCurrencyOptions = () =>
+      CURRENCY_OPTIONS.map(
+        (opt) =>
+          `<option value="${escapeHtml(opt.value)}" ${opt.value === currencySymbol ? 'selected' : ''}>${opt.label}</option>`
+      ).join('');
 
     const createOptions = (selectedVal: string | null) =>
-      headers.map((h) =>
-        `<option value="${escapeHtml(h)}" ${h === selectedVal ? 'selected' : ''}>${escapeHtml(h)}</option>`
-      ).join('');
+      headers
+        .map((h) => `<option value="${escapeHtml(h)}" ${h === selectedVal ? 'selected' : ''}>${escapeHtml(h)}</option>`)
+        .join('');
 
     const html = `
       <h3 class="${ui.modalTitle}">Graph Configuration</h3>
@@ -175,12 +177,14 @@ export const GraphConfig = {
       if (isAxisFormat(nextX)) cfg.xAxisFormat = nextX;
       if (isAxisFormat(nextY)) cfg.yAxisFormat = nextY;
       cfg.currencySymbol = modal.querySelector<HTMLSelectElement>('#gc-currency-symbol')?.value || cfg.currencySymbol;
-      cfg.significantFigures = Number.parseInt(modal.querySelector<HTMLInputElement>('#gc-sig-figs')?.value || '3', 10) || 3;
+      cfg.significantFigures =
+        Number.parseInt(modal.querySelector<HTMLInputElement>('#gc-sig-figs')?.value || '3', 10) || 3;
       cfg.logScaleY = !!modal.querySelector<HTMLInputElement>('#gc-log')?.checked;
       cfg.enableDownsampling = !!modal.querySelector<HTMLInputElement>('#gc-downsample')?.checked;
 
       const lightRaw = modal.querySelector<HTMLInputElement>('#gc-col-light-raw')?.value || Config.colors.light.raw;
-      const lightFilt = modal.querySelector<HTMLInputElement>('#gc-col-light-filt')?.value || Config.colors.light.filtered;
+      const lightFilt =
+        modal.querySelector<HTMLInputElement>('#gc-col-light-filt')?.value || Config.colors.light.filtered;
       const darkRaw = modal.querySelector<HTMLInputElement>('#gc-col-dark-raw')?.value || Config.colors.dark.raw;
       const darkFilt = modal.querySelector<HTMLInputElement>('#gc-col-dark-filt')?.value || Config.colors.dark.filtered;
 
@@ -203,7 +207,7 @@ export const GraphConfig = {
 
       renderColumnTabs();
       runPipelineAndRender();
-      modal.parentElement?.remove();
+      closeModal(modal);
     });
   }
 };

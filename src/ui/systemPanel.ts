@@ -4,6 +4,7 @@ import { applyTraceSampleOffset } from '../app/traceOffset';
 import { triggerGraphUpdateOnly } from '../app/dataPipeline';
 import { getAlignedSeriesForColumn, getRawSeries } from '../app/traceData';
 import { State } from '../state';
+import { escapeHtml, renderWarningList } from './uiHelpers';
 
 export interface SystemResult {
   input: string;
@@ -24,7 +25,9 @@ function populateSelectOptions(): void {
   if (!input || !output) return;
   const headers = (State.data.headers || []).filter((h) => h && h !== State.data.timeColumn);
   const mathNames = (State.config.mathDefinitions || []).map((d) => d.name);
-  const opts = [...headers, ...mathNames].map((h) => `<option value="${h}">${h}</option>`).join('');
+  const opts = [...headers, ...mathNames]
+    .map((h) => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`)
+    .join('');
   input.innerHTML = `<option value="auto">Auto</option>${opts}`;
   output.innerHTML = `<option value="auto">Auto</option>${opts}`;
   const analysis = State.ensureAnalysisConfig();
@@ -33,15 +36,7 @@ function populateSelectOptions(): void {
 }
 
 function renderWarnings(list: string[] = []): void {
-  const el = document.getElementById('system-warnings');
-  if (!el) return;
-  if (!list.length) {
-    el.innerHTML = '';
-    el.classList.add('hidden');
-    return;
-  }
-  el.classList.remove('hidden');
-  el.innerHTML = list.map((w) => `<li>${w}</li>`).join('');
+  renderWarningList(document.getElementById('system-warnings'), list);
 }
 
 function formatNumber(value: number | null | undefined, digits = 3): string {
@@ -83,7 +78,17 @@ function renderFrfTable(frf: TransferFunctionResult | null): void {
   `;
 }
 
-function renderSummary(payload: { delaySeconds?: number; correlationPeak?: number; confidence?: number; input?: string; output?: string; warnings?: string[]; frf?: TransferFunctionResult | null } | null): void {
+function renderSummary(
+  payload: {
+    delaySeconds?: number;
+    correlationPeak?: number;
+    confidence?: number;
+    input?: string;
+    output?: string;
+    warnings?: string[];
+    frf?: TransferFunctionResult | null;
+  } | null
+): void {
   const el = document.getElementById('system-summary');
   if (!el) return;
   if (!payload) {
@@ -92,7 +97,9 @@ function renderSummary(payload: { delaySeconds?: number; correlationPeak?: numbe
     renderWarnings([]);
     return;
   }
-  const delayText = Number.isFinite(payload.delaySeconds) ? `${(payload.delaySeconds as number).toExponential(3)} s` : 'N/A';
+  const delayText = Number.isFinite(payload.delaySeconds)
+    ? `${(payload.delaySeconds as number).toExponential(3)} s`
+    : 'N/A';
   const corrText = Number.isFinite(payload.correlationPeak) ? (payload.correlationPeak as number).toFixed(3) : 'N/A';
   const confText = Number.isFinite(payload.confidence) ? `, conf ${(payload.confidence as number).toFixed(2)}` : '';
   el.textContent = `${payload.input} → ${payload.output}: delay ${delayText}, corr ${corrText}${confText}`;
@@ -100,15 +107,35 @@ function renderSummary(payload: { delaySeconds?: number; correlationPeak?: numbe
   renderWarnings(payload.warnings || []);
 }
 
+let pendingCompute = false;
+
+function panelVisible(): boolean {
+  const tab = document.getElementById('tab-spectral');
+  return !tab || !tab.classList.contains('hidden');
+}
+
+/**
+ * The System/Bode estimate re-reads two full columns (memoised per pipeline run) and runs a
+ * cross-correlation plus Welch FRF on the main thread. While its sidebar tab is hidden the work is
+ * deferred and performed once when the tab is shown, so pipeline runs and selection changes on other
+ * tabs do not pay for it.
+ */
 function computeSystem(): void {
+  if (!panelVisible()) {
+    pendingCompute = true;
+    return;
+  }
+  pendingCompute = false;
   const analysis = State.ensureAnalysisConfig();
   const headers = (State.data.headers || []).filter((h) => h && h !== State.data.timeColumn);
-  const selectedInput = (document.getElementById('system-input') as HTMLSelectElement | null)?.value === 'auto'
-    ? headers[0]
-    : (document.getElementById('system-input') as HTMLSelectElement | null)?.value;
-  const selectedOutput = (document.getElementById('system-output') as HTMLSelectElement | null)?.value === 'auto'
-    ? headers[1] || headers[0]
-    : (document.getElementById('system-output') as HTMLSelectElement | null)?.value;
+  const selectedInput =
+    (document.getElementById('system-input') as HTMLSelectElement | null)?.value === 'auto'
+      ? headers[0]
+      : (document.getElementById('system-input') as HTMLSelectElement | null)?.value;
+  const selectedOutput =
+    (document.getElementById('system-output') as HTMLSelectElement | null)?.value === 'auto'
+      ? headers[1] || headers[0]
+      : (document.getElementById('system-output') as HTMLSelectElement | null)?.value;
 
   if (!selectedInput || !selectedOutput || selectedInput === selectedOutput) {
     latestResult = null;
@@ -127,14 +154,12 @@ function computeSystem(): void {
   }
 
   const selection = analysis.systemSelectionOnly === false ? null : State.getAnalysisSelection();
-  const inputY = inputSeries.isMath ? inputSeries.rawY : (inputSeries.filteredY || inputSeries.rawY);
-  const outputY = outputSeries.isMath ? outputSeries.rawY : (outputSeries.filteredY || outputSeries.rawY);
-  const delay: DelayEstimate = CrossChannel.estimateDelay(
-    outputSeries.time,
-    inputY,
-    outputY,
-    { selection, maxLagSeconds: analysis.systemMaxLagSeconds }
-  );
+  const inputY = inputSeries.isMath ? inputSeries.rawY : inputSeries.filteredY || inputSeries.rawY;
+  const outputY = outputSeries.isMath ? outputSeries.rawY : outputSeries.filteredY || outputSeries.rawY;
+  const delay: DelayEstimate = CrossChannel.estimateDelay(outputSeries.time, inputY, outputY, {
+    selection,
+    maxLagSeconds: analysis.systemMaxLagSeconds
+  });
   const time = inputSeries.time.length <= outputSeries.time.length ? inputSeries.time : outputSeries.time;
   const frf = CrossChannel.computeTransferFunction(inputY, outputY, time, {
     selection,
@@ -208,6 +233,9 @@ export const SystemPanel = {
       computeSystem();
     });
     AnalysisEngine.onSelectionChange(() => computeSystem());
+    document.querySelector<HTMLButtonElement>('.sidebar-tab[data-tab="spectral"]')?.addEventListener('click', () => {
+      if (pendingCompute) computeSystem();
+    });
   },
 
   refreshFromState(): void {

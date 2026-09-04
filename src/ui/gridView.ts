@@ -1,7 +1,10 @@
 import { runPipelineAndRender } from '../app/dataPipeline';
 import { renderColumnTabs } from '../app/tabs';
 import { Config } from '../config';
+import { parseNumericValue } from '../data/quality';
+import { buildForwardFillUpdates, buildLinearInterpolationUpdates } from '../data/repairs';
 import { State } from '../state';
+import '../session/workspace';
 import type { CsvRow, CsvValue } from '../types';
 import { ui } from './classes';
 import { createModal, escapeHtml } from './uiHelpers';
@@ -29,8 +32,8 @@ function convertRowsToObjects(headers: string[], rows: string[][]): CsvRow[] {
     const obj: CsvRow = {};
     headers.forEach((h, idx) => {
       const rawVal = cols[idx];
-      const numVal = rawVal === '' ? '' : parseFloat(rawVal);
-      obj[h] = Number.isFinite(numVal) ? numVal : (rawVal ?? '');
+      const numVal = parseNumericValue(rawVal);
+      obj[h] = numVal ?? rawVal ?? '';
     });
     return obj;
   });
@@ -48,48 +51,53 @@ export const GridView = {
     this.selectedCell = { row, col };
   },
 
-  ensureColumns(headers: string[], row: CsvRow | undefined): CsvRow {
-    const next = row || {};
-    headers.forEach((h) => {
-      if (!(h in next)) next[h] = '';
-    });
-    return next;
-  },
-
   updateStateData(newHeaders: string[], newRaw: CsvRow[]): void {
-    State.data.headers = newHeaders;
-    State.data.raw = newRaw;
-    State.data.processed = [];
-
-    if (!newHeaders.includes(State.data.timeColumn || '')) {
-      State.data.timeColumn = newHeaders[0] || null;
-    }
-    if (!newHeaders.includes(State.data.dataColumn || '')) {
-      State.data.dataColumn = newHeaders.find((h) => h !== State.data.timeColumn) || newHeaders[1] || null;
-    }
+    State.setData(newRaw, newHeaders, {
+      name: 'Pasted data',
+      text: '',
+      bytes: new Uint8Array(0),
+      size: 0,
+      lastModified: null
+    });
   },
 
   applyPasteData(clipboardRows: string[][]): void {
     if (!clipboardRows.length) return;
 
     const headers = State.data.headers.slice();
-    const raw = State.data.raw.slice();
 
     if (this.selectedCell) {
       const { row: startRow, col: startCol } = this.selectedCell;
+      const previousLength = State.data.raw.length;
+      const requiredRows = startRow + clipboardRows.length;
+      const appendedRows = Array.from(
+        { length: Math.max(0, requiredRows - previousLength) },
+        () => Object.fromEntries(headers.map((header) => [header, ''])) as CsvRow
+      );
+      const updates: Array<{ rowIndex: number; columnId: string; value: CsvValue }> = [];
       clipboardRows.forEach((cols, rIdx) => {
         const targetRow = startRow + rIdx;
-        if (!raw[targetRow]) raw[targetRow] = {};
-        const rowObj = this.ensureColumns(headers, raw[targetRow]);
         cols.forEach((val, cIdx) => {
           const header = headers[startCol + cIdx];
           if (!header) return;
-          const parsed = parseFloat(val);
-          rowObj[header] = Number.isFinite(parsed) ? parsed : val;
+          const value = parseNumericValue(val) ?? val;
+          if (targetRow >= previousLength) {
+            appendedRows[targetRow - previousLength][header] = value;
+          } else {
+            updates.push({ rowIndex: targetRow, columnId: header, value });
+          }
         });
-        raw[targetRow] = rowObj;
       });
-      this.updateStateData(headers, raw);
+      if (
+        appendedRows.length > 0 &&
+        State.data.timeColumn &&
+        appendedRows.some((row) => parseNumericValue(row[State.data.timeColumn as string]) === null)
+      ) {
+        alert('Rows can only be appended when the pasted range includes a finite timestamp for every new row.');
+        return;
+      }
+      if (appendedRows.length > 0) State.appendDataRows(appendedRows);
+      if (updates.length > 0) State.applyDataChanges('Grid paste', updates);
       renderColumnTabs();
       runPipelineAndRender();
       return;
@@ -100,9 +108,7 @@ export const GridView = {
 
     if (!State.data.headers.length || State.data.raw.length === 0) {
       const looksLikeHeader = incomingHeaders.some((cell) => Number.isNaN(parseFloat(cell))) || dataRows.length > 0;
-      const cleanHeaders = looksLikeHeader
-        ? incomingHeaders
-        : incomingHeaders.map((_, idx) => `Col ${idx + 1}`);
+      const cleanHeaders = looksLikeHeader ? incomingHeaders : incomingHeaders.map((_, idx) => `Col ${idx + 1}`);
       const rows = convertRowsToObjects(cleanHeaders, dataRows.length ? dataRows : clipboardRows);
       this.updateStateData(cleanHeaders, rows);
       renderColumnTabs();
@@ -110,11 +116,11 @@ export const GridView = {
       return;
     }
 
-    const headersMatch = incomingHeaders.length === headers.length
-      && incomingHeaders.every((h, idx) => h === headers[idx]);
+    const headersMatch =
+      incomingHeaders.length === headers.length && incomingHeaders.every((h, idx) => h === headers[idx]);
 
     if (headersMatch) {
-      this.updateStateData(headers, [...raw, ...convertRowsToObjects(headers, dataRows)]);
+      State.appendDataRows(convertRowsToObjects(headers, dataRows));
       renderColumnTabs();
       runPipelineAndRender();
       return;
@@ -129,16 +135,24 @@ export const GridView = {
     runPipelineAndRender();
   },
 
-  renderVisibleRows(tableBody: HTMLElement, headers: string[], data: CsvRow[], startIndex: number, endIndex: number): void {
+  renderVisibleRows(
+    tableBody: HTMLElement,
+    headers: string[],
+    data: CsvRow[],
+    startIndex: number,
+    endIndex: number
+  ): void {
     const rows: string[] = [];
     for (let i = startIndex; i < endIndex; i++) {
       const row = data[i] || {};
-      const cells = headers.map((h, colIdx) => {
-        let val: CsvValue = getExistingValue(row, h);
-        if (typeof val === 'number') val = parseFloat(val.toFixed(4));
-        const isSelected = this.selectedCell && this.selectedCell.row === i && this.selectedCell.col === colIdx;
-        return `<td data-row="${i}" data-col="${colIdx}" class="${isSelected ? 'selected' : ''}">${escapeHtml(val)}</td>`;
-      }).join('');
+      const cells = headers
+        .map((h, colIdx) => {
+          let val: CsvValue = getExistingValue(row, h);
+          if (typeof val === 'number') val = parseFloat(val.toFixed(4));
+          const isSelected = this.selectedCell && this.selectedCell.row === i && this.selectedCell.col === colIdx;
+          return `<td data-row="${i}" data-col="${colIdx}" class="${isSelected ? 'selected' : ''}">${escapeHtml(val)}</td>`;
+        })
+        .join('');
       rows.push(`<tr>${cells}</tr>`);
     }
     tableBody.innerHTML = rows.join('');
@@ -173,6 +187,13 @@ export const GridView = {
     const content = createModal(`
       <h3 class="${ui.modalTitle}">Data View</h3>
       <p class="mb-3 text-sm text-muted">Virtualized grid for large datasets. Total rows: ${totalRows}</p>
+      <div class="mb-3 flex flex-wrap gap-2" aria-label="Data repair controls">
+        <button type="button" id="grid-interpolate" class="sf-btn">Interpolate selected column</button>
+        <button type="button" id="grid-forward-fill" class="sf-btn">Forward-fill selected column</button>
+        <button type="button" id="grid-undo" class="sf-btn">Undo repair</button>
+        <button type="button" id="grid-redo" class="sf-btn">Redo repair</button>
+      </div>
+      <p class="sf-hint mb-3">Repairs are explicit and reversible. Imported values remain preserved for export.</p>
       <div class="virtual-grid-shell">
         <table class="data-grid-table data-grid-header">
           <thead>
@@ -225,6 +246,45 @@ export const GridView = {
     window.addEventListener('resize', render);
     this.attachSelectionHandler(virtualTable);
 
+    const refreshAfterRepair = () => {
+      runPipelineAndRender();
+      render();
+    };
+    const selectedColumn = (): string | null =>
+      this.selectedCell ? State.data.headers[this.selectedCell.col] || null : null;
+    content.querySelector<HTMLButtonElement>('#grid-interpolate')?.addEventListener('click', () => {
+      const columnId = selectedColumn();
+      if (!columnId || !State.data.timeColumn || columnId === State.data.timeColumn) {
+        alert('Select a non-time data column first.');
+        return;
+      }
+      const updates = buildLinearInterpolationUpdates(State.data.raw, State.data.timeColumn, columnId);
+      const repair = State.applyDataChanges(`Interpolate ${columnId}`, updates);
+      alert(
+        repair ? `Interpolated ${repair.changes.length} sample(s).` : 'No bounded gaps were available to interpolate.'
+      );
+      refreshAfterRepair();
+    });
+    content.querySelector<HTMLButtonElement>('#grid-forward-fill')?.addEventListener('click', () => {
+      const columnId = selectedColumn();
+      if (!columnId || columnId === State.data.timeColumn) {
+        alert('Select a non-time data column first.');
+        return;
+      }
+      const updates = buildForwardFillUpdates(State.data.raw, columnId);
+      const repair = State.applyDataChanges(`Forward-fill ${columnId}`, updates);
+      alert(repair ? `Forward-filled ${repair.changes.length} sample(s).` : 'No samples required forward filling.');
+      refreshAfterRepair();
+    });
+    content.querySelector<HTMLButtonElement>('#grid-undo')?.addEventListener('click', () => {
+      if (!State.undoDataRepair()) alert('There is no repair to undo.');
+      refreshAfterRepair();
+    });
+    content.querySelector<HTMLButtonElement>('#grid-redo')?.addEventListener('click', () => {
+      if (!State.redoDataRepair()) alert('There is no repair to redo.');
+      refreshAfterRepair();
+    });
+
     const handlePaste = (event: ClipboardEvent) => {
       if (!event.clipboardData) return;
       const text = event.clipboardData.getData('text');
@@ -243,9 +303,13 @@ export const GridView = {
       window.removeEventListener('paste', handlePaste);
     };
 
-    overlay?.addEventListener('click', (e) => {
-      if (e.target === overlay) cleanup();
-    }, true);
+    overlay?.addEventListener(
+      'click',
+      (e) => {
+        if (e.target === overlay) cleanup();
+      },
+      true
+    );
 
     window.addEventListener('paste', handlePaste);
     render();

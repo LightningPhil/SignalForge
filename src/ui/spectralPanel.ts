@@ -3,33 +3,33 @@ import { SpectralMetrics, type SpectralSummary } from '../analysis/spectralMetri
 import { debounce, selectionKey, seriesSignature } from '../app/utils';
 import { triggerGraphUpdateOnly } from '../app/dataPipeline';
 import { State } from '../state';
-import type { AnalysisSeries } from '../types';
+import type { AnalysisSeries, SpectrumResult } from '../types';
+import { analysisWorkerClient } from '../workers/client';
 import { ui } from './classes';
+import { renderWarningList } from './uiHelpers';
 
 function formatNumber(val: number | null | undefined, digits = 3): string {
   if (val === null || val === undefined || Number.isNaN(val)) return '—';
   const abs = Math.abs(val);
   if (abs !== 0 && (abs < 0.001 || abs >= 1e6)) return val.toExponential(3);
-  return Number(val).toFixed(digits).replace(/\.0+$/, '').replace(/\.([0-9]*?)0+$/, '.$1');
+  return Number(val)
+    .toFixed(digits)
+    .replace(/\.0+$/, '')
+    .replace(/\.([0-9]*?)0+$/, '.$1');
 }
 
-function renderWarnings(el: HTMLElement | null, warnings: string[] = []): void {
-  if (!el) return;
-  if (!warnings.length) {
-    el.classList.add('hidden');
-    el.innerHTML = '';
-    return;
-  }
-  el.classList.remove('hidden');
-  el.innerHTML = warnings.map((w) => `<li>${w}</li>`).join('');
-}
+const renderWarnings = renderWarningList;
 
-function autoSelectSource(series: AnalysisSeries): number[] {
+function autoSelectSource(series: AnalysisSeries): {
+  values: number[];
+  quality: Uint16Array | null;
+  source: 'raw' | 'filtered';
+} {
   const choice = State.ensureAnalysisConfig().fftSource || 'auto';
-  if (choice === 'filtered' && series.filteredY?.length) return series.filteredY;
-  if (choice === 'raw') return series.rawY;
-  if (choice === 'auto' && series.filteredY?.length) return series.filteredY;
-  return series.rawY;
+  if ((choice === 'filtered' || choice === 'auto') && series.filteredY?.length) {
+    return { values: series.filteredY, quality: series.filteredQuality, source: 'filtered' };
+  }
+  return { values: series.rawY, quality: series.rawQuality, source: 'raw' };
 }
 
 export const SpectralPanel = {
@@ -54,6 +54,8 @@ export const SpectralPanel = {
   peaksTable: null as HTMLElement | null,
   metricsTable: null as HTMLElement | null,
   triggerRefresh: (() => {}) as () => void,
+  workerController: null as AbortController | null,
+  workerGeneration: 0,
 
   init(): void {
     this.metaEl = document.getElementById('fft-meta');
@@ -117,7 +119,10 @@ export const SpectralPanel = {
     if (this.peakProminenceInput) {
       this.peakProminenceInput.value = String(cfg.fftPeakProminence);
       this.peakProminenceInput.addEventListener('input', () => {
-        State.ensureAnalysisConfig().fftPeakProminence = Math.max(0, parseFloat(this.peakProminenceInput?.value || '0') || 0);
+        State.ensureAnalysisConfig().fftPeakProminence = Math.max(
+          0,
+          parseFloat(this.peakProminenceInput?.value || '0') || 0
+        );
         triggerGraphUpdateOnly();
         this.refresh();
       });
@@ -133,7 +138,10 @@ export const SpectralPanel = {
     if (this.harmonicCountInput) {
       this.harmonicCountInput.value = String(cfg.fftHarmonicCount);
       this.harmonicCountInput.addEventListener('input', () => {
-        State.ensureAnalysisConfig().fftHarmonicCount = Math.max(1, parseInt(this.harmonicCountInput?.value || '1', 10) || 1);
+        State.ensureAnalysisConfig().fftHarmonicCount = Math.max(
+          1,
+          parseInt(this.harmonicCountInput?.value || '1', 10) || 1
+        );
         triggerGraphUpdateOnly();
         this.refresh();
       });
@@ -150,26 +158,35 @@ export const SpectralPanel = {
     if (this.spectrogramSize) {
       this.spectrogramSize.value = String(cfg.spectrogramSize);
       this.spectrogramSize.addEventListener('input', () => {
-        State.ensureAnalysisConfig().spectrogramSize = Math.max(16, parseInt(this.spectrogramSize?.value || '512', 10) || 512);
+        State.ensureAnalysisConfig().spectrogramSize = Math.max(
+          16,
+          parseInt(this.spectrogramSize?.value || '512', 10) || 512
+        );
         triggerGraphUpdateOnly();
       });
     }
     if (this.spectrogramOverlap) {
       this.spectrogramOverlap.value = String(cfg.spectrogramOverlap);
       this.spectrogramOverlap.addEventListener('input', () => {
-        State.ensureAnalysisConfig().spectrogramOverlap = Math.min(0.95, Math.max(0, parseFloat(this.spectrogramOverlap?.value || '0.5') || 0.5));
+        State.ensureAnalysisConfig().spectrogramOverlap = Math.min(
+          0.95,
+          Math.max(0, parseFloat(this.spectrogramOverlap?.value || '0.5') || 0.5)
+        );
         triggerGraphUpdateOnly();
       });
     }
   },
 
   setSeries(series: AnalysisSeries | null): void {
+    this.workerController?.abort();
     this.lastSeries = series;
     this.cache.clear();
     this.triggerRefresh();
   },
 
   clear(): void {
+    this.workerController?.abort();
+    this.workerController = null;
     this.lastSeries = null;
     this.cache.clear();
     if (this.metaEl) this.metaEl.textContent = 'Load data to view spectrum';
@@ -185,9 +202,10 @@ export const SpectralPanel = {
     }
     const analysis = State.ensureAnalysisConfig();
     const selection = analysis.selectionOnly === false ? null : State.getAnalysisSelection();
-    const y = autoSelectSource(this.lastSeries);
+    const selected = autoSelectSource(this.lastSeries);
+    const y = selected.values;
     const cacheKey = [
-      seriesSignature(this.lastSeries, y === this.lastSeries.filteredY ? 'filtered' : 'raw'),
+      seriesSignature(this.lastSeries, selected.source),
       selectionKey(selection),
       analysis.fftWindow,
       analysis.fftDetrend,
@@ -206,16 +224,59 @@ export const SpectralPanel = {
       return;
     }
 
-    const summary = SpectralMetrics.summarize(y, this.lastSeries.rawX, {
+    const spectrumOptions = {
       selection,
       windowType: analysis.fftWindow,
       detrend: analysis.fftDetrend,
       zeroPadMode: analysis.fftZeroPad,
       zeroPadFactor: analysis.fftZeroPadFactor,
+      quality: selected.quality
+    };
+    const summaryOptions = {
       maxPeaks: analysis.fftPeakCount,
       prominence: analysis.fftPeakProminence,
       harmonicCount: analysis.fftHarmonicCount,
       fundamentalHz: analysis.fftHarmonicFundamental || undefined
+    };
+    if (y.length >= 100_000 && typeof Worker !== 'undefined') {
+      this.workerController?.abort();
+      const controller = new AbortController();
+      const generation = ++this.workerGeneration;
+      this.workerController = controller;
+      void analysisWorkerClient
+        .run<SpectrumResult>(
+          {
+            kind: 'spectrum',
+            signal: Float64Array.from(y),
+            time: Float64Array.from(this.lastSeries.rawX),
+            options: spectrumOptions
+          },
+          {
+            signal: controller.signal,
+            transferOwnership: true,
+            onProgress: (progress, stage) => {
+              if (this.metaEl) this.metaEl.textContent = `${stage} · ${Math.round(progress * 100)}%`;
+            }
+          }
+        )
+        .then((spectrum) => {
+          if (controller.signal.aborted || generation !== this.workerGeneration) return;
+          const summary = SpectralMetrics.summarizeFromSpectrum(spectrum, summaryOptions);
+          this.cache.set(cacheKey, summary);
+          this.render(summary);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted || generation !== this.workerGeneration) return;
+          if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            renderWarnings(this.warningsEl, [error instanceof Error ? error.message : String(error)]);
+          }
+        });
+      return;
+    }
+
+    const summary = SpectralMetrics.summarize(y, this.lastSeries.rawX, {
+      ...spectrumOptions,
+      ...summaryOptions
     });
     this.cache.set(cacheKey, summary);
     this.render(summary);
@@ -224,18 +285,30 @@ export const SpectralPanel = {
   render(summary: SpectralSummary): void {
     const { spectrum, peaks, harmonics, thd, snr, spur, bandpower, fundamentalHz } = summary;
     if (this.metaEl) {
-      this.metaEl.textContent = `Fs ≈ ${formatNumber(spectrum.meta.fs)} Hz · Δf ≈ ${formatNumber(spectrum.meta.deltaF)} Hz · Nyquist ${formatNumber(spectrum.meta.nyquist)} Hz`;
+      this.metaEl.textContent =
+        `Fs ≈ ${formatNumber(spectrum.meta.fs)} Hz · bin spacing ${formatNumber(spectrum.meta.deltaF)} Hz · ` +
+        `resolution (ENBW) ${formatNumber(spectrum.meta.enbwHz)} Hz · Nyquist ${formatNumber(spectrum.meta.nyquist)} Hz`;
     }
     renderWarnings(this.warningsEl, summary.warnings);
     if (this.peaksTable) {
       const rows = peaks.length
-        ? peaks.map((p, idx) => `<tr><td class="${ui.analysisTableCell}">${idx + 1}</td><td class="${ui.analysisTableCell}">${formatNumber(p.freq)}</td><td class="${ui.analysisTableCell}">${formatNumber(20 * Math.log10(Math.max(p.magnitude, 1e-12)), 2)} dB</td></tr>`).join('')
+        ? peaks
+            .map(
+              (p, idx) =>
+                `<tr><td class="${ui.analysisTableCell}">${idx + 1}</td><td class="${ui.analysisTableCell}">${formatNumber(p.freq)}</td><td class="${ui.analysisTableCell}">${formatNumber(20 * Math.log10(Math.max(p.magnitude, 1e-12)), 2)} dB</td></tr>`
+            )
+            .join('')
         : `<tr><td class="${ui.analysisTableCell} text-muted" colspan="3">No peaks above prominence</td></tr>`;
       this.peaksTable.innerHTML = `<tr><th class="${ui.analysisTableCell}">#</th><th class="${ui.analysisTableCell}">Freq (Hz)</th><th class="${ui.analysisTableCell}">Mag</th></tr>${rows}`;
     }
     if (this.metricsTable) {
       const harmonicList = harmonics?.length
-        ? harmonics.map((h) => `${h.order}×: ${formatNumber(h.freq)} Hz (${formatNumber(20 * Math.log10(Math.max(h.magnitude || 0, 1e-12)), 2)} dB)`).join('<br>')
+        ? harmonics
+            .map(
+              (h) =>
+                `${h.order}×: ${formatNumber(h.freq)} Hz (${formatNumber(20 * Math.log10(Math.max(h.magnitude || 0, 1e-12)), 2)} dB)`
+            )
+            .join('<br>')
         : '—';
       this.metricsTable.innerHTML = `
         <tr><td class="${ui.analysisTableCell}">Fundamental</td><td class="${ui.analysisTableCell}">${fundamentalHz ? `${formatNumber(fundamentalHz)} Hz` : 'Auto'}</td></tr>

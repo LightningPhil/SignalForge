@@ -3,9 +3,10 @@ import { State } from '../state';
 import type { MathDefinition, MathVariable, SourceMode } from '../types';
 import { ui } from '../ui/classes';
 import { HelpSystem } from '../ui/helpSystem';
-import { createModal, escapeHtml } from '../ui/uiHelpers';
+import { closeModal, createModal, escapeHtml } from '../ui/uiHelpers';
 import { runPipelineAndRender } from './dataPipeline';
 import { activateTab, renderColumnTabs } from './tabs';
+import { getTimeArray } from './traceData';
 
 const SUGGESTED_SYMBOLS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
@@ -17,7 +18,8 @@ function buildVariableRow(
   applyXOffset = true
 ): HTMLDivElement {
   const row = document.createElement('div');
-  row.className = 'math-row grid gap-2 rounded-md border border-line bg-surface p-2 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto_auto] sm:items-center';
+  row.className =
+    'math-row grid gap-2 rounded-md border border-line bg-surface p-2 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto_auto] sm:items-center';
 
   const select = document.createElement('select');
   select.className = 'sf-field';
@@ -107,7 +109,7 @@ function showValidationErrors(errors: string[] = []): void {
     </div>
   `;
   const modal = createModal(html);
-  modal.querySelector('#btn-close-validation')?.addEventListener('click', () => modal.parentElement?.remove());
+  modal.querySelector('#btn-close-validation')?.addEventListener('click', () => closeModal(modal));
 }
 
 export function showMathModal(existingDef: MathDefinition | null = null): void {
@@ -121,14 +123,15 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
     return;
   }
 
-  const defaultName = existingDef?.name
-    || `MathTrace ${State.config.mathDefinitions ? State.config.mathDefinitions.length + 1 : 1}`;
+  const defaultName =
+    existingDef?.name || `MathTrace ${State.config.mathDefinitions ? State.config.mathDefinitions.length + 1 : 1}`;
   const modalTitle = existingDef ? 'Edit Advanced Math Trace' : 'Create Advanced Math Trace';
   const submitLabel = existingDef ? 'Update Trace' : 'Create Trace';
 
   const html = `
     <h3 class="${ui.modalTitle}">${modalTitle}</h3>
-    <p class="sf-hint mb-3">Map variables to traces, then enter a math.js expression. Helpers: <code>diff(x)</code>, <code>cumsum(x)</code>, <code>mean(...)</code>. Time arrays are available as <code>t</code> and timestep as <code>dt</code>.</p>
+    <p class="sf-hint mb-3">Map variables to traces, then enter a math.js expression. <code>*</code>, <code>/</code> and <code>^</code> act sample-by-sample. Physical helpers: <code>derivative(x)</code>, <code>integrate(x)</code>, <code>guardedDivide(a, b, minimum)</code>, <code>meanTraces(a, b)</code>; <code>mean(x)</code> is the scalar mean. Time is <code>t</code>, median timestep <code>dt</code>.</p>
+    <div id="math-validation-notes" class="sf-hint mb-3 hidden" role="status"></div>
     <div class="mb-3">
       <button class="sf-btn" id="btn-open-math-help" type="button">Open math help</button>
     </div>
@@ -145,7 +148,6 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
   `;
 
   const modal = createModal(html);
-  const overlay = modal.parentElement;
   const grid = modal.querySelector('#math-var-grid');
   const addBtn = modal.querySelector('#btn-add-var');
   const exprInput = modal.querySelector<HTMLTextAreaElement>('#math-expression');
@@ -155,13 +157,10 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
 
   if (!grid || !addBtn || !exprInput || !nameInput || !cancelBtn || !createBtn) return;
 
-  const addRow = (
-    symbol = '',
-    column = '',
-    sourceMode: SourceMode = 'raw',
-    applyXOffset = true
-  ) => {
-    grid.appendChild(buildVariableRow(availableColumns, symbol, column || availableColumns[0], sourceMode, applyXOffset));
+  const addRow = (symbol = '', column = '', sourceMode: SourceMode = 'raw', applyXOffset = true) => {
+    grid.appendChild(
+      buildVariableRow(availableColumns, symbol, column || availableColumns[0], sourceMode, applyXOffset)
+    );
   };
 
   if (existingDef && Array.isArray(existingDef.variables)) {
@@ -179,20 +178,37 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
   }
 
   addBtn.addEventListener('click', () => addRow());
-  cancelBtn.addEventListener('click', () => overlay?.remove());
+  cancelBtn.addEventListener('click', () => closeModal(modal));
   modal.querySelector('#btn-open-math-help')?.addEventListener('click', () => HelpSystem.show('math-trace-tabs'));
   if (existingDef?.expression) exprInput.value = existingDef.expression;
+
+  let acknowledgedWarning = '';
+  const resetAcknowledgement = () => {
+    acknowledgedWarning = '';
+    modal.querySelector('#math-validation-notes')?.classList.add('hidden');
+  };
+  exprInput.addEventListener('input', resetAcknowledgement);
+  grid.addEventListener('change', resetAcknowledgement);
 
   createBtn.addEventListener('click', () => {
     const rows = Array.from(grid.querySelectorAll<HTMLElement>('.math-row'));
     const variables = validateVariables(rows);
     const expression = exprInput.value.trim();
     const name = nameInput.value.trim() || defaultName;
-    const rawTime = timeCol ? State.data.raw.map((r) => parseFloat(String(r[timeCol]))) : [];
+    const rawTime = timeCol ? getTimeArray() : [];
     const validation = MathEngine.validateDefinition({ name, expression, variables }, rawTime);
 
     if (!validation.ok) {
       showValidationErrors(validation.errors);
+      return;
+    }
+    const notes = modal.querySelector<HTMLElement>('#math-validation-notes');
+    const warningText = (validation.warnings || []).join(' ');
+    if (notes && warningText && acknowledgedWarning !== warningText) {
+      // First click surfaces the non-blocking note; a second click with the same note proceeds.
+      acknowledgedWarning = warningText;
+      notes.textContent = `${warningText} Click "${submitLabel}" again to proceed.`;
+      notes.classList.remove('hidden');
       return;
     }
     if (variables.length === 0) {
@@ -211,7 +227,7 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
       State.ui.activeMultiViewId = null;
       activateTab({ columnId: name });
       renderColumnTabs();
-      overlay?.remove();
+      closeModal(modal);
       return;
     }
 
@@ -221,6 +237,6 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
       runPipelineAndRender();
     }
     renderColumnTabs();
-    overlay?.remove();
+    closeModal(modal);
   });
 }
