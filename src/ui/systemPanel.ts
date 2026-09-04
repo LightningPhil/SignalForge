@@ -83,7 +83,17 @@ function renderFrfTable(frf: TransferFunctionResult | null): void {
   `;
 }
 
-function renderSummary(payload: { delaySeconds?: number; correlationPeak?: number; confidence?: number; input?: string; output?: string; warnings?: string[]; frf?: TransferFunctionResult | null } | null): void {
+function renderSummary(
+  payload: {
+    delaySeconds?: number;
+    correlationPeak?: number;
+    confidence?: number;
+    input?: string;
+    output?: string;
+    warnings?: string[];
+    frf?: TransferFunctionResult | null;
+  } | null
+): void {
   const el = document.getElementById('system-summary');
   if (!el) return;
   if (!payload) {
@@ -92,7 +102,9 @@ function renderSummary(payload: { delaySeconds?: number; correlationPeak?: numbe
     renderWarnings([]);
     return;
   }
-  const delayText = Number.isFinite(payload.delaySeconds) ? `${(payload.delaySeconds as number).toExponential(3)} s` : 'N/A';
+  const delayText = Number.isFinite(payload.delaySeconds)
+    ? `${(payload.delaySeconds as number).toExponential(3)} s`
+    : 'N/A';
   const corrText = Number.isFinite(payload.correlationPeak) ? (payload.correlationPeak as number).toFixed(3) : 'N/A';
   const confText = Number.isFinite(payload.confidence) ? `, conf ${(payload.confidence as number).toFixed(2)}` : '';
   el.textContent = `${payload.input} → ${payload.output}: delay ${delayText}, corr ${corrText}${confText}`;
@@ -103,12 +115,14 @@ function renderSummary(payload: { delaySeconds?: number; correlationPeak?: numbe
 function computeSystem(): void {
   const analysis = State.ensureAnalysisConfig();
   const headers = (State.data.headers || []).filter((h) => h && h !== State.data.timeColumn);
-  const selectedInput = (document.getElementById('system-input') as HTMLSelectElement | null)?.value === 'auto'
-    ? headers[0]
-    : (document.getElementById('system-input') as HTMLSelectElement | null)?.value;
-  const selectedOutput = (document.getElementById('system-output') as HTMLSelectElement | null)?.value === 'auto'
-    ? headers[1] || headers[0]
-    : (document.getElementById('system-output') as HTMLSelectElement | null)?.value;
+  const selectedInput =
+    (document.getElementById('system-input') as HTMLSelectElement | null)?.value === 'auto'
+      ? headers[0]
+      : (document.getElementById('system-input') as HTMLSelectElement | null)?.value;
+  const selectedOutput =
+    (document.getElementById('system-output') as HTMLSelectElement | null)?.value === 'auto'
+      ? headers[1] || headers[0]
+      : (document.getElementById('system-output') as HTMLSelectElement | null)?.value;
 
   if (!selectedInput || !selectedOutput || selectedInput === selectedOutput) {
     latestResult = null;
@@ -127,14 +141,12 @@ function computeSystem(): void {
   }
 
   const selection = analysis.systemSelectionOnly === false ? null : State.getAnalysisSelection();
-  const inputY = inputSeries.isMath ? inputSeries.rawY : (inputSeries.filteredY || inputSeries.rawY);
-  const outputY = outputSeries.isMath ? outputSeries.rawY : (outputSeries.filteredY || outputSeries.rawY);
-  const delay: DelayEstimate = CrossChannel.estimateDelay(
-    outputSeries.time,
-    inputY,
-    outputY,
-    { selection, maxLagSeconds: analysis.systemMaxLagSeconds }
-  );
+  const inputY = inputSeries.isMath ? inputSeries.rawY : inputSeries.filteredY || inputSeries.rawY;
+  const outputY = outputSeries.isMath ? outputSeries.rawY : outputSeries.filteredY || outputSeries.rawY;
+  const delay: DelayEstimate = CrossChannel.estimateDelay(outputSeries.time, inputY, outputY, {
+    selection,
+    maxLagSeconds: analysis.systemMaxLagSeconds
+  });
   const time = inputSeries.time.length <= outputSeries.time.length ? inputSeries.time : outputSeries.time;
   const frf = CrossChannel.computeTransferFunction(inputY, outputY, time, {
     selection,

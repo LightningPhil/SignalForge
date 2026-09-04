@@ -32,10 +32,16 @@ const {
   selFreqUnit,
   inputSlope,
   sliderSlope,
-  inputQ,
-  sliderQ,
   inputBW,
   selBWUnit,
+  inputFilterOrder,
+  selProcessingMode,
+  inputFirTransition,
+  selFirTransitionUnit,
+  inputFirRipple,
+  inputFirAttenuation,
+  firDesignSummary,
+  inputHarmonicCount,
   grpWindow,
   grpPoly,
   grpAlpha,
@@ -44,8 +50,11 @@ const {
   grpDecay,
   grpFreq,
   grpSlope,
-  grpQ,
   grpBW,
+  grpIirAdvanced,
+  grpIirOrder,
+  grpFirAdvanced,
+  grpHarmonicCount,
   chkSyncTabs
 } = elements;
 
@@ -53,12 +62,23 @@ const FILTER_NAMES: Record<FilterType, string> = {
   movingAverage: 'Moving Average',
   savitzkyGolay: 'Savitzky-Golay',
   median: 'Median',
-  iir: 'IIR Low Pass',
+  iir: 'One-Pole IIR Smoother',
   gaussian: 'Gaussian',
   startStopNorm: 'Start/Stop Normalisation',
   lowPassFFT: 'FFT Low Pass',
   highPassFFT: 'FFT High Pass',
   notchFFT: 'FFT Notch',
+  firLowPass: 'Kaiser FIR Low Pass',
+  firHighPass: 'Kaiser FIR High Pass',
+  firBandPass: 'Kaiser FIR Band Pass',
+  firBandStop: 'Kaiser FIR Band Stop',
+  butterworthLowPass: 'Butterworth IIR Low Pass',
+  butterworthHighPass: 'Butterworth IIR High Pass',
+  butterworthBandPass: 'Butterworth IIR Band Pass',
+  iirNotch: 'IIR Notch',
+  iirComb: 'IIR Comb Notch',
+  hampel: 'Hampel Deglitch',
+  waveletDenoise: 'Wavelet Denoise',
   nullFilter: 'Null Filter (Pass-through)'
 };
 
@@ -98,13 +118,42 @@ export function updateParamsFromUI(): void {
 
   const params: Partial<FilterStep> = {};
   const type = step.type;
-  const isWindowed = ['movingAverage', 'savitzkyGolay', 'median', 'gaussian'].includes(type);
-  const isFreq = ['lowPassFFT', 'highPassFFT'].includes(type);
-  const isNotch = type === 'notchFFT';
+  const isWindowed = ['movingAverage', 'savitzkyGolay', 'median', 'gaussian', 'hampel'].includes(type);
+  const isFir = ['firLowPass', 'firHighPass', 'firBandPass', 'firBandStop'].includes(type);
+  const isFreq = [
+    'lowPassFFT',
+    'highPassFFT',
+    'firLowPass',
+    'firHighPass',
+    'butterworthLowPass',
+    'butterworthHighPass'
+  ].includes(type);
+  const isFftShape = ['lowPassFFT', 'highPassFFT'].includes(type);
+  const isCenterBandwidth = [
+    'notchFFT',
+    'firBandPass',
+    'firBandStop',
+    'butterworthBandPass',
+    'iirNotch',
+    'iirComb'
+  ].includes(type);
+  const isDesignedIir = [
+    'butterworthLowPass',
+    'butterworthHighPass',
+    'butterworthBandPass',
+    'iirNotch',
+    'iirComb'
+  ].includes(type);
 
   if (isWindowed) {
-    const windowVal = clamp(inputWindow, 1, 9999);
-    if (windowVal !== null) params.windowSize = windowVal;
+    const maximumWindow =
+      type === 'median' || type === 'hampel' ? 501 : type === 'savitzkyGolay' || type === 'gaussian' ? 1001 : 9999;
+    const minimumWindow = type === 'savitzkyGolay' || type === 'gaussian' ? 3 : 1;
+    const windowVal = clamp(inputWindow, minimumWindow, maximumWindow);
+    if (windowVal !== null) {
+      if (type === 'gaussian') params.kernelSize = windowVal;
+      else params.windowSize = windowVal;
+    }
   }
   if (type === 'savitzkyGolay') {
     const polyVal = clamp(inputPoly, 1, 10);
@@ -120,6 +169,16 @@ export function updateParamsFromUI(): void {
     const sigmaVal = clamp(inputSigma, 0.1, 100.0);
     if (sigmaVal !== null) params.sigma = sigmaVal;
   }
+  if (type === 'hampel') {
+    const threshold = clamp(inputSigma, 0.1, 20);
+    if (threshold !== null) params.thresholdSigma = threshold;
+  }
+  if (type === 'waveletDenoise') {
+    const levels = clamp(inputIters, 1, 20);
+    if (levels !== null) params.waveletLevels = levels;
+    const threshold = getNumericValue(inputSigma);
+    params.waveletThreshold = threshold !== null && threshold >= 0 ? threshold : undefined;
+  }
   if (type === 'startStopNorm') {
     const startDecayVal = clamp(inputStartDecay, 0, 10000);
     if (startDecayVal !== null) params.startLength = startDecayVal;
@@ -134,28 +193,48 @@ export function updateParamsFromUI(): void {
     if (autoOffsetPointsVal !== null) params.autoOffsetPoints = autoOffsetPointsVal;
   }
 
-  if ((isFreq || isNotch) && selFreqUnit) {
+  if ((isFreq || isCenterBandwidth) && selFreqUnit) {
     const fMult = parseFloat(selFreqUnit.value);
     const rawFreq = getNumericValue(inputFreq);
     const fallbackHz = step.centerFreq || step.cutoffFreq || 0;
-    const baseFreq = rawFreq !== null ? rawFreq : (fallbackHz / fMult);
+    const baseFreq = rawFreq !== null ? rawFreq : fallbackHz / fMult;
     const hz = baseFreq * fMult;
-    if (isNotch) params.centerFreq = hz;
+    if (isCenterBandwidth) params.centerFreq = hz;
     else params.cutoffFreq = hz;
   }
 
-  if (isNotch && selBWUnit) {
+  if (isCenterBandwidth && selBWUnit) {
     const bMult = parseFloat(selBWUnit.value);
     const rawBW = getNumericValue(inputBW);
-    const bw = rawBW !== null ? rawBW : ((step.bandwidth || 0) / bMult);
+    const bw = rawBW !== null ? rawBW : (step.bandwidth || 0) / bMult;
     params.bandwidth = bw * bMult;
   }
 
-  if (isFreq) {
+  if (isFftShape) {
     const slopeVal = clamp(inputSlope, 6, 96);
     if (slopeVal !== null) params.slope = slopeVal;
-    const qVal = clamp(inputQ, 0.1, 20.0);
-    if (qVal !== null) params.qFactor = qVal;
+  }
+  if (isFir) {
+    const transitionMultiplier = parseFloat(selFirTransitionUnit?.value || '1');
+    const transition = getNumericValue(inputFirTransition);
+    if (transition !== null) params.transitionWidth = transition * transitionMultiplier;
+    const ripple = clamp(inputFirRipple, 0.001, 6);
+    if (ripple !== null) params.passbandRippleDb = ripple;
+    const attenuation = clamp(inputFirAttenuation, 20, 160);
+    if (attenuation !== null) params.stopbandAttenuationDb = attenuation;
+  }
+  if (isDesignedIir) {
+    const order = clamp(inputFilterOrder, 2, 12);
+    if (order !== null) params.order = Math.max(2, Math.round(order / 2) * 2);
+  }
+  if (isDesignedIir || isFir) {
+    if (selProcessingMode) {
+      params.processingMode = selProcessingMode.value === 'causal' ? 'causal' : 'zero-phase';
+    }
+  }
+  if (type === 'iirComb') {
+    const harmonicCount = clamp(inputHarmonicCount, 1, 100);
+    if (harmonicCount !== null) params.harmonicCount = Math.round(harmonicCount);
   }
 
   State.updateStepParams(id, params);
@@ -175,8 +254,10 @@ function describeStep(step: FilterStep): string {
   if (step.type === 'movingAverage') return `Mov. Avg (Win: ${step.windowSize})`;
   if (step.type === 'savitzkyGolay') return `Sav-Gol (Win: ${step.windowSize}, x${step.iterations || 1})`;
   if (step.type === 'median') return `Median (Win: ${step.windowSize})`;
-  if (step.type === 'iir') return `IIR (Alpha: ${step.alpha})`;
-  if (step.type === 'gaussian') return `Gaussian (Sig: ${step.sigma})`;
+  if (step.type === 'iir') return `One-Pole IIR (smoothing α: ${step.alpha})`;
+  if (step.type === 'gaussian') {
+    return `Gaussian (σ: ${step.sigma}, kernel: ${step.kernelSize || 5})`;
+  }
   if (step.type === 'startStopNorm') {
     const startLabel = step.applyStart === false ? 'Off' : (step.startLength ?? 0);
     const endLabel = step.applyEnd === false ? 'Off' : (step.endLength ?? 0);
@@ -186,6 +267,31 @@ function describeStep(step: FilterStep): string {
   if (step.type === 'lowPassFFT') return `Low Pass (${fmtHz(step.cutoffFreq ?? 0)}Hz)`;
   if (step.type === 'highPassFFT') return `High Pass (${fmtHz(step.cutoffFreq ?? 0)}Hz)`;
   if (step.type === 'notchFFT') return `Notch (${fmtHz(step.centerFreq ?? 0)}Hz)`;
+  if (step.type === 'firLowPass') {
+    return `FIR LP (pass ${fmtHz(step.cutoffFreq ?? 0)}Hz, Δ ${fmtHz(step.transitionWidth ?? 0)}Hz)`;
+  }
+  if (step.type === 'firHighPass') {
+    return `FIR HP (pass ${fmtHz(step.cutoffFreq ?? 0)}Hz, Δ ${fmtHz(step.transitionWidth ?? 0)}Hz)`;
+  }
+  if (step.type === 'firBandPass') {
+    return `FIR BP (${fmtHz(step.centerFreq ?? 0)}Hz ± ${fmtHz((step.bandwidth ?? 0) / 2)}Hz)`;
+  }
+  if (step.type === 'firBandStop') {
+    return `FIR BS (${fmtHz(step.centerFreq ?? 0)}Hz ± ${fmtHz((step.bandwidth ?? 0) / 2)}Hz)`;
+  }
+  if (step.type === 'butterworthLowPass') {
+    return `Butterworth LP (${fmtHz(step.cutoffFreq ?? 0)}Hz, order ${step.order || 4})`;
+  }
+  if (step.type === 'butterworthHighPass') {
+    return `Butterworth HP (${fmtHz(step.cutoffFreq ?? 0)}Hz, order ${step.order || 4})`;
+  }
+  if (step.type === 'butterworthBandPass') {
+    return `Butterworth BP (${fmtHz(step.centerFreq ?? 0)}Hz ± ${fmtHz((step.bandwidth ?? 0) / 2)}Hz)`;
+  }
+  if (step.type === 'iirNotch') return `IIR Notch (${fmtHz(step.centerFreq ?? 0)}Hz)`;
+  if (step.type === 'iirComb') return `IIR Comb (${fmtHz(step.centerFreq ?? 0)}Hz × ${step.harmonicCount || 10})`;
+  if (step.type === 'hampel') return `Hampel (Win: ${step.windowSize}, ${step.thresholdSigma || 3}σ)`;
+  if (step.type === 'waveletDenoise') return `Wavelet (${step.waveletLevels || 4} levels)`;
   return step.type;
 }
 
@@ -232,7 +338,16 @@ export function renderPipelineList(): void {
 
     const label = document.createElement('span');
     label.className = ui.stepDesc;
-    label.textContent = describeStep(step);
+    const report = State.data.pipelineReport.find((entry) => entry.stepId === step.id);
+    label.textContent = report
+      ? `${describeStep(step)} · changed ${report.changedSamples}/${report.totalSamples}`
+      : describeStep(step);
+    if (report?.effectiveParameters) {
+      label.title = [
+        `Effective parameters: ${JSON.stringify(report.effectiveParameters)}`,
+        ...(report.warnings || [])
+      ].join('\n');
+    }
 
     el.append(enable, num, label);
 
@@ -267,30 +382,92 @@ export function updateParamEditor(): void {
   if (filterTypeDisplay) filterTypeDisplay.textContent = FILTER_NAMES[step.type];
 
   const type = step.type;
-  const isTime = ['movingAverage', 'savitzkyGolay', 'median', 'gaussian'].includes(type);
-  const isFreq = ['lowPassFFT', 'highPassFFT'].includes(type);
-  const isNotch = type === 'notchFFT';
+  const isTime = ['movingAverage', 'savitzkyGolay', 'median', 'gaussian', 'hampel'].includes(type);
+  const isFir = ['firLowPass', 'firHighPass', 'firBandPass', 'firBandStop'].includes(type);
+  const isFreq = [
+    'lowPassFFT',
+    'highPassFFT',
+    'firLowPass',
+    'firHighPass',
+    'butterworthLowPass',
+    'butterworthHighPass'
+  ].includes(type);
+  const isFftShape = ['lowPassFFT', 'highPassFFT'].includes(type);
+  const isCenterBandwidth = [
+    'notchFFT',
+    'firBandPass',
+    'firBandStop',
+    'butterworthBandPass',
+    'iirNotch',
+    'iirComb'
+  ].includes(type);
+  const isDesignedIir = [
+    'butterworthLowPass',
+    'butterworthHighPass',
+    'butterworthBandPass',
+    'iirNotch',
+    'iirComb'
+  ].includes(type);
 
   if (type === 'nullFilter') {
-    [grpWindow, grpPoly, grpIters, grpAlpha, grpSigma, grpDecay, grpFreq, grpSlope, grpQ, grpBW]
-      .forEach((group) => setVisible(group, false));
+    [
+      grpWindow,
+      grpPoly,
+      grpIters,
+      grpAlpha,
+      grpSigma,
+      grpDecay,
+      grpFreq,
+      grpSlope,
+      grpBW,
+      grpIirAdvanced,
+      grpFirAdvanced,
+      grpHarmonicCount
+    ].forEach((group) => setVisible(group, false));
     paramPanel.classList.add('pointer-events-none', 'opacity-30');
     return;
   }
 
   setVisible(grpWindow, isTime);
   setVisible(grpPoly, type === 'savitzkyGolay');
-  setVisible(grpIters, type === 'savitzkyGolay');
+  setVisible(grpIters, type === 'savitzkyGolay' || type === 'waveletDenoise');
   setVisible(grpAlpha, type === 'iir');
-  setVisible(grpSigma, type === 'gaussian');
+  setVisible(grpSigma, type === 'gaussian' || type === 'hampel' || type === 'waveletDenoise');
   setVisible(grpDecay, type === 'startStopNorm');
-  setVisible(grpFreq, isFreq || isNotch);
-  setVisible(grpSlope, isFreq);
-  setVisible(grpQ, isFreq);
-  setVisible(grpBW, isNotch);
+  setVisible(grpFreq, isFreq || isCenterBandwidth);
+  setVisible(grpSlope, isFftShape);
+  setVisible(grpBW, isCenterBandwidth);
+  setVisible(grpIirAdvanced, isDesignedIir || isFir);
+  setVisible(grpIirOrder, isDesignedIir);
+  setVisible(grpFirAdvanced, isFir);
+  setVisible(grpHarmonicCount, type === 'iirComb');
 
   const lblFreq = document.querySelector('label[for="param-freq"]');
-  if (lblFreq) lblFreq.textContent = isNotch ? 'Center Frequency' : 'Cutoff Frequency';
+  if (lblFreq) {
+    lblFreq.textContent = isCenterBandwidth
+      ? 'Center / Fundamental Frequency'
+      : isFir
+        ? 'Passband Edge'
+        : 'Cutoff Frequency';
+  }
+  const lblBandwidth = document.querySelector('label[for="param-bw"]');
+  if (lblBandwidth) {
+    lblBandwidth.textContent =
+      type === 'firBandPass' ? 'Passband Width' : type === 'firBandStop' ? 'Stopband Width' : 'Bandwidth';
+  }
+  const lblWindow = document.querySelector('label[for="param-window"]');
+  if (lblWindow) lblWindow.textContent = type === 'hampel' ? 'Hampel Window' : 'Window / Kernel';
+  const lblSigma = document.querySelector('label[for="param-sigma"]');
+  if (lblSigma) {
+    lblSigma.textContent =
+      type === 'hampel'
+        ? 'Outlier Threshold (σ)'
+        : type === 'waveletDenoise'
+          ? 'Wavelet Threshold (blank = auto)'
+          : 'Sigma';
+  }
+  const lblIters = document.querySelector('label[for="param-iters"]');
+  if (lblIters) lblIters.textContent = type === 'waveletDenoise' ? 'Wavelet Levels' : 'Iterations';
 
   const setVal = (inp: HTMLInputElement | null, slider: HTMLInputElement | null, val: number | string) => {
     const text = String(val);
@@ -298,14 +475,47 @@ export function updateParamEditor(): void {
     if (slider) slider.value = text;
   };
 
-  if (step.windowSize != null) setVal(inputWindow, sliderWindow, step.windowSize);
+  const minimumWindow = type === 'savitzkyGolay' || type === 'gaussian' ? 3 : 1;
+  if (inputWindow) inputWindow.min = String(minimumWindow);
+  if (sliderWindow) sliderWindow.min = String(minimumWindow);
+  if (type === 'gaussian' && step.kernelSize != null) {
+    setVal(inputWindow, sliderWindow, step.kernelSize);
+  } else if (step.windowSize != null) {
+    setVal(inputWindow, sliderWindow, step.windowSize);
+  }
   if (step.polyOrder != null) setVal(inputPoly, sliderPoly, step.polyOrder);
   if (step.alpha != null) setVal(inputAlpha, sliderAlpha, step.alpha);
   if (step.sigma != null) setVal(inputSigma, sliderSigma, step.sigma);
   if (step.iterations != null) setVal(inputIters, sliderIters, step.iterations);
+  if (step.thresholdSigma != null) setVal(inputSigma, sliderSigma, step.thresholdSigma);
+  if (step.waveletLevels != null) setVal(inputIters, sliderIters, step.waveletLevels);
+  if (type === 'waveletDenoise') {
+    const value = step.waveletThreshold == null ? '' : String(step.waveletThreshold);
+    if (inputSigma) inputSigma.value = value;
+    if (sliderSigma && value) sliderSigma.value = value;
+  }
+  if (inputFilterOrder) inputFilterOrder.value = String(step.order || 4);
+  if (selProcessingMode) {
+    selProcessingMode.value = step.processingMode || 'zero-phase';
+    const zeroPhaseOption = selProcessingMode.querySelector<HTMLOptionElement>('option[value="zero-phase"]');
+    if (zeroPhaseOption) {
+      zeroPhaseOption.textContent = isFir ? 'Centered zero-phase (one pass)' : 'Zero-phase (forward/backward)';
+    }
+  }
+  if (inputFirRipple) inputFirRipple.value = String(step.passbandRippleDb ?? 0.1);
+  if (inputFirAttenuation) inputFirAttenuation.value = String(step.stopbandAttenuationDb ?? 80);
+  if (firDesignSummary) {
+    const report = State.data.pipelineReport.find((entry) => entry.stepId === step.id);
+    const effective = report?.effectiveParameters;
+    firDesignSummary.textContent =
+      isFir && effective?.tapCountMin
+        ? `${effective.tapCountMin}${effective.tapCountMax !== effective.tapCountMin ? `–${effective.tapCountMax}` : ''} taps · Kaiser β ${Number(effective.kaiserBetaMax).toPrecision(5)} · achieved ripple ≤ ${Number(effective.achievedPassbandRippleDbMax).toPrecision(4)} dB · stopband ≥ ${Number(effective.achievedStopbandAttenuationDbMin).toPrecision(4)} dB`
+        : 'Tap count and Kaiser beta are derived, bounded, and numerically verified against these specifications.';
+  }
+  if (inputHarmonicCount) inputHarmonicCount.value = String(step.harmonicCount || 10);
 
-  const startLen = step.startLength ?? step.decayLength;
-  const endLen = step.endLength ?? step.decayLength;
+  const startLen = step.startLength;
+  const endLen = step.endLength;
   if (startLen !== undefined) setVal(inputStartDecay, sliderStartDecay, startLen);
   if (endLen !== undefined) setVal(inputEndDecay, sliderEndDecay, endLen);
   if (chkApplyStart) chkApplyStart.checked = step.applyStart !== false;
@@ -315,7 +525,6 @@ export function updateParamEditor(): void {
   if (inputStartOffset && chkAutoOffset) inputStartOffset.disabled = chkAutoOffset.checked;
   if (inputAutoOffsetPoints) inputAutoOffsetPoints.value = String(step.autoOffsetPoints ?? 200);
   if (step.slope != null) setVal(inputSlope, sliderSlope, step.slope);
-  if (step.qFactor != null) setVal(inputQ, sliderQ, step.qFactor);
 
   const setUnitInput = (hzValue: number, inputEl: HTMLInputElement | null, unitEl: HTMLSelectElement | null) => {
     if (!inputEl || !unitEl) return;
@@ -337,6 +546,9 @@ export function updateParamEditor(): void {
   if (step.cutoffFreq) setUnitInput(step.cutoffFreq, inputFreq, selFreqUnit);
   if (step.centerFreq) setUnitInput(step.centerFreq, inputFreq, selFreqUnit);
   if (step.bandwidth) setUnitInput(step.bandwidth, inputBW, selBWUnit);
+  if (step.transitionWidth) {
+    setUnitInput(step.transitionWidth, inputFirTransition, selFirTransitionUnit);
+  }
 }
 
 export function showAddStepMenu(): void {
@@ -348,15 +560,32 @@ export function showAddStepMenu(): void {
         <button type="button" class="${ui.addOpt}" data-type="movingAverage">Moving Average</button>
         <button type="button" class="${ui.addOpt}" data-type="savitzkyGolay">Savitzky-Golay</button>
         <button type="button" class="${ui.addOpt}" data-type="median">Median (Despeckle)</button>
-        <button type="button" class="${ui.addOpt}" data-type="iir">IIR Low Pass</button>
         <button type="button" class="${ui.addOpt}" data-type="gaussian">Gaussian</button>
+        <button type="button" class="${ui.addOpt}" data-type="hampel">Hampel Deglitch</button>
+        <button type="button" class="${ui.addOpt}" data-type="waveletDenoise">Wavelet Denoise</button>
         <button type="button" class="${ui.addOpt}" data-type="startStopNorm">Start/Stop Norm</button>
       </div>
-      <div>
+      <div class="mb-1 border-b border-line pb-2.5">
         <small class="mb-2 block text-muted">Frequency Domain (FFT)</small>
         <button type="button" class="${ui.addOpt}" data-type="lowPassFFT">Low Pass</button>
         <button type="button" class="${ui.addOpt}" data-type="highPassFFT">High Pass</button>
         <button type="button" class="${ui.addOpt}" data-type="notchFFT">Notch Filter</button>
+      </div>
+      <div>
+        <div class="mb-1 border-b border-line pb-2.5">
+          <small class="mb-2 block text-muted">Designed FIR Filters</small>
+          <button type="button" class="${ui.addOpt}" data-type="firLowPass">Kaiser FIR Low Pass</button>
+          <button type="button" class="${ui.addOpt}" data-type="firHighPass">Kaiser FIR High Pass</button>
+          <button type="button" class="${ui.addOpt}" data-type="firBandPass">Kaiser FIR Band Pass</button>
+          <button type="button" class="${ui.addOpt}" data-type="firBandStop">Kaiser FIR Band Stop</button>
+        </div>
+        <small class="mb-2 block text-muted">IIR Filters</small>
+        <button type="button" class="${ui.addOpt}" data-type="iir">One-Pole IIR Low Pass</button>
+        <button type="button" class="${ui.addOpt}" data-type="butterworthLowPass">Butterworth Low Pass</button>
+        <button type="button" class="${ui.addOpt}" data-type="butterworthHighPass">Butterworth High Pass</button>
+        <button type="button" class="${ui.addOpt}" data-type="butterworthBandPass">Butterworth Band Pass</button>
+        <button type="button" class="${ui.addOpt}" data-type="iirNotch">IIR Notch</button>
+        <button type="button" class="${ui.addOpt}" data-type="iirComb">IIR Comb Notch</button>
       </div>
     </div>
   `;
@@ -373,3 +602,8 @@ export function showAddStepMenu(): void {
     });
   });
 }
+
+document.addEventListener('signalforge:pipeline-report', () => {
+  renderPipelineList();
+  updateParamEditor();
+});

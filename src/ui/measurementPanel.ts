@@ -7,7 +7,10 @@ import { ui } from './classes';
 
 const PRESETS: Record<MeasurementPreset, { label: string; metrics: string[] }> = {
   general: { label: 'General', metrics: ['mean', 'rms', 'peakToPeak', 'frequencyHz', 'period', 'min', 'max'] },
-  power: { label: 'Power Electronics', metrics: ['riseTime', 'fallTime', 'overshootPct', 'undershootPct', 'dutyCycle', 'peakToPeak', 'frequencyHz'] },
+  power: {
+    label: 'Power Electronics',
+    metrics: ['riseTime', 'fallTime', 'overshootPct', 'undershootPct', 'dutyCycle', 'peakToPeak', 'frequencyHz']
+  },
   pulsed: { label: 'Pulsed', metrics: ['area', 'absArea', 'peakTime', 'valleyTime', 'rms', 'mean'] }
 };
 
@@ -39,14 +42,20 @@ function formatNumber(value: number | null | undefined, key: string): string {
   if (['riseTime', 'fallTime', 'peakTime', 'valleyTime', 'period'].includes(key)) return formatSeconds(value);
   const abs = Math.abs(value);
   if (abs !== 0 && (abs < 0.001 || abs >= 100000)) return value.toExponential(3);
-  return Number(value).toFixed(4).replace(/\.0+$/, '').replace(/\.([0-9]*?)0+$/, '.$1');
+  return Number(value)
+    .toFixed(4)
+    .replace(/\.0+$/, '')
+    .replace(/\.([0-9]*?)0+$/, '.$1');
 }
 
-function formatSelection(selection: MeasurementResult['selection'] & { xMin?: number | null; xMax?: number | null }): string {
+function formatSelection(
+  selection: MeasurementResult['selection'] & { xMin?: number | null; xMax?: number | null }
+): string {
   if (!selection || selection.i0 === null || selection.i1 === null) return 'Full record';
-  const timeLabel = (selection.xMin != null && selection.xMax != null)
-    ? ` (${formatSeconds(selection.xMin)} → ${formatSeconds(selection.xMax)})`
-    : '';
+  const timeLabel =
+    selection.xMin != null && selection.xMax != null
+      ? ` (${formatSeconds(selection.xMin)} → ${formatSeconds(selection.xMax)})`
+      : '';
   return `Indices ${selection.i0}–${selection.i1}${timeLabel}`;
 }
 
@@ -105,7 +114,7 @@ export const MeasurementPanel = {
       this.clear();
       return;
     }
-    const sourceLabel = (!series.isMath && series.filteredY?.length) ? 'filtered' : 'raw';
+    const sourceLabel = !series.isMath && series.filteredY?.length ? 'filtered' : 'raw';
     const signature = seriesSignature(series, sourceLabel);
     if (signature !== this.lastSignature) {
       this.cache.clear();
@@ -134,9 +143,10 @@ export const MeasurementPanel = {
     }
 
     const selection = State.getAnalysisSelection();
-    const ySource = (!this.lastSeries.isMath && this.lastSeries.filteredY?.length)
-      ? this.lastSeries.filteredY
-      : this.lastSeries.rawY;
+    const ySource =
+      !this.lastSeries.isMath && this.lastSeries.filteredY?.length ? this.lastSeries.filteredY : this.lastSeries.rawY;
+    const quality =
+      ySource === this.lastSeries.filteredY ? this.lastSeries.filteredQuality : this.lastSeries.rawQuality;
     const cacheKey = `${seriesSignature(this.lastSeries, ySource === this.lastSeries.filteredY ? 'filtered' : 'raw')}|${selectionKey(selection)}`;
     const cached = this.cache.get(cacheKey);
     if (cached) {
@@ -145,7 +155,7 @@ export const MeasurementPanel = {
     }
 
     const results = Measurements.compute(
-      { t: this.lastSeries.rawX, y: ySource, selection },
+      { t: this.lastSeries.rawX, y: ySource, quality, selection },
       { edgeThresholds: { lowFraction: 0.1, highFraction: 0.9 } }
     );
     this.cache.set(cacheKey, results);
@@ -172,12 +182,16 @@ export const MeasurementPanel = {
 
     const preset = PRESETS[this.currentPreset] || PRESETS.general;
     if (this.rowsEl) {
-      this.rowsEl.innerHTML = preset.metrics.map((key) => `
+      this.rowsEl.innerHTML = preset.metrics
+        .map(
+          (key) => `
         <tr>
           <td class="${ui.analysisTableCell}">${LABELS[key] || key}</td>
           <td class="${ui.analysisTableCell} text-right font-mono">${formatNumber(results.metrics[key], key)}</td>
         </tr>
-      `).join('');
+      `
+        )
+        .join('');
     }
 
     if (this.summaryEl) {

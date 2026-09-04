@@ -5,7 +5,18 @@ export default defineConfig({
   plugins: [tailwindcss()],
   base: '/SignalForge/',
   build: {
-    outDir: 'docs',
+    outDir: 'dist',
     emptyOutDir: true,
-  },
+    rollupOptions: {
+      output: {
+        manualChunks(moduleId) {
+          if (moduleId.includes('node_modules/plotly')) return 'plotly';
+          if (moduleId.includes('node_modules/mathjs')) return 'math';
+          if (moduleId.includes('node_modules/papaparse')) return 'csv';
+          if (moduleId.includes('node_modules/fflate')) return 'archive';
+          return undefined;
+        }
+      }
+    }
+  }
 });

@@ -3,20 +3,20 @@ import type { AnalysisEvent, AnalysisSelection } from '../types';
 
 export const AnalysisTypes = {
   createSelection(params: Partial<AnalysisSelection> = {}): AnalysisSelection {
-    const xMin = Number.isFinite(params.xMin) ? params.xMin as number : null;
-    const xMax = Number.isFinite(params.xMax) ? params.xMax as number : null;
+    const xMin = Number.isFinite(params.xMin) ? (params.xMin as number) : null;
+    const xMax = Number.isFinite(params.xMax) ? (params.xMax as number) : null;
     return {
       xMin: xMin !== null && xMax !== null ? Math.min(xMin, xMax) : xMin,
       xMax: xMin !== null && xMax !== null ? Math.max(xMin, xMax) : xMax,
-      i0: Number.isInteger(params.i0) ? params.i0 as number : null,
-      i1: Number.isInteger(params.i1) ? params.i1 as number : null
+      i0: Number.isInteger(params.i0) ? (params.i0 as number) : null,
+      i1: Number.isInteger(params.i1) ? (params.i1 as number) : null
     };
   },
 
   createEvent(params: Partial<AnalysisEvent> = {}): AnalysisEvent {
     return {
-      index: Number.isInteger(params.index) ? params.index as number : null,
-      time: Number.isFinite(params.time) ? params.time as number : null,
+      index: Number.isInteger(params.index) ? (params.index as number) : null,
+      time: Number.isFinite(params.time) ? (params.time as number) : null,
       type: params.type || 'unknown',
       metadata: params.metadata || {}
     };
@@ -43,9 +43,11 @@ export function getSelectionIndices(
 ): { i0: number | null; i1: number | null } {
   if (!xRange || tArray.length === 0) return { i0: null, i1: null };
 
-  const normalizedRange = Array.isArray(xRange) || (typeof (xRange as ArrayLike<number>).length === 'number' && !('xMin' in (xRange as object)))
-    ? normalizeRange(xRange as ArrayLike<number>)
-    : normalizeRange([(xRange as AnalysisSelection).xMin as number, (xRange as AnalysisSelection).xMax as number]);
+  const normalizedRange =
+    Array.isArray(xRange) ||
+    (typeof (xRange as ArrayLike<number>).length === 'number' && !('xMin' in (xRange as object)))
+      ? normalizeRange(xRange as ArrayLike<number>)
+      : normalizeRange([(xRange as AnalysisSelection).xMin as number, (xRange as AnalysisSelection).xMax as number]);
   if (!normalizedRange) return { i0: null, i1: null };
   const [xMin, xMax] = normalizedRange;
 
@@ -91,7 +93,10 @@ export const AnalysisEngine = {
     return this.setSelection(null);
   },
 
-  updateSelectionFromRange(range: ArrayLike<number> | null | undefined, timeArray: ArrayLike<number> = []): AnalysisSelection | null {
+  updateSelectionFromRange(
+    range: ArrayLike<number> | null | undefined,
+    timeArray: ArrayLike<number> = []
+  ): AnalysisSelection | null {
     const normalizedRange = normalizeRange(range);
     if (!normalizedRange) return this.clearSelection();
     const [xMin, xMax] = normalizedRange;

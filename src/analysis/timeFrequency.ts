@@ -1,5 +1,18 @@
 import { FFT } from '../processing/fft';
+import { antiAliasAndDecimate } from '../processing/sampling';
 import type { AnalysisSelection, FftDetrend, FftWindowType } from '../types';
+
+export interface SpectrogramOptions {
+  selection?: AnalysisSelection | null;
+  windowSize?: number;
+  overlap?: number;
+  windowType?: FftWindowType;
+  detrend?: FftDetrend;
+  maxPoints?: number;
+  freqMin?: number;
+  freqMax?: number | null;
+  windowOpts?: { beta?: number };
+}
 
 export interface SpectrogramResult {
   timeBins: number[];
@@ -15,10 +28,15 @@ export interface SpectrogramResult {
     nFrames?: number;
     freqResolution?: number;
     nyquist?: number;
+    antiAliasCutoffHz?: number;
   };
 }
 
-function sliceBySelection(signal: number[], time: number[], selection: AnalysisSelection | null): { y: number[]; t: number[] } {
+function sliceBySelection(
+  signal: number[],
+  time: number[],
+  selection: AnalysisSelection | null
+): { y: number[]; t: number[] } {
   if (!selection || selection.i0 === null || selection.i1 === null) {
     return { y: signal.slice(), t: time.slice() };
   }
@@ -27,30 +45,23 @@ function sliceBySelection(signal: number[], time: number[], selection: AnalysisS
   return { y: signal.slice(start, end + 1), t: time.slice(start, end + 1) };
 }
 
-function downsampleForSpectrogram(y: number[], t: number[], maxPoints = 40000): { y: number[]; t: number[]; factor: number } {
-  if (!maxPoints || y.length <= maxPoints) return { y, t, factor: 1 };
+function downsampleForSpectrogram(
+  y: number[],
+  t: number[],
+  maxPoints = 40000
+): { y: number[]; t: number[]; factor: number; cutoffHz: number | null } {
+  if (!maxPoints || y.length <= maxPoints) return { y, t, factor: 1, cutoffHz: null };
   const stride = Math.ceil(y.length / maxPoints);
-  const reducedY: number[] = [];
-  const reducedT: number[] = [];
-  for (let i = 0; i < y.length; i += stride) {
-    reducedY.push(y[i]);
-    reducedT.push(t[i]);
-  }
-  return { y: reducedY, t: reducedT, factor: stride };
+  const reduced = antiAliasAndDecimate(t, y, stride);
+  return { y: reduced.values, t: reduced.time, factor: reduced.factor, cutoffHz: reduced.cutoffHz };
 }
 
 export const TimeFrequency = {
-  computeSpectrogram(signal: ArrayLike<number> = [], timeArray: ArrayLike<number> = [], options: {
-    selection?: AnalysisSelection | null;
-    windowSize?: number;
-    overlap?: number;
-    windowType?: FftWindowType;
-    detrend?: FftDetrend;
-    maxPoints?: number;
-    freqMin?: number;
-    freqMax?: number | null;
-    windowOpts?: { beta?: number };
-  } = {}): SpectrogramResult {
+  computeSpectrogram(
+    signal: ArrayLike<number> = [],
+    timeArray: ArrayLike<number> = [],
+    options: SpectrogramOptions = {}
+  ): SpectrogramResult {
     const {
       selection = null,
       windowSize = 512,
@@ -69,12 +80,30 @@ export const TimeFrequency = {
     }
 
     const sliced = sliceBySelection(Array.from(signal), Array.from(timeArray), selection);
-    const downsampled = downsampleForSpectrogram(sliced.y, sliced.t, maxPoints);
+    let downsampled: ReturnType<typeof downsampleForSpectrogram>;
+    try {
+      downsampled = downsampleForSpectrogram(sliced.y, sliced.t, maxPoints);
+    } catch (error) {
+      return {
+        timeBins: [],
+        freqBins: [],
+        magnitudeDb: [],
+        warnings: [error instanceof Error ? error.message : String(error)],
+        meta: {}
+      };
+    }
     if (downsampled.factor > 1) {
-      warnings.push(`Downsampled spectrogram input by ${downsampled.factor}x to ${downsampled.y.length} points.`);
+      warnings.push(
+        `Applied IIR anti-alias filtering at ${downsampled.cutoffHz?.toPrecision(4)} Hz before ` +
+          `${downsampled.factor}x spectrogram decimation.`
+      );
     }
 
-    const { fs, warnings: timingWarnings, medianDt } = FFT.inferSampleRate(downsampled.t.length ? downsampled.t : timeArray);
+    const {
+      fs,
+      warnings: timingWarnings,
+      medianDt
+    } = FFT.inferSampleRate(downsampled.t.length ? downsampled.t : timeArray);
     warnings.push(...(timingWarnings || []));
     if (!Number.isFinite(fs) || fs <= 0) {
       return { timeBins: [], freqBins: [], magnitudeDb: [], warnings: ['Invalid sampling rate'], meta: {} };
@@ -108,8 +137,8 @@ export const TimeFrequency = {
     for (let start = 0; start + segmentLength <= downsampled.y.length; start += hop) {
       const segment = downsampled.y.slice(start, start + segmentLength);
       const windowed = FFT.applyWindow(FFT.applyDetrend(segment, detrend), window);
-      const { re, im, length } = FFT.forward(windowed, { zeroPadMode: 'factor', zeroPadFactor: zeroPadLength / segmentLength });
-      frames.push(FFT.getMagnitudeDB(re, im, { coherentGain, lengthOverride: length }).slice(freqStart, freqEnd));
+      const { re, im } = FFT.forward(windowed, { zeroPadMode: 'factor', zeroPadFactor: zeroPadLength / segmentLength });
+      frames.push(FFT.getMagnitudeDB(re, im, { coherentGain, sampleCount: segmentLength }).slice(freqStart, freqEnd));
       timeBins.push(downsampled.t[Math.min(downsampled.t.length - 1, start + Math.floor(segmentLength / 2))]);
     }
 
@@ -126,7 +155,8 @@ export const TimeFrequency = {
         overlap,
         nFrames: frames.length,
         freqResolution: deltaF,
-        nyquist: fs / 2
+        nyquist: fs / 2,
+        antiAliasCutoffHz: downsampled.cutoffHz || undefined
       }
     };
   }

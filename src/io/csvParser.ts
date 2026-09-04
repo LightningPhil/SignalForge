@@ -1,23 +1,35 @@
 import Papa from 'papaparse';
 import { Config } from '../config';
-import type { CsvRow, CsvValue } from '../types';
+import type { CsvRow, DataSourceRecord } from '../types';
 import { createModal, escapeHtml } from '../ui/uiHelpers';
 
 export const CsvParser = {
-  processFile(file: File, onComplete: (results: Papa.ParseResult<CsvRow>) => void): void {
+  processFile(file: File, onComplete: (results: Papa.ParseResult<CsvRow>, source: DataSourceRecord) => void): void {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const text = String(e.target?.result || '');
-      this.showHeaderSelector(text, text.split(/\r\n|\n|\r/), onComplete);
+      const bytes = new Uint8Array(e.target?.result as ArrayBuffer);
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+      const source = {
+        name: file.name,
+        text,
+        bytes,
+        size: file.size,
+        lastModified: Number.isFinite(file.lastModified) ? file.lastModified : null
+      };
+      this.showHeaderSelector(text, text.split(/\r\n|\n|\r/), source, onComplete);
     };
-    reader.readAsText(file);
+    reader.onerror = () => alert(`Could not read ${file.name}.`);
+    reader.readAsArrayBuffer(file);
   },
 
-  showHeaderSelector(text: string, lines: string[], onComplete: (results: Papa.ParseResult<CsvRow>) => void): void {
+  showHeaderSelector(
+    text: string,
+    lines: string[],
+    source: DataSourceRecord,
+    onComplete: (results: Papa.ParseResult<CsvRow>, source: DataSourceRecord) => void
+  ): void {
     const previewLimit = Config.limits.previewLines || 50;
-    const candidates = lines
-      .map((line, index) => ({ line, index }))
-      .filter((row) => row.line.trim() !== '');
+    const candidates = lines.map((line, index) => ({ line, index })).filter((row) => row.line.trim() !== '');
 
     const html = `<h3 class="mb-2 border-b border-line pb-2 text-lg font-semibold">Select the Header Row</h3>
       <p class="mb-3 text-sm text-main">Click the row that contains your column names (e.g., Time, Voltage).</p>
@@ -37,14 +49,16 @@ export const CsvParser = {
 
     const renderRows = (limit: number): void => {
       const visible = candidates.slice(0, limit);
-      table.innerHTML = visible.map(({ line, index }) => {
-        const safeLine = escapeHtml(line);
-        const display = safeLine.length > 120 ? `${safeLine.substring(0, 120)}...` : safeLine;
-        return `<tr class="cursor-pointer hover:bg-accent hover:text-white focus-visible:bg-accent focus-visible:text-white" data-row="${index}" tabindex="0" role="button" aria-label="Use row ${index + 1} as header">
+      table.innerHTML = visible
+        .map(({ line, index }) => {
+          const safeLine = escapeHtml(line);
+          const display = safeLine.length > 120 ? `${safeLine.substring(0, 120)}...` : safeLine;
+          return `<tr class="cursor-pointer hover:bg-accent hover:text-white focus-visible:bg-accent focus-visible:text-white" data-row="${index}" tabindex="0" role="button" aria-label="Use row ${index + 1} as header">
         <td class="w-20 border border-line px-3 py-2 text-muted">Row ${index + 1}</td>
         <td class="border border-line px-3 py-2">${display}</td>
       </tr>`;
-      }).join('');
+        })
+        .join('');
 
       if (note && noteText) {
         note.classList.toggle('hidden', visible.length >= candidates.length);
@@ -55,7 +69,7 @@ export const CsvParser = {
         const choose = () => {
           const skip = parseInt(row.getAttribute('data-row') || '0', 10);
           modalContent.parentElement?.remove();
-          this.parseFullFile(text, skip, onComplete);
+          this.parseFullFile(text, skip, source, onComplete);
         };
         row.addEventListener('click', choose);
         row.addEventListener('keydown', (event) => {
@@ -67,69 +81,43 @@ export const CsvParser = {
       });
     };
 
-    modalContent.querySelector<HTMLButtonElement>('#btn-show-all-rows')
+    modalContent
+      .querySelector<HTMLButtonElement>('#btn-show-all-rows')
       ?.addEventListener('click', () => renderRows(candidates.length));
 
     renderRows(previewLimit);
   },
 
-  parseFullFile(text: string, skipLines: number, onComplete: (results: Papa.ParseResult<CsvRow>) => void): void {
+  parseFullFile(
+    text: string,
+    skipLines: number,
+    sourceRecord: DataSourceRecord,
+    onComplete: (results: Papa.ParseResult<CsvRow>, source: DataSourceRecord) => void
+  ): void {
     const lines = text.split(/\r\n|\n|\r/);
     const source = skipLines > 0 ? lines.slice(skipLines).join('\n') : lines.join('\n');
 
-    Papa.parse<CsvRow>(source, {
+    const config = {
       header: true,
       dynamicTyping: true,
       skipEmptyLines: true,
       comments: '#',
-      complete: (results) => {
+      complete: (results: Papa.ParseResult<CsvRow>) => {
         if (!results.meta.fields || results.meta.fields.length === 0) {
           alert('Could not detect columns. Check your delimiter.');
           return;
         }
         if (results.errors.length > 0) console.warn('CSV Parse Warnings:', results.errors);
-        const replacements = this.sanitizeClippedData(results.data, results.meta.fields);
-        if (replacements > 0) {
-          console.info(`Sanitized ${replacements} clipped data points by forward-filling last numeric values.`);
-        }
-        onComplete(results);
+        onComplete(results, sourceRecord);
       },
       error: (err: Error) => {
         alert(`Parse Error: ${err.message}`);
       }
-    });
-  },
-
-  sanitizeClippedData(rows: CsvRow[], headers: string[]): number {
-    const lastNumeric: Record<string, number | null> = {};
-    headers.forEach((h) => { lastNumeric[h] = null; });
-    let replacements = 0;
-
-    rows.forEach((row) => {
-      headers.forEach((col) => {
-        const normalized = this.normalizeNumericValue(row[col]);
-        if (normalized !== null) {
-          lastNumeric[col] = normalized;
-          row[col] = normalized;
-        } else if (lastNumeric[col] !== null) {
-          row[col] = lastNumeric[col];
-          replacements += 1;
-        }
-      });
-    });
-
-    return replacements;
-  },
-
-  normalizeNumericValue(value: CsvValue): number | null {
-    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (trimmed === '') return null;
-      if (!/^[+-]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][+-]?\d+)?$/.test(trimmed)) return null;
-      const parsed = parseFloat(trimmed);
-      return Number.isFinite(parsed) ? parsed : null;
+    };
+    if (source.length > 1_000_000) {
+      Papa.parse<CsvRow>(source, { ...config, worker: true });
+    } else {
+      Papa.parse<CsvRow>(source, config);
     }
-    return null;
   }
 };

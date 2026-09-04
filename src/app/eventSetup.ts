@@ -18,6 +18,8 @@ export function setupEventListeners(): void {
   const {
     fileInput,
     btnLoad,
+    btnMultiImport,
+    btnSessionReview,
     btnViewGrid,
     btnGraphConfig,
     btnExport,
@@ -51,15 +53,34 @@ export function setupEventListeners(): void {
     selBWUnit,
     inputSlope,
     sliderSlope,
-    inputQ,
-    sliderQ,
+    inputFilterOrder,
+    selProcessingMode,
+    inputFirTransition,
+    selFirTransitionUnit,
+    inputFirRipple,
+    inputFirAttenuation,
+    inputHarmonicCount,
     liveStatus,
     chkSyncTabs
   } = elements;
 
   if (chkSyncTabs) chkSyncTabs.checked = State.isGlobalScope();
+  window.addEventListener('signalforge:persistence-error', (event) => {
+    const message = (event as CustomEvent<string>).detail;
+    if (liveStatus) liveStatus.textContent = `Save failed: ${message}`;
+  });
+  window.addEventListener('signalforge:data-warning', (event) => {
+    const message = (event as CustomEvent<string>).detail;
+    if (liveStatus) liveStatus.textContent = message;
+  });
 
   btnLoad?.addEventListener('click', () => fileInput?.click());
+  btnMultiImport?.addEventListener('click', () => {
+    void import('../ui/multiFileImport').then(({ MultiFileImport }) => MultiFileImport.show());
+  });
+  btnSessionReview?.addEventListener('click', () => {
+    void import('../ui/reviewWorkspace').then(({ ReviewWorkspace }) => ReviewWorkspace.show());
+  });
 
   fileInput?.addEventListener('change', (e) => {
     const file = (e.target as HTMLInputElement).files?.[0];
@@ -131,10 +152,25 @@ export function setupEventListeners(): void {
   bindInput(inputStartDecay, sliderStartDecay);
   bindInput(inputEndDecay, sliderEndDecay);
   bindInput(inputSlope, sliderSlope);
-  bindInput(inputQ, sliderQ);
 
-  [inputFreq, selFreqUnit, inputBW, selBWUnit, inputStartOffset, inputAutoOffsetPoints, chkApplyStart, chkApplyEnd, chkAutoOffset]
-    .forEach((el) => el?.addEventListener('input', scheduleParamUpdate));
+  [
+    inputFreq,
+    selFreqUnit,
+    inputBW,
+    selBWUnit,
+    inputFilterOrder,
+    selProcessingMode,
+    inputFirTransition,
+    selFirTransitionUnit,
+    inputFirRipple,
+    inputFirAttenuation,
+    inputHarmonicCount,
+    inputStartOffset,
+    inputAutoOffsetPoints,
+    chkApplyStart,
+    chkApplyEnd,
+    chkAutoOffset
+  ].forEach((el) => el?.addEventListener('input', scheduleParamUpdate));
 
   const updateAutoOffsetInputs = () => {
     if (inputStartOffset) inputStartOffset.disabled = !!chkAutoOffset?.checked;

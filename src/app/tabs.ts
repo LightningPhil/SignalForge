@@ -102,11 +102,13 @@ function renderTraceSelector(view: MultiView): void {
     return;
   }
 
-  traceSelectorList.innerHTML = allCols.map((col) => {
-    const safeCol = escapeHtml(col);
-    const isChecked = view.activeColumnIds.includes(col) ? 'checked' : '';
-    return `<label class="${ui.toggleLabel}"><input type="checkbox" class="h-4 w-4 accent-accent" data-col="${safeCol}" ${isChecked}> ${safeCol}</label>`;
-  }).join('');
+  traceSelectorList.innerHTML = allCols
+    .map((col) => {
+      const safeCol = escapeHtml(col);
+      const isChecked = view.activeColumnIds.includes(col) ? 'checked' : '';
+      return `<label class="${ui.toggleLabel}"><input type="checkbox" class="h-4 w-4 accent-accent" data-col="${safeCol}" ${isChecked}> ${safeCol}</label>`;
+    })
+    .join('');
 
   traceSelectorList.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((chk) => {
     chk.addEventListener('change', () => {

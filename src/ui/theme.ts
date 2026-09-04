@@ -9,9 +9,7 @@ export const Theme = {
   init(toggleButton: HTMLButtonElement | null): void {
     const saved = localStorage.getItem(STORAGE_KEY);
     const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)').matches;
-    const initial = saved === 'light' || saved === 'dark'
-      ? saved
-      : prefersLight ? 'light' : 'dark';
+    const initial = saved === 'light' || saved === 'dark' ? saved : prefersLight ? 'light' : 'dark';
     this.apply(initial, false);
     toggleButton?.addEventListener('click', () => {
       this.apply(this.current === 'dark' ? 'light' : 'dark');

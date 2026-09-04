@@ -16,9 +16,8 @@ export function applyComposerOffsets(
 
   return {
     adjustedRawY: yOffset ? shiftedRaw.map((v) => v + yOffset) : shiftedRaw,
-    adjustedFilteredY: yOffset && shiftedFiltered.length > 0
-      ? shiftedFiltered.map((v) => v + yOffset)
-      : shiftedFiltered,
+    adjustedFilteredY:
+      yOffset && shiftedFiltered.length > 0 ? shiftedFiltered.map((v) => v + yOffset) : shiftedFiltered,
     xOffset,
     yOffset
   };

@@ -4,12 +4,13 @@ import { CrossChannel } from '../analysis/crossChannel';
 import { EventDetector } from '../analysis/eventDetector';
 import { Measurements } from '../analysis/measurements';
 import { SpectralMetrics } from '../analysis/spectralMetrics';
-import { applyComposerOffsets, getComposerTrace } from '../processing/composer';
+import { combineQualityMasks, qualityFlagNames } from '../data/quality';
 import { Filter } from '../processing/filter';
 import { MathEngine } from '../processing/math';
 import { State } from '../state';
 import type { AnalysisSeries, ImageExportOptions, ThemeName } from '../types';
-import { getAlignedSeriesForColumn, getRawSeries, getSeriesForColumn } from '../app/traceData';
+import { getAlignedSeriesForColumn, getRawSeries, getSeriesForColumn, getTimeArray } from '../app/traceData';
+import { toNumber } from '../app/utils';
 import { getColorsForTheme, hexToRgba } from '../ui/colors';
 import { getPixelsPerCm } from '../ui/displayCalibration';
 import { downloadText } from './download';
@@ -32,6 +33,7 @@ const THEME_STYLES: Record<ThemeName, { paperBg: string; plotBg: string; fontCol
 interface ProcessedColumn {
   raw: number[];
   filtered: number[];
+  quality?: Uint16Array;
   isMath?: boolean;
 }
 
@@ -51,39 +53,25 @@ export const Exporter = {
       return rawData.some((row) => {
         const val = row[h];
         if (val === undefined || val === null) return false;
-        return Number.isFinite(parseFloat(String(val)));
+        return Number.isFinite(toNumber(val));
       });
     });
 
-    const rawTime = rawData.map((r) => parseFloat(String(r[xCol])));
-    const activeViewId = State.ui.activeMultiViewId || null;
-    const activeView = activeViewId ? State.multiViews.find((v) => v.id === activeViewId) : null;
-    const activeComposer = State.getComposer(activeViewId);
-
+    const rawTime = getTimeArray();
     const processedDataMap: Record<string, ProcessedColumn> = {};
     const mathCols = (State.config.mathDefinitions || []).map((def) => def.name);
 
     numericCols.forEach((col) => {
-      const rawCol = rawData.map((r) => parseFloat(String(r[col])));
+      const rawCol = State.data.columns[col]
+        ? Array.from(State.data.columns[col])
+        : rawData.map((r) => toNumber(r[col]));
       const pipeline = State.getPipelineForColumn(col);
-      const filtered = Filter.applyPipeline(rawCol, rawTime, pipeline);
-
-      let alignedRaw = rawCol;
-      let alignedFiltered = filtered;
-
-      if (activeView && activeView.activeColumnIds.includes(col)) {
-        const trace = activeComposer?.traces?.find((t) => t.columnId === col) || { columnId: col };
-        const aligned = applyComposerOffsets(rawCol, filtered, { columnId: col, yOffset: trace.yOffset || 0 });
-        alignedRaw = aligned.adjustedRawY;
-        alignedFiltered = aligned.adjustedFilteredY;
-      } else if (!activeViewId && State.data.dataColumn === col) {
-        const trace = getComposerTrace(null, col);
-        const aligned = applyComposerOffsets(rawCol, filtered, trace);
-        alignedRaw = aligned.adjustedRawY;
-        alignedFiltered = aligned.adjustedFilteredY;
-      }
-
-      processedDataMap[col] = { raw: alignedRaw, filtered: alignedFiltered };
+      const filtered = Filter.applyPipelineWithReport(rawCol, rawTime, pipeline, State.data.quality[col]);
+      processedDataMap[col] = {
+        raw: rawCol,
+        filtered: filtered.values,
+        quality: filtered.quality
+      };
     });
 
     mathCols.forEach((name) => {
@@ -93,9 +81,14 @@ export const Exporter = {
       processedDataMap[name] = { raw: result.values || [], filtered: result.values || [], isMath: true };
     });
 
-    const outputHeaders = [xCol];
-    if (includeOriginal) numericCols.forEach((h) => outputHeaders.push(h));
-    numericCols.forEach((h) => outputHeaders.push(`${h} (Filtered)`));
+    const outputHeaders = [`${xCol} (Working)`];
+    if (includeOriginal) {
+      outputHeaders.push(`${xCol} (Original)`, `${xCol} (Original Quality)`, `${xCol} (Working Quality)`);
+      numericCols.forEach((h) =>
+        outputHeaders.push(`${h} (Original)`, `${h} (Working)`, `${h} (Original Quality)`, `${h} (Working Quality)`)
+      );
+    }
+    numericCols.forEach((h) => outputHeaders.push(`${h} (Filtered)`, `${h} (Filtered Quality)`));
     mathCols.forEach((name) => outputHeaders.push(name));
 
     const quoteCsv = (val: unknown): string => {
@@ -106,11 +99,23 @@ export const Exporter = {
 
     const lines = [outputHeaders.map(quoteCsv).join(',')];
     for (let i = 0; i < rawData.length; i++) {
+      const originalRow = State.data.original[i];
       const rowData = [quoteCsv(rawData[i][xCol])];
       if (includeOriginal) {
-        numericCols.forEach((col) => rowData.push(quoteCsv(processedDataMap[col].raw[i])));
+        rowData.push(quoteCsv(originalRow?.[xCol]));
+        rowData.push(quoteCsv(qualityFlagNames(State.data.originalQuality[xCol]?.[i] || 0).join('|')));
+        rowData.push(quoteCsv(qualityFlagNames(State.data.quality[xCol]?.[i] || 0).join('|')));
+        numericCols.forEach((col) => {
+          rowData.push(quoteCsv(originalRow?.[col]));
+          rowData.push(quoteCsv(rawData[i][col]));
+          rowData.push(quoteCsv(qualityFlagNames(State.data.originalQuality[col]?.[i] || 0).join('|')));
+          rowData.push(quoteCsv(qualityFlagNames(State.data.quality[col]?.[i] || 0).join('|')));
+        });
       }
-      numericCols.forEach((col) => rowData.push(quoteCsv(processedDataMap[col].filtered[i])));
+      numericCols.forEach((col) => {
+        rowData.push(quoteCsv(processedDataMap[col].filtered[i]));
+        rowData.push(quoteCsv(qualityFlagNames(processedDataMap[col].quality?.[i] || 0).join('|')));
+      });
       mathCols.forEach((name) => rowData.push(quoteCsv(processedDataMap[name]?.raw[i])));
       lines.push(rowData.join(','));
     }
@@ -134,9 +139,12 @@ export const Exporter = {
       return;
     }
 
-    const selectedTheme: ThemeName = theme === 'light' || theme === 'dark'
-      ? theme
-      : (document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
+    const selectedTheme: ThemeName =
+      theme === 'light' || theme === 'dark'
+        ? theme
+        : document.documentElement.getAttribute('data-theme') === 'light'
+          ? 'light'
+          : 'dark';
 
     const themeStyles = THEME_STYLES[selectedTheme] || THEME_STYLES.dark;
     const colors = this.getColorsForTheme(selectedTheme);
@@ -151,9 +159,10 @@ export const Exporter = {
     const themedData = (graphDiv.data || []).map((trace) => {
       const clonedTrace: Data = { ...trace };
       const name = ('name' in trace && typeof trace.name === 'string' ? trace.name : '').toLowerCase();
-      const existingLine = 'line' in trace && trace.line && typeof trace.line === 'object'
-        ? trace.line as { color?: string; width?: number }
-        : {};
+      const existingLine =
+        'line' in trace && trace.line && typeof trace.line === 'object'
+          ? (trace.line as { color?: string; width?: number })
+          : {};
       const line: { color?: string; width?: number } = { ...existingLine };
 
       if (name.includes('transfer')) line.color = transferColor;
@@ -210,10 +219,20 @@ export const Exporter = {
     const { rawX } = getRawSeries(columnId);
     const series = getSeriesForColumn(columnId, rawX);
     if (!series) return null;
+    const rawQuality = combineQualityMasks(
+      series.rawY.length,
+      State.data.quality[columnId],
+      State.data.timeColumn ? State.data.quality[State.data.timeColumn] : null
+    );
+    const filtered = series.isMath
+      ? null
+      : Filter.applyPipelineWithReport(series.rawY, series.time, State.getPipelineForColumn(columnId), rawQuality);
     return {
       rawX: series.time,
       rawY: series.rawY,
-      filteredY: series.filteredY,
+      rawQuality,
+      filteredY: filtered?.values || null,
+      filteredQuality: filtered?.quality || null,
       seriesName: columnId,
       columnId,
       isMath: series.isMath
@@ -228,9 +247,10 @@ export const Exporter = {
     }
     const analysisCfg = State.ensureAnalysisConfig();
     const selection = State.getAnalysisSelection();
-    const preferredY = (!series.isMath && series.filteredY?.length) ? series.filteredY : series.rawY;
+    const preferredY = !series.isMath && series.filteredY?.length ? series.filteredY : series.rawY;
+    const preferredQuality = preferredY === series.filteredY ? series.filteredQuality : series.rawQuality;
     const measurements = Measurements.compute(
-      { t: series.rawX, y: preferredY, selection },
+      { t: series.rawX, y: preferredY, quality: preferredQuality, selection },
       { edgeThresholds: { lowFraction: 0.1, highFraction: 0.9 } }
     );
     const events = EventDetector.detect({
@@ -238,15 +258,20 @@ export const Exporter = {
       selection,
       config: analysisCfg.trigger
     });
-    const spectralY = analysisCfg.fftSource === 'raw'
-      ? series.rawY
-      : (analysisCfg.fftSource === 'filtered' && series.filteredY?.length ? series.filteredY : preferredY);
+    const spectralY =
+      analysisCfg.fftSource === 'raw'
+        ? series.rawY
+        : analysisCfg.fftSource === 'filtered' && series.filteredY?.length
+          ? series.filteredY
+          : preferredY;
+    const spectralQuality = spectralY === series.filteredY ? series.filteredQuality : series.rawQuality;
     const spectral = SpectralMetrics.summarize(spectralY, series.rawX, {
       selection: analysisCfg.selectionOnly === false ? null : selection,
       windowType: analysisCfg.fftWindow,
       detrend: analysisCfg.fftDetrend,
       zeroPadMode: analysisCfg.fftZeroPad,
       zeroPadFactor: analysisCfg.fftZeroPadFactor,
+      quality: spectralQuality,
       maxPeaks: analysisCfg.fftPeakCount,
       prominence: analysisCfg.fftPeakProminence,
       harmonicCount: analysisCfg.fftHarmonicCount,
@@ -266,16 +291,20 @@ export const Exporter = {
 
   buildSystemSnapshot(analysisCfg = State.ensureAnalysisConfig(), selection = State.getAnalysisSelection()) {
     const headers = (State.data.headers || []).filter((h) => h && h !== State.data.timeColumn);
-    const inputId = !analysisCfg.systemInput || analysisCfg.systemInput === 'auto' ? headers[0] : analysisCfg.systemInput;
-    const outputId = !analysisCfg.systemOutput || analysisCfg.systemOutput === 'auto' ? (headers[1] || headers[0]) : analysisCfg.systemOutput;
+    const inputId =
+      !analysisCfg.systemInput || analysisCfg.systemInput === 'auto' ? headers[0] : analysisCfg.systemInput;
+    const outputId =
+      !analysisCfg.systemOutput || analysisCfg.systemOutput === 'auto'
+        ? headers[1] || headers[0]
+        : analysisCfg.systemOutput;
     if (!inputId || !outputId || inputId === outputId) return null;
     const rawX = getRawSeries(inputId).rawX;
     const inputSeries = getAlignedSeriesForColumn(inputId, rawX);
     const outputSeries = getAlignedSeriesForColumn(outputId, rawX);
     if (!inputSeries || !outputSeries) return null;
     const systemSelection = analysisCfg.systemSelectionOnly === false ? null : selection;
-    const inputY = inputSeries.isMath ? inputSeries.rawY : (inputSeries.filteredY || inputSeries.rawY);
-    const outputY = outputSeries.isMath ? outputSeries.rawY : (outputSeries.filteredY || outputSeries.rawY);
+    const inputY = inputSeries.isMath ? inputSeries.rawY : inputSeries.filteredY || inputSeries.rawY;
+    const outputY = outputSeries.isMath ? outputSeries.rawY : outputSeries.filteredY || outputSeries.rawY;
     const time = inputSeries.time.length <= outputSeries.time.length ? inputSeries.time : outputSeries.time;
     const delay = CrossChannel.estimateDelay(time, inputY, outputY, {
       selection: systemSelection,
@@ -316,13 +345,21 @@ export const Exporter = {
   downloadMeasurementsJSON(): void {
     const snapshot = this.buildAnalysisSnapshot();
     if (!snapshot) return;
-    downloadText(JSON.stringify({
-      generatedAt: snapshot.timestamp,
-      trace: snapshot.series,
-      selection: snapshot.selection,
-      measurements: snapshot.measurements,
-      analysis: snapshot.analysisConfig
-    }, null, 2), 'measurements.json', 'application/json');
+    downloadText(
+      JSON.stringify(
+        {
+          generatedAt: snapshot.timestamp,
+          trace: snapshot.series,
+          selection: snapshot.selection,
+          measurements: snapshot.measurements,
+          analysis: snapshot.analysisConfig
+        },
+        null,
+        2
+      ),
+      'measurements.json',
+      'application/json'
+    );
   },
 
   downloadEventsCSV(): void {
@@ -342,34 +379,50 @@ export const Exporter = {
       alert('Select two different input/output channels in the System panel first.');
       return;
     }
-    downloadText(JSON.stringify({
-      generatedAt: snapshot.timestamp,
-      selection: snapshot.selection,
-      analysis: snapshot.analysisConfig,
-      system: snapshot.system
-    }, null, 2), 'system_frf.json', 'application/json');
+    downloadText(
+      JSON.stringify(
+        {
+          generatedAt: snapshot.timestamp,
+          selection: snapshot.selection,
+          analysis: snapshot.analysisConfig,
+          system: snapshot.system
+        },
+        null,
+        2
+      ),
+      'system_frf.json',
+      'application/json'
+    );
   },
 
   downloadSpectralSummaryJSON(): void {
     const snapshot = this.buildAnalysisSnapshot();
     if (!snapshot) return;
-    downloadText(JSON.stringify({
-      generatedAt: snapshot.timestamp,
-      trace: snapshot.series,
-      selection: snapshot.selection,
-      analysis: snapshot.analysisConfig,
-      spectral: {
-        meta: snapshot.spectral.spectrum?.meta,
-        peaks: snapshot.spectral.peaks,
-        harmonics: snapshot.spectral.harmonics,
-        thd: snapshot.spectral.thd,
-        snr: snapshot.spectral.snr,
-        spur: snapshot.spectral.spur,
-        bandpower: snapshot.spectral.bandpower,
-        fundamentalHz: snapshot.spectral.fundamentalHz,
-        warnings: snapshot.spectral.warnings
-      }
-    }, null, 2), 'spectral_summary.json', 'application/json');
+    downloadText(
+      JSON.stringify(
+        {
+          generatedAt: snapshot.timestamp,
+          trace: snapshot.series,
+          selection: snapshot.selection,
+          analysis: snapshot.analysisConfig,
+          spectral: {
+            meta: snapshot.spectral.spectrum?.meta,
+            peaks: snapshot.spectral.peaks,
+            harmonics: snapshot.spectral.harmonics,
+            thd: snapshot.spectral.thd,
+            snr: snapshot.spectral.snr,
+            spur: snapshot.spectral.spur,
+            bandpower: snapshot.spectral.bandpower,
+            fundamentalHz: snapshot.spectral.fundamentalHz,
+            warnings: snapshot.spectral.warnings
+          }
+        },
+        null,
+        2
+      ),
+      'spectral_summary.json',
+      'application/json'
+    );
   },
 
   async downloadReport(): Promise<void> {
@@ -419,7 +472,9 @@ export const Exporter = {
   </div>
   <div class="card">
     <h2>Measurements</h2>
-    <table><tr><th>Metric</th><th>Value</th></tr>${Object.entries(measurements).map(([k, v]) => `<tr><td>${k}</td><td>${formatNumber(v)}</td></tr>`).join('')}</table>
+    <table><tr><th>Metric</th><th>Value</th></tr>${Object.entries(measurements)
+      .map(([k, v]) => `<tr><td>${k}</td><td>${formatNumber(v)}</td></tr>`)
+      .join('')}</table>
   </div>
   <div class="card">
     <h2>Events</h2>

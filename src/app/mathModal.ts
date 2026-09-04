@@ -6,6 +6,7 @@ import { HelpSystem } from '../ui/helpSystem';
 import { createModal, escapeHtml } from '../ui/uiHelpers';
 import { runPipelineAndRender } from './dataPipeline';
 import { activateTab, renderColumnTabs } from './tabs';
+import { getTimeArray } from './traceData';
 
 const SUGGESTED_SYMBOLS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
@@ -17,7 +18,8 @@ function buildVariableRow(
   applyXOffset = true
 ): HTMLDivElement {
   const row = document.createElement('div');
-  row.className = 'math-row grid gap-2 rounded-md border border-line bg-surface p-2 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto_auto] sm:items-center';
+  row.className =
+    'math-row grid gap-2 rounded-md border border-line bg-surface p-2 sm:grid-cols-[minmax(0,1fr)_7rem_7rem_auto_auto] sm:items-center';
 
   const select = document.createElement('select');
   select.className = 'sf-field';
@@ -121,8 +123,8 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
     return;
   }
 
-  const defaultName = existingDef?.name
-    || `MathTrace ${State.config.mathDefinitions ? State.config.mathDefinitions.length + 1 : 1}`;
+  const defaultName =
+    existingDef?.name || `MathTrace ${State.config.mathDefinitions ? State.config.mathDefinitions.length + 1 : 1}`;
   const modalTitle = existingDef ? 'Edit Advanced Math Trace' : 'Create Advanced Math Trace';
   const submitLabel = existingDef ? 'Update Trace' : 'Create Trace';
 
@@ -155,13 +157,10 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
 
   if (!grid || !addBtn || !exprInput || !nameInput || !cancelBtn || !createBtn) return;
 
-  const addRow = (
-    symbol = '',
-    column = '',
-    sourceMode: SourceMode = 'raw',
-    applyXOffset = true
-  ) => {
-    grid.appendChild(buildVariableRow(availableColumns, symbol, column || availableColumns[0], sourceMode, applyXOffset));
+  const addRow = (symbol = '', column = '', sourceMode: SourceMode = 'raw', applyXOffset = true) => {
+    grid.appendChild(
+      buildVariableRow(availableColumns, symbol, column || availableColumns[0], sourceMode, applyXOffset)
+    );
   };
 
   if (existingDef && Array.isArray(existingDef.variables)) {
@@ -188,7 +187,7 @@ export function showMathModal(existingDef: MathDefinition | null = null): void {
     const variables = validateVariables(rows);
     const expression = exprInput.value.trim();
     const name = nameInput.value.trim() || defaultName;
-    const rawTime = timeCol ? State.data.raw.map((r) => parseFloat(String(r[timeCol]))) : [];
+    const rawTime = timeCol ? getTimeArray() : [];
     const validation = MathEngine.validateDefinition({ name, expression, variables }, rawTime);
 
     if (!validation.ok) {

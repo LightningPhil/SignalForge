@@ -8,9 +8,8 @@ export function renderComposerPanel(): void {
   if (!composerPanel || !composerList) return;
 
   const activeColumns = State.getActiveComposerColumns();
-  const isSingleMathTrace = !State.ui.activeMultiViewId
-    && activeColumns.length === 1
-    && !!State.getMathDefinition(activeColumns[0]);
+  const isSingleMathTrace =
+    !State.ui.activeMultiViewId && activeColumns.length === 1 && !!State.getMathDefinition(activeColumns[0]);
 
   if (isSingleMathTrace || !activeColumns.length) {
     composerPanel.classList.add('hidden');

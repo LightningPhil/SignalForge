@@ -3,7 +3,7 @@ import { State } from '../state';
 import { createModal } from './uiHelpers';
 
 const STORAGE_KEY = 'filterpro_display_calibration';
-const FALLBACK_PPCM = Config.displayCalibration.pixelsPerCm || (96 / 2.54);
+const FALLBACK_PPCM = Config.displayCalibration.pixelsPerCm || 96 / 2.54;
 const TARGET_CM = 10;
 
 export const DEFAULT_PIXELS_PER_CM = FALLBACK_PPCM;

@@ -1,18 +1,18 @@
 type Point = [number, number];
 
-export function lttb(data: Point[], threshold: number): Point[] {
+export function lttbIndices(data: Point[], threshold: number): number[] {
   const dataLength = data.length;
 
   if (!Array.isArray(data) || threshold >= dataLength || threshold < 3) {
-    return data;
+    return Array.from({ length: dataLength }, (_, index) => index);
   }
 
-  const sampled: Point[] = [];
+  const sampled: number[] = [];
   let sampledIndex = 0;
   const every = (dataLength - 2) / (threshold - 2);
 
   let a = 0;
-  sampled[sampledIndex++] = data[a];
+  sampled[sampledIndex++] = a;
 
   for (let i = 0; i < threshold - 2; i++) {
     let avgX = 0;
@@ -37,33 +37,72 @@ export function lttb(data: Point[], threshold: number): Point[] {
     const pointAx = data[a][0];
     const pointAy = data[a][1];
 
-    let maxAreaPoint: Point | null = null;
     let maxArea = -1;
     let nextA = a;
 
     for (; rangeOffs < rangeTo; rangeOffs++) {
-      const area = Math.abs(
-        (pointAx - avgX) * (data[rangeOffs][1] - pointAy) -
-        (pointAx - data[rangeOffs][0]) * (avgY - pointAy)
-      ) * 0.5;
+      const area =
+        Math.abs(
+          (pointAx - avgX) * (data[rangeOffs][1] - pointAy) - (pointAx - data[rangeOffs][0]) * (avgY - pointAy)
+        ) * 0.5;
 
       if (area > maxArea) {
         maxArea = area;
-        maxAreaPoint = data[rangeOffs];
         nextA = rangeOffs;
       }
     }
 
-    if (!maxAreaPoint) {
+    if (maxArea < 0) {
       const fallbackIdx = Math.min(dataLength - 2, Math.max(1, rangeTo - 1));
-      maxAreaPoint = data[fallbackIdx];
       nextA = fallbackIdx;
     }
 
-    sampled[sampledIndex++] = maxAreaPoint;
+    sampled[sampledIndex++] = nextA;
     a = nextA;
   }
 
-  sampled[sampledIndex++] = data[dataLength - 1];
+  sampled[sampledIndex] = dataLength - 1;
   return sampled;
+}
+
+export function alignedLttbIndices(
+  x: ArrayLike<number>,
+  alignedSeries: ArrayLike<number>[],
+  threshold: number
+): number[] {
+  const length = Math.min(x.length, ...alignedSeries.map((series) => series.length));
+  if (threshold >= length || threshold < 3) return Array.from({ length }, (_, index) => index);
+  const ranges = alignedSeries.map((series) => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let index = 0; index < length; index += 1) {
+      const value = Number(series[index]);
+      if (!Number.isFinite(value)) continue;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    return {
+      midpoint: Number.isFinite(min) && Number.isFinite(max) ? (min + max) / 2 : 0,
+      span: Number.isFinite(max - min) && max > min ? max - min : 1
+    };
+  });
+  const selector: Point[] = Array.from({ length }, (_, index) => {
+    let selected = 0;
+    let largestMagnitude = -1;
+    alignedSeries.forEach((series, seriesIndex) => {
+      const value = Number(series[index]);
+      if (!Number.isFinite(value)) return;
+      const normalized = (value - ranges[seriesIndex].midpoint) / ranges[seriesIndex].span;
+      if (Math.abs(normalized) > largestMagnitude) {
+        selected = normalized;
+        largestMagnitude = Math.abs(normalized);
+      }
+    });
+    return [Number(x[index]), selected];
+  });
+  return lttbIndices(selector, threshold);
+}
+
+export function lttb(data: Point[], threshold: number): Point[] {
+  return lttbIndices(data, threshold).map((index) => data[index]);
 }
