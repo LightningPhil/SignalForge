@@ -19,14 +19,27 @@ export interface ImportAdapterOptions {
   delimiter?: string;
   timeColumn?: string;
   channelUnits?: Record<string, string>;
+  companions?: ImportSource[];
+  signal?: AbortSignal;
+  onProgress?: (progress: number, stage: string) => void;
+}
+
+export interface AdapterWaveformRecord {
+  channels: SessionChannel[];
+  metadata: Record<string, string | number | boolean | null>;
+  warnings: string[];
+  frameIndex: number;
 }
 
 export interface AdapterImportResult {
   adapterId: string;
   sourceFile: SourceFileRecord;
+  sourceFiles?: SourceFileRecord[];
   channels: SessionChannel[];
   metadata: Record<string, string | number | boolean | null>;
   warnings: string[];
+  records?: AdapterWaveformRecord[];
+  supportLevel?: 'verified' | 'layout-tested' | 'experimental' | 'conversion-required' | 'provisional';
 }
 
 export interface WaveformImportAdapter {

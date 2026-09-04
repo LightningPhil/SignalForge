@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import path from 'node:path';
 
 test('loads the compiled application shell with styling', async ({ page }) => {
   const response = await page.goto('./');
@@ -258,6 +259,72 @@ test('adds a designed IIR filter and captures a reviewed session shot', async ({
   await page.locator('#review-marker-time').fill('0.001');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('manual/accepted');
+});
+
+test('opens a fixture-verified Keysight BIN directly', async ({ page }) => {
+  await page.goto('./');
+  await page
+    .locator('#file-input')
+    .setInputFiles(
+      path.resolve(
+        'reference-material/SignalForge-scope-import-examples/fixtures/keysight/keysight_dsox1102g_single_channel.bin'
+      )
+    );
+
+  await expect(page.locator('#live-status')).toHaveText('Ready');
+  await expect(page.locator('#column-tabs')).toContainText('CH1');
+  await expect(page.locator('#main-plot .scatterlayer')).toBeVisible();
+});
+
+test('keeps the newest direct native import when selections overlap', async ({ page }) => {
+  await page.goto('./');
+  await page
+    .locator('#file-input')
+    .setInputFiles(
+      path.resolve(
+        'reference-material/SignalForge-scope-import-examples/fixtures/tektronix/fastframe_5mhz_100frames.wfm'
+      )
+    );
+  await page
+    .locator('#file-input')
+    .setInputFiles(
+      path.resolve(
+        'reference-material/SignalForge-scope-import-examples/fixtures/keysight/keysight_dsox1102g_single_channel.bin'
+      )
+    );
+
+  await expect(page.locator('#live-status')).toHaveText('Ready');
+  await expect(page.locator('#column-tabs')).toContainText('CH1');
+  await expect(page.locator('#column-tabs')).not.toContainText('Waveform');
+  await page.getByRole('button', { name: '🗂️ Sessions' }).click();
+  await expect(page.locator('#review-saved-session')).not.toContainText('fastframe_5mhz_100frames');
+});
+
+test('pairs and imports a fixture-verified R&S RTx waveform', async ({ page }) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: '📥 Multi Import' }).click();
+  await page.locator('#multi-use-profile').uncheck();
+  await page
+    .locator('#multi-files')
+    .setInputFiles([
+      path.resolve(
+        'reference-material/SignalForge-scope-import-examples/fixtures/rohde_schwarz/rs_rtp_two_channel.bin'
+      ),
+      path.resolve(
+        'reference-material/SignalForge-scope-import-examples/fixtures/rohde_schwarz/rs_rtp_two_channel.Wfm.bin'
+      )
+    ]);
+  await page.getByRole('button', { name: 'Preview extraction' }).click();
+  await expect(page.locator('#multi-preview-table')).toContainText(
+    'rs_rtp_two_channel.bin + rs_rtp_two_channel.Wfm.bin'
+  );
+  await expect(page.locator('#multi-preview-table')).toContainText('R&S RTx waveform pair');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Import matched files' }).click();
+  await page.getByRole('button', { name: '🗂️ Sessions' }).click();
+  await expect(page.getByRole('button', { name: /rs_rtp_two_channel 1 · unreviewed/ })).toBeVisible();
+  await expect(page.locator('#review-waveform-plot .plot-container')).toBeVisible();
 });
 
 test('previews filename metadata and groups a multi-file shot', async ({ page }) => {

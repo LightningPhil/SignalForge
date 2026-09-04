@@ -51,7 +51,7 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
     const extensionConfidence = ['.csv', '.tsv', '.txt'].includes(ext) ? 0.75 : 0;
     return {
       confidence: hasRows && hasDelimiter ? Math.max(0.6, extensionConfidence) : 0,
-      format: ext === '.tsv' ? 'TSV' : 'delimited text',
+      format: ext === '.tsv' ? 'TSV' : 'Delimited text',
       reason: hasRows && hasDelimiter ? 'Text contains multiple delimited rows.' : 'No delimited text signature.'
     };
   },
@@ -85,6 +85,8 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
       if (header === timeColumn) continue;
       const values = new Float64Array(parsed.data.length);
       const quality = new Uint16Array(parsed.data.length);
+      const originalValueTokens: Record<number, string | boolean | null> = {};
+      const originalTimeTokens: Record<number, string | boolean | null> = {};
       let finiteCount = 0;
       let previousFiniteTime = -Infinity;
       for (let index = 0; index < parsed.data.length; index += 1) {
@@ -92,6 +94,12 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
         const rawValue = parsed.data[index][header];
         const value = parseNumericValue(rawValue);
         values[index] = value ?? Number.NaN;
+        if (value === null) {
+          originalValueTokens[index] = typeof rawValue === 'number' ? String(rawValue) : (rawValue ?? null);
+        }
+        if (parseNumericValue(rawTime) === null) {
+          originalTimeTokens[index] = typeof rawTime === 'number' ? String(rawTime) : (rawTime ?? null);
+        }
         if (value !== null) finiteCount += 1;
         quality[index] = classifyQuality(rawValue);
         const timeQuality = classifyQuality(rawTime);
@@ -108,8 +116,13 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
         unit: options.channelUnits?.[header] || unitFromHeader(header),
         timeUnit: 's',
         time: Float64Array.from(timeValues),
+        originalTime: Float64Array.from(timeValues),
         values,
+        originalValues: values.slice(),
+        originalValueTokens,
+        originalTimeTokens,
         quality,
+        originalQuality: quality.slice(),
         calibration: { scale: 1, offset: 0, source: 'Values parsed from delimited text.' },
         timingOffsetSeconds: 0
       });

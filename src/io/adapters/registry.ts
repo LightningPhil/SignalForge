@@ -1,4 +1,5 @@
 import { DelimitedTextAdapter } from './delimitedTextAdapter';
+import { NativeScopeAdapter } from './nativeScopeAdapter';
 import type { AdapterIdentification, ImportSource, WaveformImportAdapter } from './types';
 import { UnsupportedVariantError } from './types';
 
@@ -37,14 +38,9 @@ function fixtureRequiredAdapter(
 }
 
 const adapters: WaveformImportAdapter[] = [
+  NativeScopeAdapter,
   DelimitedTextAdapter,
-  fixtureRequiredAdapter('tektronix-native', 'Tektronix WFM/ISF', ['.wfm', '.isf'], 'Tektronix'),
-  fixtureRequiredAdapter('lecroy-trc', 'Teledyne LeCroy TRC', ['.trc'], 'Teledyne LeCroy'),
-  fixtureRequiredAdapter('keysight-native', 'Keysight/Agilent BIN/H5', ['.bin', '.h5', '.hdf5'], 'Keysight'),
-  fixtureRequiredAdapter('rohde-schwarz-native', 'Rohde & Schwarz waveform', ['.bin', '.wfm'], 'Rohde & Schwarz'),
-  fixtureRequiredAdapter('siglent-native', 'Siglent waveform', ['.bin'], 'Siglent'),
-  fixtureRequiredAdapter('rigol-native', 'Rigol waveform', ['.wfm'], 'Rigol'),
-  fixtureRequiredAdapter('picoscope-native', 'PicoScope waveform', ['.psdata'], 'Pico Technology')
+  fixtureRequiredAdapter('siglent-native', 'Siglent waveform', ['.bin'], 'Siglent')
 ];
 
 export const ImportAdapterRegistry = {

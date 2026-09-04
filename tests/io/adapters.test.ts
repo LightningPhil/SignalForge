@@ -20,10 +20,11 @@ describe('waveform import adapters', () => {
     expect(Array.from(result.channels[0].values)).toEqual([1, Number.NaN, 3]);
     expect(result.channels[0].quality[1] & QualityFlag.Clipped).toBeTruthy();
     expect(result.channels[0].unit).toBe('V');
+    expect(result.channels[0].originalValueTokens?.[1]).toBe('CLIPPED');
   });
 
-  it('reports native formats as fixture-gated rather than pretending to decode them', async () => {
-    const nativeSource = source('capture.trc', 'not a real fixture');
+  it('keeps unproven Siglent variants fixture-gated rather than routing by shared BIN extension', async () => {
+    const nativeSource = source('capture.bin', 'not a real fixture');
     const candidates = ImportAdapterRegistry.identify(nativeSource);
     const adapter = candidates[0].adapter;
 

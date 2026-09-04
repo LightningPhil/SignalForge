@@ -268,11 +268,24 @@ export const SessionWorkspace = {
       );
       quality[channel.name] = alignQuality(channel.time, channel.quality, referenceTime);
     });
-    const sourceFile = shot.sourceFiles.find((candidate) => candidate.bytes);
+    let sourceFile = shot.sourceFiles.find((candidate) => candidate.bytes);
+    if (!sourceFile && this.activeSession) {
+      const sharedIds = new Set(
+        shot.sourceFiles
+          .map((candidate) => candidate.metadata.sharedSourceId)
+          .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      );
+      sourceFile = this.activeSession.shots
+        .flatMap((candidate) => candidate.sourceFiles)
+        .find((candidate) => sharedIds.has(candidate.id) && candidate.bytes);
+    }
     const source = sourceFile?.bytes
       ? {
           name: sourceFile.name,
-          text: new TextDecoder('utf-8', { fatal: false }).decode(sourceFile.bytes),
+          text:
+            sourceFile.adapterId === 'delimited-text'
+              ? new TextDecoder('utf-8', { fatal: false }).decode(sourceFile.bytes)
+              : '',
           bytes: sourceFile.bytes.slice(),
           size: sourceFile.size,
           lastModified: sourceFile.lastModified

@@ -7,6 +7,10 @@ import {
 } from '../io/filenameProfile';
 import { ImportAdapterRegistry } from '../io/adapters/registry';
 import type { ImportSource } from '../io/adapters/types';
+import { attachAdapterRecord, firstMetadataConflict } from '../io/adapters/sessionBridge';
+import { groupScopeSources } from '../io/scope/groupFiles';
+import { estimateNativeSessionPeakBytes } from '../io/scope/bridge';
+import { ScopeImportLimits } from '../io/scope/limits';
 import { SessionWorkspace } from '../session/workspace';
 import { sessionRepository } from '../persistence/sessionRepository';
 import { renderColumnTabs } from '../app/tabs';
@@ -17,6 +21,8 @@ import { ui } from './classes';
 interface PreviewFile {
   file: File;
   source: ImportSource;
+  companions: ImportSource[];
+  consumedNames: string[];
   match: FilenameMatch;
   corrections: Record<string, string>;
 }
@@ -42,6 +48,7 @@ export const MultiFileImport = {
   content: null as HTMLElement | null,
   profile: null as CompiledFilenameProfile | null,
   previews: [] as PreviewFile[],
+  previewController: null as AbortController | null,
   importController: null as AbortController | null,
 
   show(): void {
@@ -63,18 +70,22 @@ export const MultiFileImport = {
         Matching files are grouped by shot metadata. Turn this off to accept any supported filename and create one shot per file.
       </p>
       <div class="mb-3 flex flex-wrap gap-2">
-        <input id="multi-files" type="file" multiple class="sf-field max-w-lg">
+        <input id="multi-files" type="file" multiple
+          accept=".csv,.tsv,.txt,.wfm,.isf,.trc,.000,.bin,.h5,.hdf5,.psdata"
+          class="sf-field max-w-lg">
         <button id="multi-preview" class="sf-btn" type="button">Preview extraction</button>
       </div>
       <p id="multi-error" class="mb-2 hidden text-sm text-red-500"></p>
       <div id="multi-preview-table" class="max-h-96 overflow-auto"></div>
       <div class="mt-3 flex items-center justify-between gap-2">
-        <span class="sf-hint">Unsupported native variants remain unimported until model/firmware fixtures are supplied.</span>
+        <span class="sf-hint">Native support is content-detected and evidence-labelled; provisional variants are rejected.</span>
         <button id="multi-import" class="sf-btn" type="button" disabled>Import matched files</button>
       </div>
     `,
       {
         onClose: () => {
+          this.previewController?.abort();
+          this.previewController = null;
           this.importController?.abort();
           this.importController = null;
           this.content = null;
@@ -94,6 +105,15 @@ export const MultiFileImport = {
     const profile = this.content?.querySelector<HTMLInputElement>('#multi-profile');
     const example = this.content?.querySelector<HTMLElement>('#multi-profile-example');
     const hint = this.content?.querySelector<HTMLElement>('#multi-profile-mode-hint');
+    const fileInput = this.content?.querySelector<HTMLInputElement>('#multi-files');
+    const importButton = this.content?.querySelector<HTMLButtonElement>('#multi-import');
+    const invalidatePreview = () => {
+      this.previewController?.abort();
+      this.previewController = null;
+      this.previews = [];
+      this.profile = null;
+      if (importButton) importButton.disabled = true;
+    };
     const refreshProfileMode = () => {
       const enabled = useProfile?.checked !== false;
       if (profile) profile.disabled = !enabled;
@@ -108,8 +128,15 @@ export const MultiFileImport = {
           : 'File contents still need a supported importer; only filename matching and metadata extraction are bypassed.';
       }
     };
-    useProfile?.addEventListener('change', refreshProfileMode);
-    profile?.addEventListener('input', refreshProfileMode);
+    useProfile?.addEventListener('change', () => {
+      invalidatePreview();
+      refreshProfileMode();
+    });
+    profile?.addEventListener('input', () => {
+      invalidatePreview();
+      refreshProfileMode();
+    });
+    fileInput?.addEventListener('change', invalidatePreview);
     refreshProfileMode();
   },
 
@@ -121,28 +148,51 @@ export const MultiFileImport = {
     const table = this.content?.querySelector<HTMLElement>('#multi-preview-table');
     const importButton = this.content?.querySelector<HTMLButtonElement>('#multi-import');
     if (!profileInput || !fileInput || !error || !table || !importButton) return;
+    this.previewController?.abort();
+    const controller = new AbortController();
+    this.previewController = controller;
     try {
       const useProfile = useProfileInput?.checked !== false;
       this.profile = useProfile ? compileFilenameProfile(profileInput.value.trim()) : null;
       const files = Array.from(fileInput.files || []);
       if (files.length > 10_000) throw new Error('Select no more than 10,000 files per import.');
-      const totalBytes = files.reduce((total, file) => total + file.size, 0);
-      if (totalBytes > 512 * 1024 * 1024) {
-        throw new Error('Selected files exceed the 512 MB total preview safety limit.');
+      const oversized = files.find((file) => file.size > ScopeImportLimits.maxFileBytes);
+      if (oversized) {
+        throw new Error(
+          `${oversized.name} exceeds the ${ScopeImportLimits.maxFileBytes}-byte native file safety limit.`
+        );
       }
-      this.previews = [];
+      const totalBytes = files.reduce((total, file) => total + file.size, 0);
+      if (totalBytes > 64 * 1024 * 1024) {
+        throw new Error('Selected files exceed the 64 MB aggregate preview safety limit.');
+      }
+      const loaded: Array<{ file: File; source: ImportSource }> = [];
       for (const file of files) {
+        if (controller.signal.aborted) return;
         const bytes = new Uint8Array(await file.arrayBuffer());
-        this.previews.push({
+        if (controller.signal.aborted) return;
+        loaded.push({
           file,
-          source: { name: file.name, bytes, size: file.size, lastModified: file.lastModified || null },
-          match: this.profile
-            ? matchFilename(this.profile as CompiledFilenameProfile, file.name)
-            : { filename: file.name, matched: true, fields: {}, warnings: [] },
-          corrections: {}
+          source: { name: file.name, bytes, size: file.size, lastModified: file.lastModified || null }
         });
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
+      const groups = groupScopeSources(loaded.map(({ source }) => source));
+      if (controller.signal.aborted || !this.content) return;
+      this.previews = groups.map((group) => {
+        const loadedPrimary = loaded.find(({ source }) => source === group.primary);
+        if (!loadedPrimary) throw new Error(`Internal import grouping failed for ${group.primary.name}.`);
+        return {
+          file: loadedPrimary.file,
+          source: group.primary,
+          companions: group.companions,
+          consumedNames: group.consumedNames,
+          match: this.profile
+            ? matchFilename(this.profile as CompiledFilenameProfile, group.primary.name)
+            : { filename: group.primary.name, matched: true, fields: {}, warnings: [] },
+          corrections: {}
+        };
+      });
       if (this.previews.length === 0) throw new Error('Select one or more waveform files.');
       error.classList.add('hidden');
       table.innerHTML = `
@@ -160,10 +210,11 @@ export const MultiFileImport = {
                 const warnings = [
                   ...preview.match.warnings,
                   ...(adapter ? [] : ['No importer identified.']),
+                  ...(adapter?.adapter.id === 'native-oscilloscope' ? [adapter.identification.reason] : []),
                   ...(adapter?.adapter.status === 'fixture-required' ? [adapter.identification.reason] : [])
                 ];
                 return `<tr class="${preview.match.matched ? '' : 'bg-red-500/10'}">
-                  <td class="border border-line p-2">${escapeHtml(preview.file.name)}</td>
+                  <td class="border border-line p-2">${escapeHtml(preview.consumedNames.join(' + '))}</td>
                   ${this.profile?.fields
                     .map((field) => {
                       const extracted = preview.match.fields[field.name];
@@ -179,7 +230,9 @@ export const MultiFileImport = {
                     })
                     .join('')}
                   <td class="border border-line p-2">${escapeHtml(
-                    `${adapter?.adapter.name || 'Unknown'}${warnings.length ? ` — ${warnings.join(' ')}` : ''}`
+                    `${adapter?.identification.format || adapter?.adapter.name || 'Unknown'}${
+                      adapter?.identification.manufacturer ? ` · ${adapter.identification.manufacturer}` : ''
+                    }${warnings.length ? ` — ${warnings.join(' ')}` : ''}`
                   )}</td>
                 </tr>`;
               })
@@ -194,12 +247,15 @@ export const MultiFileImport = {
         });
       });
       importButton.disabled = false;
+      if (this.previewController === controller) this.previewController = null;
     } catch (caught) {
+      if (controller.signal.aborted) return;
       this.previews = [];
       error.textContent = caught instanceof Error ? caught.message : String(caught);
       error.classList.remove('hidden');
       table.innerHTML = '';
       importButton.disabled = true;
+      if (this.previewController === controller) this.previewController = null;
     }
   },
 
@@ -217,12 +273,44 @@ export const MultiFileImport = {
     const session = { ...activeSession, shots: [...activeSession.shots] };
     const shots = new Map<string, ReturnType<typeof createShot>>();
     const warnings: string[] = [];
+    let retainedPreviewBytes = this.previews.reduce(
+      (total, preview) =>
+        total +
+        preview.source.bytes.byteLength +
+        preview.companions.reduce((companionTotal, source) => companionTotal + source.bytes.byteLength, 0),
+      0
+    );
+    let cumulativeSourceBytes = activeSession.shots.reduce(
+      (total, existingShot) =>
+        total +
+        existingShot.sourceFiles.reduce(
+          (sourceTotal, sourceFile) => sourceTotal + (sourceFile.bytes?.byteLength || 0),
+          0
+        ),
+      0
+    );
+    let cumulativeChannelSamples = activeSession.shots.reduce(
+      (total, existingShot) =>
+        total + existingShot.channels.reduce((channelTotal, channel) => channelTotal + channel.values.length, 0),
+      0
+    );
+    const releasePreview = (preview: PreviewFile) => {
+      const released =
+        preview.source.bytes.byteLength +
+        preview.companions.reduce((total, source) => total + source.bytes.byteLength, 0);
+      preview.source.bytes = new Uint8Array(0);
+      preview.companions.forEach((source) => {
+        source.bytes = new Uint8Array(0);
+      });
+      retainedPreviewBytes -= released;
+    };
 
     for (const [previewIndex, preview] of this.previews.entries()) {
       if (controller.signal.aborted) return;
       const adapter = ImportAdapterRegistry.supportedFor(preview.source);
       if (!adapter) {
         warnings.push(`${preview.file.name}: no fixture-validated adapter is available.`);
+        releasePreview(preview);
         continue;
       }
       const usesProfile = this.profile !== null;
@@ -253,35 +341,107 @@ export const MultiFileImport = {
           }
         }
       }
-      const conflict = metadataEntries.find(
-        ([field, value]) => Object.prototype.hasOwnProperty.call(shot.metadata, field) && shot.metadata[field] !== value
-      );
+      const conflict = firstMetadataConflict(shot.metadata, metadataEntries);
       if (conflict) {
         warnings.push(
           `${preview.file.name}: ${conflict[0]} conflicts with another file in Shot ${shotValue}; file was not merged.`
         );
+        releasePreview(preview);
         continue;
       }
       try {
-        const imported = await adapter.import(preview.source);
-        if (controller.signal.aborted) return;
-        metadataEntries.forEach(([field, value]) => {
-          shot.metadata[field] = value;
+        const imported = await adapter.import(preview.source, {
+          companions: preview.companions,
+          signal: controller.signal,
+          onProgress: (progress, stage) => {
+            if (importButton) {
+              importButton.textContent = `${stage} · ${Math.round(progress * 100)}%`;
+            }
+          }
         });
-        shot.sourceFiles.push(imported.sourceFile);
-        for (const channel of imported.channels) {
-          const requestedName =
-            preview.corrections.channel || String(preview.match.fields.channel?.value || channel.name);
-          const conflict = shot.channels.some((existing) => existing.name === requestedName);
-          channel.name = conflict ? `${requestedName} (${preview.file.name})` : requestedName;
-          shot.channels.push(channel);
+        if (controller.signal.aborted) return;
+        const records = imported.records || [
+          {
+            channels: imported.channels,
+            metadata: imported.metadata,
+            warnings: imported.warnings,
+            frameIndex: 0
+          }
+        ];
+        const importedSourceBytes =
+          preview.source.bytes.byteLength +
+          preview.companions.reduce((total, source) => total + source.bytes.byteLength, 0);
+        const importedChannelSamples = records.reduce(
+          (total, record) =>
+            total + record.channels.reduce((channelTotal, channel) => channelTotal + channel.values.length, 0),
+          0
+        );
+        const predictedPeakBytes = estimateNativeSessionPeakBytes(
+          cumulativeSourceBytes + importedSourceBytes,
+          cumulativeChannelSamples + importedChannelSamples,
+          retainedPreviewBytes
+        );
+        if (!Number.isSafeInteger(predictedPeakBytes) || predictedPeakBytes > ScopeImportLimits.maxDecodedBytes) {
+          warnings.push(
+            `${preview.file.name}: cumulative import would require approximately ${predictedPeakBytes} bytes and exceed the ${ScopeImportLimits.maxDecodedBytes}-byte session budget.`
+          );
+          releasePreview(preview);
+          continue;
         }
-        if (!shots.has(shotKey)) shots.set(shotKey, shot);
+        for (const [recordIndex, record] of records.entries()) {
+          const recordKey = records.length > 1 ? `${shotKey}:frame:${record.frameIndex}` : shotKey;
+          let recordShot = records.length > 1 ? shots.get(recordKey) : shot;
+          if (!recordShot) {
+            recordShot = createShot(
+              records.length > 1
+                ? `${usesProfile ? `Shot ${shotValue}` : shotValue} · Frame ${record.frameIndex + 1}`
+                : usesProfile
+                  ? `Shot ${shotValue}`
+                  : shotValue,
+              usesProfile && Number.isInteger(Number(shotValue)) ? Number(shotValue) : null
+            );
+          }
+          const recordConflict = firstMetadataConflict(recordShot.metadata, metadataEntries);
+          if (recordConflict) {
+            warnings.push(
+              `${preview.file.name}: ${recordConflict[0]} conflicts in frame ${record.frameIndex + 1}; record was not merged.`
+            );
+            continue;
+          }
+          metadataEntries.forEach(([field, value]) => {
+            recordShot.metadata[field] = value;
+          });
+          recordShot.metadata.source_format = String(
+            record.metadata.sourceFormat || imported.metadata.sourceFormat || ''
+          );
+          recordShot.metadata.support_level = String(
+            record.metadata.supportLevel || imported.supportLevel || 'verified'
+          );
+          if (records.length > 1) {
+            recordShot.metadata.frame_index = record.frameIndex;
+            recordShot.metadata.frame_count = records.length;
+          }
+          const attached = attachAdapterRecord(imported, record, recordIndex === 0);
+          recordShot.sourceFiles.push(...attached.sources);
+          for (const channel of attached.channels) {
+            const requestedName =
+              preview.corrections.channel || String(preview.match.fields.channel?.value || channel.name);
+            const channelConflict = recordShot.channels.some((existing) => existing.name === requestedName);
+            channel.name = channelConflict ? `${requestedName} (${preview.file.name})` : requestedName;
+            recordShot.channels.push(channel);
+          }
+          shots.set(recordKey, recordShot);
+        }
+        cumulativeSourceBytes += importedSourceBytes;
+        cumulativeChannelSamples += importedChannelSamples;
+        releasePreview(preview);
         warnings.push(...imported.warnings.map((warning) => `${preview.file.name}: ${warning}`));
       } catch (error) {
+        releasePreview(preview);
         warnings.push(`${preview.file.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    if (importButton) importButton.textContent = 'Import matched files';
 
     if (shots.size === 0) {
       alert(`No files were imported.${warnings.length ? `\n\n${warnings.join('\n')}` : ''}`);

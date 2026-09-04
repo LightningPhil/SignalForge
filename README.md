@@ -244,11 +244,28 @@ apply a smooth zero-phase spectral response, and interpolate back.
 
 ### 8. Supported formats and limits
 
-- Production-supported import: CSV, TSV and delimited text.
-- Tektronix, LeCroy, Keysight/Agilent, Rohde & Schwarz, Siglent, Rigol and
-  PicoScope adapters remain disabled until exact model/firmware fixtures match
-  trusted vendor exports.
-- Multi-import preview is limited to 10,000 files and 512 MB.
+- **Verified native import:** Tektronix little-endian WFM#003 analogue
+  (including FastFrame), Keysight/Agilent AG10 analogue BIN, R&S RTx paired
+  waveform exports, LeCroy LECROY_1_0/2_3 little-endian TRC, and the supplied
+  Rigol DS1000B/C/D-E/Z, DS2000, DS4000, MSO5000 and DHO800 WFM/BIN families.
+- **Layout-tested beta:** Tektronix ISF, Keysight AG01/AG03, R&S int16,
+  big-endian LeCroy TRC, and PicoScope two-row analogue CSV.
+- Detection is content-first. Shared `.bin` and `.wfm` extensions never choose
+  a brand parser by filename alone. R&S exports require both the description
+  `.bin` and matching `.Wfm.bin` payload.
+- PicoScope PSDATA is detected with conversion guidance because it is
+  proprietary. PicoScope HDF5 is detected but not decoded until a bounded
+  browser reader and representative real export are available. Siglent and
+  unproved Tek/Rigol variants remain provisional.
+- Direct **Load** opens supported single files; **Multi Import** handles R&S
+  pairs, multi-channel files, filename grouping and one shot per FastFrame
+  record.
+- Multi-import preview is limited to 10,000 files and 64 MB aggregate source
+  bytes; cumulative source/session arrays must also remain within the 192 MB
+  persistence budget.
+- Native files are limited to 64 MB each, four analogue channels, 3 million
+  samples per channel, 3 million total channel-samples and a 192 MB predicted
+  decode working set.
 - Pipeline processing moves to a cancellable Web Worker at 100,000 samples.
 - Display downsampling defaults to 20,000 shared-index points when enabled, and
   the data grid virtualizes records above 1,000 rows.

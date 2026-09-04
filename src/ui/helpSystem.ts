@@ -418,9 +418,12 @@ export const HelpSystem = {
                     <div id="content-supported-formats" class="help-section">
                         <h3>Supported Formats & Limits</h3>
                         <ul>
-                            <li><strong>Supported:</strong> CSV, TSV, and delimited text.</li>
-                            <li><strong>Fixture-gated:</strong> Tektronix, LeCroy, Keysight/Agilent, Rohde & Schwarz, Siglent, Rigol, and PicoScope native formats.</li>
-                            <li>Multi-import preview accepts up to 10,000 files and 512 MB.</li>
+                            <li><strong>Verified native:</strong> Tektronix little-endian WFM#003 analogue/FastFrame; Keysight AG10 analogue BIN; R&S RTx paired float32, int8 and explicit-time exports; LeCroy LECROY_1_0/2_3 little-endian TRC; fixture-backed Rigol DS1000B/C/D-E/Z, DS2000, DS4000, MSO5000 and DHO800 WFM/BIN.</li>
+                            <li><strong>Layout-tested beta:</strong> Tektronix ISF, Keysight AG01/AG03, R&S int16, big-endian LeCroy TRC and PicoScope two-row CSV.</li>
+                            <li>Detection is content-first. R&S requires both its description <code>.bin</code> and matching <code>.Wfm.bin</code>. FastFrame creates one shot per frame.</li>
+                            <li><strong>Conversion/provisional:</strong> PSDATA requires PicoScope export/BatchConvert; HDF5 is detection-only; Siglent and unproved Tek/Rigol variants are rejected.</li>
+                            <li>Native parsing runs in a dedicated cancellable worker with exact length checks and 64 MB/file, four-channel, 3M samples/channel, 3M total-sample and 192 MB end-to-end session-budget limits.</li>
+                            <li>Multi-import preview accepts up to 10,000 files and 64 MB aggregate source bytes; cumulative source/session arrays must remain within the 192 MB persistence budget.</li>
                             <li>Pipeline processing moves to a cancellable worker at 100,000 samples; optional display downsampling defaults to 20,000 shared-index points.</li>
                             <li>The grid virtualizes records above 1,000 rows.</li>
                             <li>Mixed-rate records with fewer than 64 source samples return no anti-aliased engineering result rather than an unreliable value.</li>
@@ -440,6 +443,7 @@ export const HelpSystem = {
 
                     <div id="content-license" class="help-section">
                         <h3>License</h3>
+                        <p>SignalForge is MIT licensed. Native oscilloscope format validation also uses BSD-3-Clause RigolWFM and Apache-2.0 Tektronix fixture material; full attribution is retained in repository <code>THIRD_PARTY_NOTICES.md</code> and deployed <code>THIRD_PARTY_NOTICES.txt</code>.</p>
                         <pre class="help-license">
 MIT License
 

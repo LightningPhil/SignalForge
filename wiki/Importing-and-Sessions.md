@@ -23,8 +23,38 @@ In **Multi-file Shot Import**, clear **Extract shot metadata from a filename
 convention**. Any filename accepted by a supported importer can then be used.
 Each file becomes its own shot and receives its filename stem as the shot name.
 
-Filename flexibility does not bypass format validation. Unsupported native
-scope files remain fixture-gated.
+Filename flexibility does not bypass content-based format validation.
+
+## Native oscilloscope files
+
+SignalForge directly imports these supplied-fixture-backed variants:
+
+- Tektronix little-endian WFM#003 ordinary analogue and FastFrame;
+- Keysight/Agilent AG10 ordinary analogue BIN;
+- R&S RTx float32, int8 and explicit-time paired exports;
+- LeCroy LECROY_1_0/2_3 little-endian int16 TRC;
+- Rigol DS1000B/C/D-E/Z, DS2000, DS4000, MSO5000 and DHO800 WFM/BIN.
+
+Layout-tested beta paths include Tektronix ISF, AG01/AG03, R&S int16,
+big-endian LeCroy TRC and PicoScope two-row CSV. The import preview displays
+the evidence level.
+
+Select both files from an R&S export: the XML description `.bin` and its
+case-matched `.Wfm.bin` payload. Multi Import pairs them by content and name.
+Tektronix FastFrame files create one shot per frame while storing source bytes
+only once.
+
+PSDATA is proprietary and returns PicoScope/BatchConvert guidance. HDF5 is
+detected but remains unavailable until a bounded browser decoder and a
+representative real PicoScope 7 fixture exist. Siglent, Tek WFM#001/#002 or
+big-endian WFM, Rigol DS6000 and MSO7000/8000 remain provisional and are
+rejected rather than partially decoded.
+
+All binary readers run in a dedicated worker, validate declared extents before
+allocation, preserve source bytes and invalid samples, and enforce named
+sample/channel/memory budgets. Multi-file selection is capped at 64 MB of
+source bytes, and cumulative decoded/session persistence must fit a conservative
+192 MB peak-memory estimate.
 
 ## Preview and conflict handling
 

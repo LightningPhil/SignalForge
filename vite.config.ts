@@ -4,6 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [tailwindcss()],
   base: '/SignalForge/',
+  worker: {
+    format: 'es'
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

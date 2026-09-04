@@ -35,6 +35,9 @@ export interface SessionChannel {
   id: string;
   name: string;
   unit: string;
+  sourceUnit?: string;
+  sourceToSiScale?: number;
+  sourceFormat?: string;
   timeUnit: string;
   time: Float64Array;
   originalTime?: Float64Array;

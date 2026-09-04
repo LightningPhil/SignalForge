@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-09-02",
+  "status_definitions": {
+    "verified": "A decoder passes one or more supplied vendor or hardware-export fixtures for the named variant.",
+    "layout-tested": "A decoder passes a deterministic synthetic fixture; obtain a real export before advertising hardware support.",
+    "experimental": "The route follows published structure but lacks a representative real export from the target software/model.",
+    "conversion-required": "SignalForge recognises the file but intentionally does not decode it; a vendor-supported export is required.",
+    "provisional": "Parser source exists, but this bundle contains no fixture proving the variant.",
+    "unsupported": "The variant must be rejected explicitly rather than partially decoded."
+  },
+  "formats": [
+    {
+      "brand": "Tektronix",
+      "format": "WFM#003 little-endian analogue",
+      "extensions": [".wfm"],
+      "status": "verified",
+      "fixtures": [
+        "tektronix/analog_waveform.wfm",
+        "tektronix/fastframe_5mhz_100frames.wfm"
+      ],
+      "verified_variants": ["single frame", "100-frame FastFrame"],
+      "limitations": ["No supplied WFM#001, WFM#002 or big-endian fixture", "No digital, IQ or histogram fixture"],
+      "wiki_claim": "Tektronix WFM#003 analogue and FastFrame imports are verified against the supplied files. Other WFM versions and waveform classes remain provisional."
+    },
+    {
+      "brand": "Tektronix",
+      "format": "WFM#001/#002 or big-endian WFM",
+      "extensions": [".wfm"],
+      "status": "provisional",
+      "fixtures": [],
+      "limitations": ["Browser parser source is included, but no supplied acceptance fixture proves these branches"],
+      "wiki_claim": "Not advertised as supported until a representative fixture passes."
+    },
+    {
+      "brand": "Tektronix",
+      "format": "ISF binary block",
+      "extensions": [".isf"],
+      "status": "layout-tested",
+      "fixtures": ["tektronix/representative_pulse.isf"],
+      "verified_variants": ["signed int16", "big-endian", "standard full-name preamble"],
+      "limitations": ["Synthetic fixture only", "Command abbreviations and preamble fields vary by family"],
+      "wiki_claim": "Tektronix binary ISF import is available for the tested preamble layout and should be treated as beta pending files from the target scopes."
+    },
+    {
+      "brand": "PicoScope",
+      "format": "two-row CSV",
+      "extensions": [".csv", ".tsv", ".txt"],
+      "status": "layout-tested",
+      "fixtures": ["picoscope/representative_pulse.csv"],
+      "verified_variants": ["two analogue channels", "SI-prefixed units", "one explicit NaN"],
+      "limitations": ["Synthetic fixture only", "Locale, digital, maths and spectrum exports need real fixtures"],
+      "wiki_claim": "PicoScope-style CSV is supported for the tested two-row analogue layout; unusual locale and non-analogue exports may require manual column mapping."
+    },
+    {
+      "brand": "PicoScope",
+      "format": "HDF5 export",
+      "extensions": [".h5", ".hdf5"],
+      "status": "experimental",
+      "fixtures": ["picoscope/representative_pulse.h5"],
+      "verified_variants": ["documented channel/group layout represented synthetically"],
+      "limitations": ["No real PicoScope 7 HDF5 export in the bundle", "Requires a browser HDF5 dependency"],
+      "wiki_claim": "PicoScope HDF5 is experimental until validated with an export from the exact PicoScope 7 version in use."
+    },
+    {
+      "brand": "PicoScope",
+      "format": "PSDATA session",
+      "extensions": [".psdata"],
+      "status": "conversion-required",
+      "fixtures": ["picoscope/pico_5444d_clock_capture.psdata"],
+      "verified_variants": ["content detection and actionable error"],
+      "limitations": ["Proprietary session format", "CSV conversion may omit session settings, notes, rulers, maths and measurements"],
+      "wiki_claim": "PSDATA is recognised but cannot be opened directly. Export CSV or HDF5 with PicoScope, or use PicoScope BatchConvert."
+    },
+    {
+      "brand": "Keysight / Agilent",
+      "format": "AG10 ordinary analogue BIN",
+      "extensions": [".bin"],
+      "status": "verified",
+      "fixtures": [
+        "keysight/keysight_dsox1102g_single_channel.bin",
+        "keysight/keysight_dsox1102g_two_channel.bin"
+      ],
+      "verified_variants": ["DSO-X 1102G", "single channel", "two channels", "ordinary float32 buffers"],
+      "limitations": ["Segmented, peak-detect/multi-buffer, logic and digital records are rejected"],
+      "wiki_claim": "Keysight/Agilent AG10 ordinary analogue BIN files are verified for supplied DSO-X 1102G captures."
+    },
+    {
+      "brand": "Keysight / Agilent",
+      "format": "AG01 and AG03 ordinary analogue BIN",
+      "extensions": [".bin"],
+      "status": "layout-tested",
+      "fixtures": [
+        "keysight/keysight_synthetic_ag01.bin",
+        "keysight/keysight_synthetic_ag03.bin"
+      ],
+      "verified_variants": ["32-bit AG01 length fields", "64-bit AG03 length fields"],
+      "limitations": ["Synthetic fixtures only; no named instrument/firmware is verified"],
+      "wiki_claim": "AG01 and AG03 container branches are beta and must not be described as hardware-verified."
+    },
+    {
+      "brand": "Rohde & Schwarz",
+      "format": "RTx XML BIN plus Wfm.bin",
+      "extensions": [".bin", ".Wfm.bin"],
+      "status": "verified",
+      "fixtures": [
+        "rohde_schwarz/rs_rtp_two_channel.bin",
+        "rohde_schwarz/rs_rtp_int8.bin",
+        "rohde_schwarz/rs_rtp_explicit_time.bin"
+      ],
+      "verified_variants": ["float32 two-channel", "int8 single-channel", "XYDOUBLEFLOAT explicit time", "NORMAL single acquisition"],
+      "limitations": ["Both files are mandatory", "History/multi-acquisition, digital, bus, maths, spectrum and track data are rejected", "int16 has synthetic evidence only"],
+      "wiki_claim": "R&S RTx paired waveform import is verified for supplied float32, int8 and explicit-time analogue files. Select both exported files together."
+    },
+    {
+      "brand": "Rohde & Schwarz",
+      "format": "RTx int16 payload",
+      "extensions": [".bin", ".Wfm.bin"],
+      "status": "layout-tested",
+      "fixtures": ["rohde_schwarz/rs_synthetic_int16.bin"],
+      "verified_variants": ["little-endian int16 payload and XML scaling equation"],
+      "limitations": ["Synthetic fixture only"],
+      "wiki_claim": "R&S int16 decoding is beta pending a real target-instrument export."
+    },
+    {
+      "brand": "Teledyne LeCroy",
+      "format": "TRC LECROY_1_0/2_3 little-endian word data",
+      "extensions": [".trc", ".000"],
+      "status": "verified",
+      "fixtures": [
+        "teledyne_lecroy/lecroy_7200_template_1_0.trc",
+        "teledyne_lecroy/lecroy_waverunner_template_2_3.trc"
+      ],
+      "verified_variants": ["LECROY_1_0", "LECROY_2_3", "LOFIRST", "signed int16", "SCPI-prefixed descriptor"],
+      "limitations": ["Sequence/subarray timing, secondary arrays and peak-detect pairs are rejected"],
+      "wiki_claim": "LeCroy TRC import is verified for supplied LECROY_1_0 and LECROY_2_3 little-endian single-sweep analogue files."
+    },
+    {
+      "brand": "Teledyne LeCroy",
+      "format": "TRC big-endian word data",
+      "extensions": [".trc"],
+      "status": "layout-tested",
+      "fixtures": ["teledyne_lecroy/lecroy_synthetic_be_word.trc"],
+      "verified_variants": ["LECROY_2_3", "HIFIRST", "signed int16"],
+      "limitations": ["Synthetic fixture only"],
+      "wiki_claim": "Big-endian LeCroy TRC decoding is beta pending a real export."
+    },
+    {
+      "brand": "Rigol",
+      "format": "DS1000B/C/D-E/Z, DS2000 and DS4000 WFM",
+      "extensions": [".wfm"],
+      "status": "verified",
+      "fixtures": [
+        "rigol/rigol_ds1204b.wfm",
+        "rigol/rigol_ds1202ca.wfm",
+        "rigol/rigol_ds1102d.wfm",
+        "rigol/rigol_ds1054z.wfm",
+        "rigol/rigol_ds2072a.wfm",
+        "rigol/rigol_ds4022.wfm"
+      ],
+      "verified_variants": ["wfm1000b", "wfm1000c", "wfm1000e", "wfm1000z", "wfm2000", "wfm4000"],
+      "limitations": ["Support is bounded to fixture-proven family layouts; firmware variants may differ"],
+      "wiki_claim": "Rigol WFM is verified for the supplied DS1000B/C/D-Z, DS2000 and DS4000 family captures. Detection is by content/family, not extension alone."
+    },
+    {
+      "brand": "Rigol",
+      "format": "MSO5000 BIN and DHO800 WFM/BIN",
+      "extensions": [".bin", ".wfm"],
+      "status": "verified",
+      "fixtures": [
+        "rigol/rigol_mso5000.bin",
+        "rigol/rigol_dho824.wfm",
+        "rigol/rigol_dho824.bin"
+      ],
+      "verified_variants": ["bin5000", "DHO block WFM", "RG03 DHO BIN"],
+      "limitations": ["Logic records and unsupported blocks must be rejected"],
+      "wiki_claim": "Rigol MSO5000 BIN and DHO800 WFM/BIN are verified against the supplied files."
+    },
+    {
+      "brand": "Rigol",
+      "format": "DS6000 WFM and MSO7000/8000 BIN",
+      "extensions": [".wfm", ".bin"],
+      "status": "provisional",
+      "fixtures": [],
+      "limitations": ["Included browser parsers have no real fixture in this hand-off"],
+      "wiki_claim": "Do not advertise support until real representative fixtures pass the same golden-result tests."
+    }
+  ]
+}

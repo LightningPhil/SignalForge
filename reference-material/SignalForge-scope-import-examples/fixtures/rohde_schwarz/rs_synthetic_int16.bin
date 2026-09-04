@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Database FWVersion="SYNTHETIC" SaveItemType="Data">
+  <P Name="SignalFormat" Value="eRS_SIGNAL_FORMAT_INT16BIT"/>
+  <P Name="TraceType" Value="eRS_TRACE_TYPE_NORMAL"/>
+  <P Name="NumberOfAcquisitions" Value="1"/>
+  <P Name="SignalHardwareRecordLength" Value="9"/>
+  <P Name="RecordLength" Value="9"/>
+  <P Name="LeadingSettlingSamples" Value="0"/>
+  <P Name="XStart" Value="-4e-6"/>
+  <P Name="XStop" Value="5e-6"/>
+  <P Name="MultiChannelExport" Value="eRS_ONOFF_OFF"/>
+  <P Name="Source" Value="eRS_SIGNAL_SOURCE_CH1_TR1"/>
+  <P Name="NofQuantisationLevels" Value="65536"/>
+  <P Name="VerticalPosition" Value="0.25"/>
+  <P Name="VerticalScale" Value="2" StepFactor="10"/>
+  <P Name="VerticalOffset" Value="0.1"/>
+</Database>

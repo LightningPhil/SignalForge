@@ -6,3 +6,16 @@ test-results
 *.local
 .vite
 *.tsbuildinfo
+reference-material/SignalForge-scope-import-examples/src/
+reference-material/SignalForge-scope-import-examples/scripts/
+reference-material/SignalForge-scope-import-examples/tests/
+reference-material/SignalForge-scope-import-examples/plots/
+reference-material/SignalForge-scope-import-examples/read_scope.py
+reference-material/SignalForge-scope-import-examples/third_party/*
+!reference-material/SignalForge-scope-import-examples/third_party/RIGOLWFM_BSD_3_CLAUSE_LICENSE.txt
+!reference-material/SignalForge-scope-import-examples/third_party/TEKTRONIX_TM_DATA_TYPES_LICENSE.md
+reference-material/SignalForge-scope-import-examples/fixtures/picoscope/*.h5
+reference-material/SignalForge-scope-import-examples/fixtures/picoscope/*.psdata
+reference-material/SignalForge-scope-import-examples/pyproject.toml
+reference-material/SignalForge-scope-import-examples/requirements*.txt
+reference-material/SignalForge-scope-import-examples/example_run.txt

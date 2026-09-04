@@ -169,6 +169,15 @@ function validateSession(session: Session): Session {
       }
       requireTokenRecord(channel.originalValueTokens, `channel "${channel.name}" originalValueTokens`);
       requireTokenRecord(channel.originalTimeTokens, `channel "${channel.name}" originalTimeTokens`);
+      if (channel.sourceUnit !== undefined) {
+        requireString(channel.sourceUnit, `channel "${channel.name}" sourceUnit`, 100);
+      }
+      if (channel.sourceToSiScale !== undefined) {
+        requireFinite(channel.sourceToSiScale, `channel "${channel.name}" sourceToSiScale`);
+      }
+      if (channel.sourceFormat !== undefined) {
+        requireString(channel.sourceFormat, `channel "${channel.name}" sourceFormat`, 200);
+      }
       requireFinite(channel.timingOffsetSeconds, `channel "${channel.name}" timingOffsetSeconds`);
       requireFinite(channel.calibration.scale, `channel "${channel.name}" calibration.scale`);
       requireFinite(channel.calibration.offset, `channel "${channel.name}" calibration.offset`);
@@ -254,6 +263,13 @@ function validateSession(session: Session): Session {
     }
   }
   return session;
+}
+
+export function validateCurrentSession(session: Session): Session {
+  if (session.schemaVersion !== CURRENT_SESSION_SCHEMA) {
+    throw new Error(`Session schema ${session.schemaVersion} requires migration before current-schema validation.`);
+  }
+  return validateSession(session);
 }
 
 export function migrateSession(input: unknown): Session {

@@ -427,20 +427,23 @@ marker/channel/provenance-aware UI.
 
 ## Gate 9 — Native oscilloscope adapters
 
-### Framework now
+**Current status:** content-first detection, checked readers, decode budgets,
+worker cancellation, multi-record/session mapping and cross-language fixture
+oracles are implemented.
 
-- Add adapter interfaces, byte readers, endian-safe primitives, calibrated
-  channel output, diagnostics and fixture-based contract tests.
-- Add adapters for robust CSV/TSV/text immediately.
-- Register native format placeholders by manufacturer without claiming support.
+### Implemented fixture-backed paths
 
-### Fixture-gated implementation order
+- Tektronix little-endian WFM#003 ordinary analogue and FastFrame.
+- Keysight/Agilent AG10 ordinary analogue BIN.
+- R&S RTx paired float32, int8 and XYDOUBLEFLOAT exports.
+- LeCroy LECROY_1_0/2_3 little-endian int16 TRC.
+- Rigol DS1000B/C/D-E/Z, DS2000, DS4000, MSO5000 and DHO800 WFM/BIN.
+- Layout-tested beta paths: Tek ISF, AG01/AG03, R&S int16, big-endian
+  LeCroy and PicoScope two-row CSV.
 
-1. Tektronix `.wfm` and relevant `.isf` variants.
-2. Teledyne LeCroy `.trc`.
-3. Keysight/Agilent `.bin` and `.h5`.
-4. The fourth work instrument after make/model identification.
-5. Rohde & Schwarz, Siglent, Rigol or PicoScope according to supplied files.
+PSDATA remains conversion-required. PicoScope HDF5, Siglent and unproved
+Tek/Rigol variants remain unavailable until representative fixtures and
+bounded decoders exist.
 
 For each exact model/firmware family, development requires representative files
 covering channel count, sample type, endian mode, segmented acquisition,

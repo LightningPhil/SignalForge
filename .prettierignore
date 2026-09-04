@@ -4,4 +4,5 @@ docs
 node_modules
 package-lock.json
 playwright-report
+reference-material
 test-results

@@ -1,5 +1,5 @@
 import type { Session } from '../domain/session';
-import { migrateSession } from '../domain/migrations';
+import { CURRENT_SESSION_SCHEMA, migrateSession, validateCurrentSession } from '../domain/migrations';
 
 const DATABASE_NAME = 'signalforge';
 const DATABASE_VERSION = 1;
@@ -67,8 +67,9 @@ export class SessionRepository {
 
   async save(session: Session): Promise<Session> {
     const database = await this.open();
-    const copy = migrateSession(session);
-    copy.updatedAt = new Date().toISOString();
+    session.updatedAt = new Date().toISOString();
+    const copy =
+      session.schemaVersion === CURRENT_SESSION_SCHEMA ? validateCurrentSession(session) : migrateSession(session);
     const transaction = database.transaction(SESSION_STORE, 'readwrite');
     transaction.objectStore(SESSION_STORE).put(copy);
     await transactionComplete(transaction);
