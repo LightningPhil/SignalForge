@@ -5,12 +5,13 @@ import {
   type Annotation,
   type ReviewStatus,
   type Session,
+  type SessionAnalysisResult,
   type Shot
 } from '../domain/session';
 import { sessionRepository } from '../persistence/sessionRepository';
 import { parseNumericValue, QualityFlag } from '../data/quality';
 import { State, type StateDataChange } from '../state';
-import type { CsvRow } from '../types';
+import type { CsvRow, DataRepairRecord } from '../types';
 import { toNumber } from '../app/utils';
 import { getTimeArray } from '../app/traceData';
 import { timeScaleToSeconds } from '../units/units';
@@ -25,16 +26,45 @@ function cloneConfig(): Record<string, unknown> {
   return JSON.parse(JSON.stringify(State.config)) as Record<string, unknown>;
 }
 
-function interpolateChannel(time: Float64Array, values: Float64Array, target: number): number {
-  if (target < time[0] || target > time[time.length - 1]) return Number.NaN;
+/**
+ * Indices of a channel's timestamps that can anchor an interpolation: finite and strictly increasing.
+ * Missing or non-monotonic timestamps are skipped so they cannot corrupt a binary search, and the
+ * samples they belong to are simply unavailable as interpolation anchors.
+ */
+function usableTimeIndices(time: Float64Array): Int32Array {
+  const indices: number[] = [];
+  let previous = -Infinity;
+  for (let index = 0; index < time.length; index += 1) {
+    const stamp = time[index];
+    if (!Number.isFinite(stamp) || !(stamp > previous)) continue;
+    indices.push(index);
+    previous = stamp;
+  }
+  return Int32Array.from(indices);
+}
+
+/** Position of the last usable anchor whose timestamp is <= target, or -1 when target precedes the record. */
+function anchorBefore(time: Float64Array, anchors: Int32Array, target: number): number {
   let lower = 0;
-  let upper = time.length - 1;
+  let upper = anchors.length - 1;
+  if (anchors.length === 0 || target < time[anchors[0]]) return -1;
   while (upper - lower > 1) {
     const middle = Math.floor((lower + upper) / 2);
-    if (time[middle] <= target) lower = middle;
+    if (time[anchors[middle]] <= target) lower = middle;
     else upper = middle;
   }
+  return time[anchors[upper]] <= target ? upper : lower;
+}
+
+function interpolateChannel(time: Float64Array, values: Float64Array, target: number, anchors?: Int32Array): number {
+  const usable = anchors ?? usableTimeIndices(time);
+  if (!Number.isFinite(target) || usable.length === 0) return Number.NaN;
+  if (target < time[usable[0]] || target > time[usable[usable.length - 1]]) return Number.NaN;
+  const position = anchorBefore(time, usable, target);
+  const lower = usable[position];
   if (target === time[lower]) return values[lower];
+  if (position + 1 >= usable.length) return Number.NaN;
+  const upper = usable[position + 1];
   const interval = time[upper] - time[lower];
   return interval > 0
     ? values[lower] + (values[upper] - values[lower]) * ((target - time[lower]) / interval)
@@ -42,23 +72,33 @@ function interpolateChannel(time: Float64Array, values: Float64Array, target: nu
 }
 
 function sameTimebase(left: Float64Array, right: Float64Array): boolean {
-  return left.length === right.length && left.every((time, index) => time === right[index]);
+  // NaN timestamps (missing cells) are the same timestamp on both sides of a shared grid.
+  return (
+    left.length === right.length &&
+    left.every((time, index) => time === right[index] || (Number.isNaN(time) && Number.isNaN(right[index])))
+  );
 }
 
 function alignQuality(sourceTime: Float64Array, quality: Uint16Array, targetTime: Float64Array): Uint16Array {
   if (sameTimebase(sourceTime, targetTime)) return quality.slice(0, targetTime.length);
   const aligned = new Uint16Array(targetTime.length);
-  let sourceIndex = 0;
+  const anchors = usableTimeIndices(sourceTime);
   for (let targetIndex = 0; targetIndex < targetTime.length; targetIndex += 1) {
     const target = targetTime[targetIndex];
-    if (target < sourceTime[0] || target > sourceTime[sourceTime.length - 1]) {
+    if (
+      !Number.isFinite(target) ||
+      anchors.length === 0 ||
+      target < sourceTime[anchors[0]] ||
+      target > sourceTime[anchors[anchors.length - 1]]
+    ) {
       aligned[targetIndex] = QualityFlag.Missing | QualityFlag.Interpolated;
       continue;
     }
-    while (sourceIndex + 1 < sourceTime.length - 1 && sourceTime[sourceIndex + 1] < target) sourceIndex += 1;
-    const right = Math.min(sourceTime.length - 1, sourceIndex + 1);
+    const position = anchorBefore(sourceTime, anchors, target);
+    const left = anchors[position];
+    const right = anchors[Math.min(anchors.length - 1, position + 1)];
     aligned[targetIndex] =
-      (quality[sourceIndex] || QualityFlag.None) | (quality[right] || QualityFlag.None) | QualityFlag.Interpolated;
+      (quality[left] || QualityFlag.None) | (quality[right] || QualityFlag.None) | QualityFlag.Interpolated;
   }
   return aligned;
 }
@@ -115,6 +155,12 @@ export const SessionWorkspace = {
   },
 
   setActive(session: Session, shotId: string | null = null): void {
+    const previous = this.activeSession;
+    if (previous && previous !== session && previous.id === session.id) {
+      // Reloading the same session from storage replaces the in-memory copy; a pending autosave of the
+      // old object would otherwise land after the reload and make the fresh copy a stale revision.
+      sessionRepository.cancelAutosave(previous.id);
+    }
     this.activeSession = session;
     this.activeShotId = shotId || session.shots[0]?.id || null;
     const shot = this.getActiveShot();
@@ -157,6 +203,11 @@ export const SessionWorkspace = {
     const sampleInterval = this.medianDt(Array.from(time));
     for (const header of State.data.headers) {
       if (header === timeColumn) continue;
+      if (header === 'Time') {
+        throw new Error(
+          'A data column named "Time" cannot be captured into a shot because "Time" is the reserved working time column; rename the column first.'
+        );
+      }
       const values =
         State.data.columns[header]?.slice() || Float64Array.from(State.data.raw, (row) => toNumber(row[header]));
       let hasFinite = false;
@@ -204,13 +255,7 @@ export const SessionWorkspace = {
         warnings: []
       });
     }
-    shot.repairHistory = structuredClone(State.data.repairHistory).map((record) => ({
-      ...record,
-      changes: record.changes.map((change) => ({
-        ...change,
-        columnId: change.columnId === timeColumn ? 'Time' : change.columnId
-      }))
-    }));
+    shot.repairHistory = this.exportRepairHistory(timeColumn);
     shot.repairCursor = State.data.repairCursor;
     session.shots.push(shot);
     session.updatedAt = new Date().toISOString();
@@ -228,13 +273,29 @@ export const SessionWorkspace = {
     const originalReferenceTime = shot.channels[0].originalTime || referenceTime;
     const length = referenceTime.length;
     const headers = ['Time', ...shot.channels.map((channel) => channel.name)];
+    // Per-channel alignment decisions are made once, not per row.
+    const workingPlan = shot.channels.map((channel) => {
+      const shared = sameTimebase(channel.time, referenceTime);
+      return { channel, shared, anchors: shared ? null : usableTimeIndices(channel.time) };
+    });
+    const originalPlan = shot.channels.map((channel) => {
+      const channelTime = channel.originalTime || channel.time;
+      const shared = sameTimebase(channelTime, originalReferenceTime);
+      return {
+        channel,
+        channelTime,
+        channelValues: channel.originalValues || channel.values,
+        shared,
+        anchors: shared ? null : usableTimeIndices(channelTime)
+      };
+    });
     const workingRows: CsvRow[] = Array.from({ length }, (_, index) => {
       const timestamp = referenceTime[index];
       const row: CsvRow = { Time: timestamp };
-      shot.channels.forEach((channel) => {
-        row[channel.name] = sameTimebase(channel.time, referenceTime)
+      workingPlan.forEach(({ channel, shared, anchors }) => {
+        row[channel.name] = shared
           ? channel.values[index]
-          : interpolateChannel(channel.time, channel.values, timestamp);
+          : interpolateChannel(channel.time, channel.values, timestamp, anchors ?? undefined);
       });
       return row;
     });
@@ -246,14 +307,12 @@ export const SessionWorkspace = {
           ? firstChannel.originalTimeTokens?.[index]
           : timestamp
       };
-      shot.channels.forEach((channel) => {
-        const channelTime = channel.originalTime || channel.time;
-        const channelValues = channel.originalValues || channel.values;
-        row[channel.name] = sameTimebase(channelTime, originalReferenceTime)
+      originalPlan.forEach(({ channel, channelTime, channelValues, shared, anchors }) => {
+        row[channel.name] = shared
           ? Object.prototype.hasOwnProperty.call(channel.originalValueTokens || {}, index)
             ? channel.originalValueTokens?.[index]
             : channelValues[index]
-          : interpolateChannel(channelTime, channelValues, timestamp);
+          : interpolateChannel(channelTime, channelValues, timestamp, anchors ?? undefined);
       });
       return row;
     });
@@ -378,16 +437,14 @@ export const SessionWorkspace = {
               [channel.name]: replacement
             };
             State.data.columns[channel.name][rowIndex] = replacement;
-            State.data.quality[channel.name][rowIndex] |= QualityFlag.Interpolated;
-            State.data.original = Object.freeze(
-              State.data.original.map((row, index) =>
-                index === rowIndex ? Object.freeze({ ...row, [channel.name]: replacement }) : row
-              )
-            );
-            State.data.originalColumns[channel.name][rowIndex] = replacement;
-            State.data.originalQuality[channel.name][rowIndex] =
+            State.data.quality[channel.name][rowIndex] =
               QualityFlag.Interpolated | (Number.isFinite(replacement) ? QualityFlag.None : QualityFlag.Missing);
+            // The parsed original token stays untouched; only its quality records that this sample sits on a
+            // timestamp the independent channel could not accept. The working grid carries the interpolation.
+            State.data.originalQuality[channel.name][rowIndex] |= QualityFlag.NonMonotonicTime;
           }
+          // The working grid changed after the append notification; invalidate memoised series.
+          State.data.generation += 1;
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('signalforge:data-warning', { detail: warning }));
           }
@@ -412,14 +469,20 @@ export const SessionWorkspace = {
         });
         channel.originalTimeTokens = timeTokens;
       }
-      shot.repairHistory = structuredClone(State.data.repairHistory);
+      shot.repairHistory = this.exportRepairHistory(timeColumn);
       shot.repairCursor = State.data.repairCursor;
-      this.touchShot(true);
+      // Appended samples extend every channel, so results computed on the old extent are stale.
+      this.invalidateResults(() => true);
+      this.touchShot(false);
       this.notify();
       return;
     }
     if (changed.has(timeColumn) && shot.channels[0]) {
-      shot.channels[0].time = time.slice();
+      // Every channel that shared the reference grid before the repair follows the repaired timebase;
+      // independently sampled channels keep their own timestamps.
+      const previousReferenceTime = shot.channels[0].time;
+      const sharedReference = shot.channels.filter((channel) => sameTimebase(channel.time, previousReferenceTime));
+      for (const channel of sharedReference) channel.time = time.slice();
     }
     for (const channel of shot.channels) {
       if (!changed.has(channel.name)) continue;
@@ -434,10 +497,39 @@ export const SessionWorkspace = {
         channel.quality = alignQuality(time, projectedQuality, channel.time);
       }
     }
-    shot.repairHistory = structuredClone(State.data.repairHistory);
+    shot.repairHistory = this.exportRepairHistory(timeColumn);
     shot.repairCursor = State.data.repairCursor;
-    this.touchShot(true);
+    this.invalidateResults((result) =>
+      result.provenance.sourceChannelIds.some((channelId) =>
+        shot.channels.some(
+          (channel) => channel.id === channelId && (changed.has(channel.name) || changed.has(timeColumn))
+        )
+      )
+    );
+    this.touchShot(false);
     this.notify();
+  },
+
+  /** Repair history in session terms: the working time column is always called `Time` in a shot. */
+  exportRepairHistory(timeColumn: string): DataRepairRecord[] {
+    return structuredClone(State.data.repairHistory).map((record) => ({
+      ...record,
+      changes: record.changes.map((change) => ({
+        ...change,
+        columnId: change.columnId === timeColumn ? 'Time' : change.columnId
+      }))
+    }));
+  },
+
+  /**
+   * Drops only the analysis results the predicate selects, using their provenance, so an unrelated
+   * marker or channel edit leaves other results intact.
+   */
+  invalidateResults(predicate: (result: SessionAnalysisResult) => boolean): void {
+    const shot = this.getActiveShot();
+    if (!shot) return;
+    const remaining = shot.analysisResults.filter((result) => !predicate(result));
+    if (remaining.length !== shot.analysisResults.length) shot.analysisResults = remaining;
   },
 
   previousShot(): Shot | null {
@@ -465,9 +557,29 @@ export const SessionWorkspace = {
     if (!shot) throw new Error('Select a shot before adding a marker.');
     const marker = createAnnotation(name, time, options);
     shot.annotations.push(marker);
-    this.touchShot(true);
+    // A brand-new marker cannot be referenced by an existing result's provenance, unless a batch
+    // recipe addressed it by name; only results bound to that name are stale.
+    this.invalidateMarkerResults(marker);
+    this.touchShot(false);
     this.notify();
     return marker;
+  },
+
+  /** Invalidates results whose provenance references the annotation (by id or by region marker name). */
+  invalidateMarkerResults(marker: Pick<Annotation, 'id' | 'name'>): void {
+    this.invalidateResults(
+      (result) =>
+        result.provenance.annotationIds.includes(marker.id) ||
+        (result.type === 'pulse-power' && this.resultUsesMarkerName(result, marker.name))
+    );
+  },
+
+  resultUsesMarkerName(result: SessionAnalysisResult, name: string): boolean {
+    const shot = this.getActiveShot();
+    if (!shot) return false;
+    return shot.annotations.some(
+      (annotation) => annotation.name === name && result.provenance.annotationIds.includes(annotation.id)
+    );
   },
 
   touchShot(invalidateResults = false): void {
@@ -481,13 +593,17 @@ export const SessionWorkspace = {
     }
   },
 
-  updateShot(patch: { notes?: string; reviewStatus?: ReviewStatus }): void {
+  /**
+   * Notes and review status are stored and autosaved without a workspace-wide notification: notes
+   * are edited keystroke by keystroke and re-rendering the workspace would destroy the textarea.
+   */
+  updateShot(patch: { notes?: string; reviewStatus?: ReviewStatus }, options: { silent?: boolean } = {}): void {
     const shot = this.getActiveShot();
     if (!shot) return;
     if (patch.notes !== undefined) shot.notes = patch.notes;
     if (patch.reviewStatus !== undefined) shot.reviewStatus = patch.reviewStatus;
     this.touchShot(false);
-    this.notify();
+    if (!options.silent) this.notify();
   },
 
   async save(): Promise<Session | null> {
@@ -522,6 +638,8 @@ State.onTraceConfigChange((columnId, config) => {
   const channel = SessionWorkspace.getActiveShot()?.channels.find((candidate) => candidate.name === columnId);
   if (!channel) return;
   channel.timingOffsetSeconds = config.xOffset * SessionWorkspace.medianDt(Array.from(channel.time));
-  SessionWorkspace.touchShot(true);
+  // Only results that consumed this channel depend on its timing offset.
+  SessionWorkspace.invalidateResults((result) => result.provenance.sourceChannelIds.includes(channel.id));
+  SessionWorkspace.touchShot(false);
   SessionWorkspace.notify();
 });

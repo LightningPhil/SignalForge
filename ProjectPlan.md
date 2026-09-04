@@ -90,9 +90,10 @@ document.
   marker/channel/provenance UI is completed.
 - **Gate 9:** adapter framework complete; model-specific native decoders remain
   fixture-required.
-- **Gate 10:** partial. CI, `npm audit`, workers, lazy chunks, service worker
-  and archive limits are present. Dependency Review, measured performance
-  budgets and service-worker upgrade/version tests remain future work.
+- **Gate 10:** partial. CI, `npm audit`, pull-request dependency review,
+  workers, lazy chunks, service worker and archive limits are present. Measured
+  performance budgets and service-worker upgrade/version tests remain future
+  work.
 
 ## Definition of stable
 
@@ -459,16 +460,21 @@ scaling, timestamp metadata and known malformed cases. An adapter remains
 
 ## Gate 10 — Batch analysis, offline use and release hardening
 
-**Current status: partial.** The service worker already ships with an
-installation/cache browser assertion, but update/version behavior is not yet
-tested. CI runs vulnerability auditing with `npm audit`; a GitHub Dependency
-Review action is not configured.
+**Current status: partial.** The service worker ships with an
+installation/cache browser assertion. Its runtime cache name is stamped at
+build time (package version + hash of the built entry document) so each
+deployment activates a fresh cache and deletes the previous one; only
+content-hashed `assets/` are cache-first, everything else is network-first with
+cache fallback. Update behavior is verified by the build-time stamp and unit
+tests, not yet by a two-deployment browser test. CI runs both `npm audit` and
+GitHub Dependency Review for pull-request dependency changes.
 
 - Queue batch processing by session/shot with deterministic recipe hashes.
 - Cache immutable results and invalidate by dependency.
 - Add progress, cancellation, retry and per-shot failure isolation.
 - Split Plotly and heavy analysis code to reduce initial bundle cost.
-- Add a service worker only after update/version behavior has browser tests.
+- Add a two-deployment browser test for service-worker update/version behavior
+  (the versioned cache name is already stamped at build time).
 - Add dependency review and vulnerability audit to CI.
 - Add regression datasets and numerical result snapshots.
 - Document limitations, supported adapters and uncertainty.

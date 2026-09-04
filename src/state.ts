@@ -82,7 +82,8 @@ export const State = {
     quality: {},
     repairHistory: [],
     repairCursor: 0,
-    source: null
+    source: null,
+    generation: 0
   } as AppData,
 
   multiViews: [] as MultiView[],
@@ -102,6 +103,7 @@ export const State = {
   },
 
   notifyDataChange(kind: StateDataChange['kind'], columnIds: string[]): void {
+    this.data.generation += 1;
     const unique = [...new Set(columnIds)];
     dataChangeListeners.forEach((listener) => listener({ kind, columnIds: unique }));
   },
@@ -135,6 +137,7 @@ export const State = {
     this.data.repairHistory = [];
     this.data.repairCursor = 0;
     this.data.source = source ? { ...source, bytes: source.bytes.slice() } : null;
+    this.data.generation += 1;
     this.multiViews = [];
     this.ui.activeMultiViewId = null;
     this.ui.viewRanges = {};

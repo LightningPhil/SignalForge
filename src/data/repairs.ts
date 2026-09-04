@@ -12,6 +12,17 @@ function numeric(value: CsvValue): number | null {
   return parseNumericValue(value);
 }
 
+/**
+ * Working quality of a repaired sample: the repair supplies a finite value, so the token-derived
+ * blocking flags (Missing/Invalid/Clipped/Saturated) are lifted and replaced by the explicit repair
+ * flag. The original token and its original quality remain untouched for provenance, and the repair
+ * is undoable.
+ */
+export function repairedQuality(originalToken: CsvValue, repairFlag: number): number {
+  const blocking = QualityFlag.Missing | QualityFlag.Invalid | QualityFlag.Clipped | QualityFlag.Saturated;
+  return (classifyQuality(originalToken) & ~blocking) | repairFlag;
+}
+
 export function buildForwardFillUpdates(rows: CsvRow[], columnId: string): DataRepairUpdate[] {
   const updates: DataRepairUpdate[] = [];
   let previous: number | null = null;
@@ -25,7 +36,7 @@ export function buildForwardFillUpdates(rows: CsvRow[], columnId: string): DataR
         rowIndex,
         columnId,
         value: previous,
-        quality: classifyQuality(value) | QualityFlag.ForwardFilled
+        quality: repairedQuality(value, QualityFlag.ForwardFilled)
       });
     }
   }
@@ -62,7 +73,7 @@ export function buildLinearInterpolationUpdates(
               rowIndex,
               columnId,
               value: leftValue + (rightValue - leftValue) * fraction,
-              quality: classifyQuality(rows[rowIndex]?.[columnId]) | QualityFlag.Interpolated
+              quality: repairedQuality(rows[rowIndex]?.[columnId], QualityFlag.Interpolated)
             });
           }
         }

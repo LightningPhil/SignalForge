@@ -3,6 +3,7 @@ import { QualityFlag, classifyQuality, parseNumericValue } from '../../data/qual
 import type { SessionChannel, SourceFileRecord } from '../../domain/session';
 import type { CsvRow } from '../../types';
 import { isTimeUnit, timeScaleToSeconds } from '../../units/units';
+import { ScopeImportLimits } from '../scope/limits';
 import type {
   AdapterIdentification,
   AdapterImportResult,
@@ -38,6 +39,29 @@ function id(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
+/** Bytes retained per sample per channel: values + originalValues + time + originalTime (4 × f64) and two u16 masks. */
+const RESIDENT_BYTES_PER_CHANNEL_SAMPLE = 4 * 8 + 2 * 2;
+
+export function validateDelimitedShape(rowCount: number, channelCount: number, textLength: number, name: string): void {
+  if (channelCount < 1) return; // reported separately as "requires a time column and at least one channel"
+  if (channelCount > ScopeImportLimits.maxDelimitedChannels) {
+    throw new Error(
+      `${name} declares ${channelCount} channels; delimited text is limited to ${ScopeImportLimits.maxDelimitedChannels}.`
+    );
+  }
+  if (rowCount > ScopeImportLimits.maxSamplesPerChannel) {
+    throw new Error(
+      `${name} has about ${rowCount} rows; delimited text is limited to ${ScopeImportLimits.maxSamplesPerChannel} samples per channel.`
+    );
+  }
+  const predictedBytes = rowCount * channelCount * RESIDENT_BYTES_PER_CHANNEL_SAMPLE + textLength * 2;
+  if (!Number.isSafeInteger(predictedBytes) || predictedBytes > ScopeImportLimits.maxDecodedBytes) {
+    throw new Error(
+      `${name} would need about ${predictedBytes} bytes for ${channelCount} channel(s) × ${rowCount} rows; the import budget is ${ScopeImportLimits.maxDecodedBytes} bytes.`
+    );
+  }
+}
+
 export const DelimitedTextAdapter: WaveformImportAdapter = {
   id: 'delimited-text',
   name: 'Delimited text (CSV/TSV/TXT)',
@@ -57,10 +81,33 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
   },
 
   async import(source: ImportSource, options: ImportAdapterOptions = {}): Promise<AdapterImportResult> {
+    // Shape and memory are bounded before any string, row or channel array is materialised so that a
+    // wide or long text file fails with a budget error instead of allocating gigabytes first.
+    if (source.bytes.byteLength > ScopeImportLimits.maxTextBytes) {
+      throw new Error(
+        `${source.name} is ${source.bytes.byteLength} bytes; delimited text is limited to ${ScopeImportLimits.maxTextBytes} bytes.`
+      );
+    }
     const text = new TextDecoder('utf-8', { fatal: false }).decode(source.bytes);
     const lines = text.split(/\r\n|\n|\r/);
     const headerRow = Math.max(0, options.headerRow ?? likelyHeaderRow(lines));
-    const body = lines.slice(headerRow).join('\n');
+    const splitter = options.delimiter ? options.delimiter : /[\t,;]/;
+    const headerCells = (lines[headerRow] || '').split(splitter);
+    const declaredColumns = headerCells.length;
+    validateDelimitedShape(lines.length - headerRow, declaredColumns - 1, text.length, source.name);
+    // A "header" made only of numbers is the first data row of a headerless file. Consuming it as
+    // column names would silently drop a sample, so synthesise names and keep the row as data.
+    const headerless =
+      options.headerRow === undefined &&
+      declaredColumns >= 2 &&
+      headerCells.every((cell) => cell.trim() !== '' && Number.isFinite(Number(cell)));
+    const rowDelimiter =
+      typeof splitter === 'string' ? splitter : ((lines[headerRow] || '').match(/[\t,;]/)?.[0] ?? ',');
+    const syntheticHeader = headerless
+      ? headerCells.map((_, index) => (index === 0 ? 'Time' : `Channel ${index}`)).join(rowDelimiter)
+      : null;
+    const bodyLines = lines.slice(headerRow);
+    const body = (syntheticHeader ? [syntheticHeader, ...bodyLines] : bodyLines).join('\n');
     const parsed = Papa.parse<CsvRow>(body, {
       comments: '#',
       delimiter: options.delimiter,
@@ -71,6 +118,7 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
     const headers = parsed.meta.fields || [];
     if (headers.length < 2)
       throw new Error('Delimited waveform input requires a time column and at least one channel.');
+    validateDelimitedShape(parsed.data.length, headers.length - 1, text.length, source.name);
     const timeColumn = options.timeColumn && headers.includes(options.timeColumn) ? options.timeColumn : headers[0];
     const declaredTimeUnit = unitFromHeader(timeColumn) || 's';
     const timeScale = timeScaleToSeconds(declaredTimeUnit);
@@ -130,6 +178,11 @@ export const DelimitedTextAdapter: WaveformImportAdapter = {
     if (channels.length === 0) throw new Error('No numeric waveform channels were found.');
     const warnings = parsed.errors.map((error) => `Row ${error.row ?? '?'}: ${error.message}`);
     if (!timeUnitKnown) warnings.push(`Unknown time unit "${declaredTimeUnit}"; timestamps were treated as seconds.`);
+    if (headerless) {
+      warnings.push(
+        `No header row was found; columns were named ${headers.map((header) => `"${header}"`).join(', ')} and every row was kept as data.`
+      );
+    }
     const sourceFile: SourceFileRecord = {
       id: id('source'),
       name: source.name,

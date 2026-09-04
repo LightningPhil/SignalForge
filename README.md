@@ -115,6 +115,9 @@ Versioned wiki source starts at [`wiki/Home.md`](wiki/Home.md).
 ### 2. Sessions and multi-file import
 
 - **Single file:** Load a CSV/TSV/text capture and select its header row.
+  Text files imported through Multi Import detect the header row automatically;
+  a file whose first row is entirely numeric is treated as headerless (columns
+  become `Time`, `Channel 1`, …) so no sample is consumed as a name.
 - **Multi-file with metadata:** Use a profile such as
   `shot {shot:int} - {charge_voltage:quantity[V]} - {length:quantity[mm]} - {channel:text}.csv`.
   A matching example is `shot 7 - 25kV - 200mm - Voltage.csv`.
@@ -194,13 +197,13 @@ apply a smooth zero-phase spectral response, and interpolate back.
 
 1.  Click the **➕** button next to the column tabs and choose **Math Trace**.
 2.  **Assign variables:** Map each source trace to a short symbol (e.g., `V`, `I`, `D+`). Raw and math traces can be mixed.
-3.  **Expression:** Prefer the safe waveform helpers. Bare `*` and `/` between waveform variables are math.js matrix operations and are rejected.
+3.  **Expression:** Prefer the safe waveform helpers. Bare `*`, `/` and `^` between waveform variables are rewritten to sample-by-sample operations, so they never invoke math.js matrix semantics. `mean`, `median`, `std`, `min`, `max` and `sum` are scalar reducers (`V - mean(V)` removes DC); an expression that yields only a scalar is rejected unless wrapped in `constantTrace(...)`.
     - Derivatives: `derivative(V, t)` uses the real timebase.
     - Integrals: `charge(I, t)` and `energy(V, I, t)` use actual-time trapezoidal integration.
     - Pointwise operations: `pointwiseMultiply(V, I)` and `guardedDivide(V, I, minimum)`.
     - Magnitudes: `abs(V)` to rectify signed data, or `sqrt(Vx.^2 + Vy.^2)` for vector magnitude.
     - Combo traces: `(V - REF) / 10` for calibration, `meanTraces(V1, V2, V3)` for ensemble averages.
-    - Thresholding & logic: `V > 0.5` creates a boolean mask; combine with `mean(V > 0.5) * 100` for duty cycle (% high time).
+    - Thresholding & logic: `V > 0.5` creates a boolean mask; `constantTrace(mean(V > 0.5) * 100)` turns the duty cycle (% high time) into an explicit constant trace.
     - Alignment: `(shift(V, 3) - V) / dt` to compare a trace against a time-shifted copy (see _Tips_).
 4.  **Name:** Give the output trace a label.
 5.  Click **Create Trace**. The virtual trace appears as a new tab.
@@ -260,12 +263,20 @@ apply a smooth zero-phase spectral response, and interpolate back.
 - Direct **Load** opens supported single files; **Multi Import** handles R&S
   pairs, multi-channel files, filename grouping and one shot per FastFrame
   record.
-- Multi-import preview is limited to 10,000 files and 64 MB aggregate source
-  bytes; cumulative source/session arrays must also remain within the 192 MB
+- Multi-import preview is limited to 10,000 files and 64 MiB aggregate source
+  bytes; cumulative source/session arrays must also remain within the 192 MiB
   persistence budget.
-- Native files are limited to 64 MB each, four analogue channels, 3 million
-  samples per channel, 3 million total channel-samples and a 192 MB predicted
-  decode working set.
+- Native files are limited to 64 MiB each, four analogue channels, 3 million
+  samples per channel, 3 million total channel-samples and a 192 MiB predicted
+  decode working set. Delimited text is limited to 32 MiB, 64 channels and the
+  same 3 million rows; the row × channel memory estimate is checked before any
+  parsing or allocation.
+- Tektronix WFM exports may carry a short vendor tail after the declared EOF;
+  it is disclosed as a warning and never decoded. LeCroy TRC files with bytes
+  beyond the declared logical blocks (other than a trailing line ending) are
+  rejected.
+- A preview or source's evidence level (verified / layout-tested / …) reflects
+  what the decoder actually accepted, not the pre-decode signature guess.
 - Pipeline processing moves to a cancellable Web Worker at 100,000 samples.
 - Display downsampling defaults to 20,000 shared-index points when enabled, and
   the data grid virtualizes records above 1,000 rows.
@@ -277,7 +288,12 @@ apply a smooth zero-phase spectral response, and interpolate back.
 ### 9. Offline use and deployment
 
 The production service worker caches same-origin SignalForge resources for
-offline reuse. Development builds do not register it.
+offline reuse. Development builds do not register it. The runtime cache name is
+stamped at build time with the package version and a hash of the built entry
+document, so each deployment activates a fresh cache and deletes the previous
+one. Content-hashed `assets/` are served cache-first; the entry document,
+notices and other unhashed files are network-first with cache fallback, so a
+redeploy is picked up on the next online visit without clearing site data.
 
 The current public site remains on the `master:/docs` fallback until this
 development branch is merged and GitHub Pages is switched to **GitHub

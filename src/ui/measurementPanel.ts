@@ -4,6 +4,7 @@ import { debounce, formatSeconds, selectionKey, seriesSignature } from '../app/u
 import { State } from '../state';
 import type { AnalysisSeries, MeasurementPreset } from '../types';
 import { ui } from './classes';
+import { renderWarningList } from './uiHelpers';
 
 const PRESETS: Record<MeasurementPreset, { label: string; metrics: string[] }> = {
   general: { label: 'General', metrics: ['mean', 'rms', 'peakToPeak', 'frequencyHz', 'period', 'min', 'max'] },
@@ -59,16 +60,7 @@ function formatSelection(
   return `Indices ${selection.i0}–${selection.i1}${timeLabel}`;
 }
 
-function renderWarnings(listEl: HTMLElement | null, warnings: string[] = []): void {
-  if (!listEl) return;
-  if (!warnings.length) {
-    listEl.innerHTML = '';
-    listEl.classList.add('hidden');
-    return;
-  }
-  listEl.classList.remove('hidden');
-  listEl.innerHTML = warnings.map((w) => `<li>${w}</li>`).join('');
-}
+const renderWarnings = renderWarningList;
 
 export const MeasurementPanel = {
   currentPreset: 'general' as MeasurementPreset,

@@ -1,5 +1,5 @@
 import { FFT, type SpectrumOptions } from '../processing/fft';
-import type { SpectrumResult } from '../types';
+import type { SpectrumMeta, SpectrumResult } from '../types';
 
 export interface SpectralPeak {
   freq: number;
@@ -62,12 +62,33 @@ export const SpectralMetrics = {
     const cleanMag = sanitizeMagnitude(mag);
     let maxVal = 0;
     for (const value of cleanMag) maxVal = Math.max(maxVal, value);
-    const minProm = maxVal * (prominence || 0);
+    if (maxVal <= 0) return [];
+    const minProm = maxVal * Math.max(0, prominence || 0);
     const peaks: SpectralPeak[] = [];
-    for (let i = 1; i < cleanMag.length - 1; i += 1) {
+    const count = cleanMag.length;
+    for (let i = 1; i < count - 1; i += 1) {
       const val = cleanMag[i];
-      if (val < cleanMag[i - 1] || val < cleanMag[i + 1]) continue;
-      if (Math.min(val - cleanMag[i - 1], val - cleanMag[i + 1]) >= minProm) {
+      // One candidate per plateau: strictly above the left neighbour, not below the right one.
+      if (!(val > cleanMag[i - 1]) || val < cleanMag[i + 1]) continue;
+      // Topographic prominence: descend on each side to the lowest point before a higher bin (or the
+      // edge). Walks stop early once that side has already dropped by the required prominence, so
+      // smooth zero-padded lobes are measured against their true base rather than their neighbours.
+      const target = val - minProm;
+      let leftMin = val;
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const v = cleanMag[j];
+        if (v > val) break;
+        if (v < leftMin) leftMin = v;
+        if (leftMin <= target) break;
+      }
+      let rightMin = val;
+      for (let j = i + 1; j < count; j += 1) {
+        const v = cleanMag[j];
+        if (v > val) break;
+        if (v < rightMin) rightMin = v;
+        if (rightMin <= target) break;
+      }
+      if (val - Math.max(leftMin, rightMin) >= minProm) {
         peaks.push({ freq: freq[i], magnitude: val, index: i });
       }
     }
@@ -109,6 +130,7 @@ export const SpectralMetrics = {
     signalHalfWidthBins = 2
   ): number | null {
     if (!fundamentalHz) return null;
+    if (!Number.isInteger(signalHalfWidthBins) || signalHalfWidthBins < 0) return null;
     const powerDensity = sanitizeMagnitude(psd);
     const totalPower = integrateBand(freq, powerDensity, 0, bandwidthHz || Infinity);
     const { index } = nearestBin(freq, fundamentalHz);
@@ -136,6 +158,17 @@ export const SpectralMetrics = {
       noisePower += powerDensity[bin] * Math.max(0, binWidth);
     }
     return noisePower <= Math.max(Number.EPSILON, totalPower * 1e-14) ? null : signalPower / noisePower;
+  },
+
+  /**
+   * Number of transform bins on each side of a harmonic that belong to the tone itself. The window's
+   * main lobe is `mainLobeHalfWidthBins` record bins wide; zero-padding multiplies that by
+   * `fftLength / sampleCount`, and one extra bin allows for a tone that is not bin-centred.
+   */
+  signalHalfWidthBins(meta: Pick<SpectrumMeta, 'fftLength' | 'sampleCount' | 'mainLobeHalfWidthBins'>): number {
+    const padRatio = meta.sampleCount > 0 && meta.fftLength > 0 ? meta.fftLength / meta.sampleCount : 1;
+    const mainLobe = meta.mainLobeHalfWidthBins ?? 2;
+    return Math.ceil(mainLobe * padRatio) + 1;
   },
 
   bandpower(freq: number[] = [], psd: number[] = [], f1 = 0, f2 = Infinity): number {
@@ -207,7 +240,7 @@ export const SpectralMetrics = {
     }
     const peaks = this.computePeaks(spectrum.freq, spectrum.linearMagnitude, {
       maxPeaks: options.maxPeaks || 5,
-      prominence: options.prominence || 0.01
+      prominence: options.prominence ?? 0.01
     });
     const fundamentalHz =
       Number.isFinite(options.fundamentalHz) && options.fundamentalHz && options.fundamentalHz > 0
@@ -231,7 +264,8 @@ export const SpectralMetrics = {
             spectrum.psd,
             fundamentalHz,
             options.bandwidthHz || spectrum.meta?.nyquist,
-            options.harmonicCount || 5
+            options.harmonicCount || 5,
+            this.signalHalfWidthBins(spectrum.meta)
           )
         : null,
       spur: fundamentalHz

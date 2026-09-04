@@ -48,9 +48,16 @@ export class AnalysisWorkerClient {
   }
 
   run<TResult extends WorkerTaskResult>(task: WorkerTaskInput, options: WorkerRunOptions = {}): Promise<TResult> {
-    const worker = this.factory();
     const id = task.id || `task-${crypto.randomUUID()}`;
     const request = { ...task, id } as WorkerTask;
+    // Worker construction can throw synchronously (CSP worker-src, file://, no module-worker support).
+    // That is a transport failure and must reach the caller's .catch, not escape the event handler.
+    let worker: Worker;
+    try {
+      worker = this.factory();
+    } catch (error) {
+      return Promise.reject(new AnalysisWorkerTransportError('Unable to start the analysis worker.', { cause: error }));
+    }
 
     return new Promise<TResult>((resolve, reject) => {
       let settled = false;
@@ -89,6 +96,11 @@ export class AnalysisWorkerClient {
             cause: event.error
           })
         );
+      });
+      worker.addEventListener('messageerror', () => {
+        // A result that cannot be deserialised must fail the task, otherwise the promise never settles.
+        if (!finish()) return;
+        reject(new AnalysisWorkerTransportError('The analysis worker result could not be deserialised.'));
       });
       const transfer = options.transferOwnership ? transferableBuffers(request) : [];
       try {

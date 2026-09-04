@@ -11,13 +11,18 @@ import { SpectralPanel } from '../ui/spectralPanel';
 import { SystemPanel } from '../ui/systemPanel';
 import { AnalysisWorkerTaskError, analysisWorkerClient } from '../workers/client';
 import type { FilterWorkerResult } from '../workers/protocol';
-import { getRawSeries, getSeriesForColumn } from './traceData';
+import { getRawSeries, getSeriesForColumn, rememberPreparedMultiView } from './traceData';
 
 let activePipelineTask: AbortController | null = null;
 let pipelineGeneration = 0;
 
 function notifyPipelineReport(): void {
   document.dispatchEvent(new CustomEvent('signalforge:pipeline-report'));
+}
+
+/** Surfaces a data/pipeline warning in the header live status. Listeners are registered on `window`. */
+function notifyDataWarning(message: string): void {
+  window.dispatchEvent(new CustomEvent('signalforge:data-warning', { detail: message }));
 }
 
 export function hasData(alertUser = true): boolean {
@@ -126,7 +131,7 @@ async function runMultiViewWithWorkers(
       if (error instanceof DOMException && error.name === 'AbortError') return;
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Background pipeline failed for ${columnId}.`, error);
-      document.dispatchEvent(new CustomEvent('signalforge:data-warning', { detail: `${columnId}: ${message}` }));
+      notifyDataWarning(`${columnId}: ${message}`);
       seriesList.push({
         columnId,
         rawY,
@@ -139,6 +144,7 @@ async function runMultiViewWithWorkers(
     }
   }
   if (controller.signal.aborted || generation !== pipelineGeneration || State.ui.activeMultiViewId !== viewId) return;
+  rememberPreparedMultiView(viewId, columnIds, seriesList);
   notifyPipelineReport();
   const primary = seriesList[0];
   pushSeriesToPanels(
@@ -264,6 +270,8 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
         if (error instanceof DOMException && error.name === 'AbortError') return;
         if (generation !== pipelineGeneration) return;
         if (error instanceof AnalysisWorkerTaskError) {
+          // Deterministic task failure: the same pipeline would fail on the main thread too, so it is
+          // reported instead of being retried synchronously.
           console.error('Background pipeline task failed.', error);
           State.data.processed = [];
           State.data.processedQuality = new Uint16Array(0);
@@ -273,10 +281,14 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
           pushSeriesToPanels(toAnalysisSeries(rawX, rawY, inputQuality, null, null, seriesName, false));
           Graph.render(rawX, rawY, null, range, { rawQuality: inputQuality, filteredQuality: null });
           Graph.setStatus(`Pipeline failed: ${error.message}`);
-          document.dispatchEvent(new CustomEvent('signalforge:data-warning', { detail: error.message }));
+          notifyDataWarning(error.message);
           return;
         }
-        console.error('Background pipeline failed; using the synchronous path.', error);
+        // Transport failure (worker script unavailable, message could not be delivered): the work is
+        // still valid, so it runs once on the main thread and the degraded mode is disclosed.
+        console.error('Background pipeline transport failed; using the synchronous path.', error);
+        const transportMessage = error instanceof Error ? error.message : String(error);
+        notifyDataWarning(`Background worker unavailable (${transportMessage}); filtering on the main thread.`);
         try {
           const filtered = Filter.applyPipelineWithReport(rawY, rawX, pipeline, inputQuality);
           State.data.processed = filtered.values;
@@ -302,7 +314,7 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
           pushSeriesToPanels(toAnalysisSeries(rawX, rawY, inputQuality, null, null, seriesName, false));
           Graph.render(rawX, rawY, null, range, { rawQuality: inputQuality, filteredQuality: null });
           Graph.setStatus(`Pipeline failed: ${message}`);
-          document.dispatchEvent(new CustomEvent('signalforge:data-warning', { detail: message }));
+          notifyDataWarning(message);
         }
       });
     return;
@@ -332,7 +344,7 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
     pushSeriesToPanels(toAnalysisSeries(rawX, rawY, inputQuality, null, null, seriesName, false));
     Graph.render(rawX, rawY, null, range, { rawQuality: inputQuality, filteredQuality: null });
     Graph.setStatus(`Pipeline failed: ${message}`);
-    document.dispatchEvent(new CustomEvent('signalforge:data-warning', { detail: message }));
+    notifyDataWarning(message);
   }
 }
 

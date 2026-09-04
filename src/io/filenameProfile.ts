@@ -86,6 +86,66 @@ export function compileFilenameProfile(profile: string): CompiledFilenameProfile
   return { source: profile, regex: new RegExp(expression, 'i'), fields };
 }
 
+type FieldParse = { field: ExtractedFilenameField; warning?: undefined } | { field?: undefined; warning: string };
+
+/** Parses one captured field value (and unit text for quantities) with the same rules the matcher uses. */
+function parseFieldValue(field: FilenameProfileField, raw: string, unitText: string): FieldParse {
+  if (field.type === 'text') {
+    if (raw.trim() === '') return { warning: `Field "${field.name}" must not be empty.` };
+    return { field: { name: field.name, type: field.type, raw, value: raw, unit: null, valueSi: null } };
+  }
+  const numericValue = Number(raw);
+  if (
+    raw.trim() === '' ||
+    !Number.isFinite(numericValue) ||
+    (field.type === 'int' && !Number.isInteger(numericValue))
+  ) {
+    return { warning: `Field "${field.name}" is not a valid ${field.type}.` };
+  }
+  if (field.type !== 'quantity') {
+    return {
+      field: { name: field.name, type: field.type, raw, value: numericValue, unit: null, valueSi: numericValue }
+    };
+  }
+  const actualUnit = normalizeUnit(unitText);
+  const expectedUnit = normalizeUnit(field.expectedUnit);
+  if (!actualUnit || !expectedUnit) {
+    return { warning: `Field "${field.name}" contains an unknown unit "${unitText}".` };
+  }
+  if (!dimensionsEqual(actualUnit.dimension, expectedUnit.dimension)) {
+    return { warning: `Field "${field.name}" unit "${unitText}" is incompatible with "${field.expectedUnit}".` };
+  }
+  return {
+    field: {
+      name: field.name,
+      type: field.type,
+      raw: `${raw}${unitText}`,
+      value: numericValue,
+      unit: actualUnit.symbol,
+      valueSi: convertToSi(numericValue, actualUnit)
+    }
+  };
+}
+
+const CORRECTION_QUANTITY = new RegExp(`^(${NUMBER_SOURCE})\\s*([A-Za-zµμΩω²·]+)$`);
+
+/**
+ * Re-parses a manual preview correction with the field's own rules, so a corrected "25 kV" becomes
+ * the SI number 25000 exactly like an extracted one, and an unparsable correction is reported instead
+ * of being stored as free text.
+ */
+export function parseFieldCorrection(field: FilenameProfileField, text: string): FieldParse {
+  const trimmed = text.trim();
+  if (field.type !== 'quantity') return parseFieldValue(field, trimmed, '');
+  const match = CORRECTION_QUANTITY.exec(trimmed);
+  if (!match) {
+    return {
+      warning: `Field "${field.name}" must be a number followed by a unit compatible with "${field.expectedUnit}".`
+    };
+  }
+  return parseFieldValue(field, match[1], match[2]);
+}
+
 export function matchFilename(profile: CompiledFilenameProfile, filename: string): FilenameMatch {
   const match = profile.regex.exec(filename);
   if (!match) return { filename, matched: false, fields: {}, warnings: ['Filename does not match the profile.'] };
@@ -94,46 +154,10 @@ export function matchFilename(profile: CompiledFilenameProfile, filename: string
 
   for (const field of profile.fields) {
     const raw = match[field.valueGroup] || '';
-    if (field.type === 'text') {
-      fields[field.name] = { name: field.name, type: field.type, raw, value: raw, unit: null, valueSi: null };
-      continue;
-    }
-    const numericValue = Number(raw);
-    if (!Number.isFinite(numericValue) || (field.type === 'int' && !Number.isInteger(numericValue))) {
-      warnings.push(`Field "${field.name}" is not a valid ${field.type}.`);
-      continue;
-    }
-    if (field.type !== 'quantity') {
-      fields[field.name] = {
-        name: field.name,
-        type: field.type,
-        raw,
-        value: numericValue,
-        unit: null,
-        valueSi: numericValue
-      };
-      continue;
-    }
-
-    const unitText = field.unitGroup ? match[field.unitGroup] : '';
-    const actualUnit = normalizeUnit(unitText);
-    const expectedUnit = normalizeUnit(field.expectedUnit);
-    if (!actualUnit || !expectedUnit) {
-      warnings.push(`Field "${field.name}" contains an unknown unit "${unitText}".`);
-      continue;
-    }
-    if (!dimensionsEqual(actualUnit.dimension, expectedUnit.dimension)) {
-      warnings.push(`Field "${field.name}" unit "${unitText}" is incompatible with "${field.expectedUnit}".`);
-      continue;
-    }
-    fields[field.name] = {
-      name: field.name,
-      type: field.type,
-      raw: `${raw}${unitText}`,
-      value: numericValue,
-      unit: actualUnit.symbol,
-      valueSi: convertToSi(numericValue, actualUnit)
-    };
+    const unitText = field.unitGroup ? match[field.unitGroup] || '' : '';
+    const parsed = parseFieldValue(field, raw, unitText);
+    if (parsed.field) fields[field.name] = parsed.field;
+    else warnings.push(parsed.warning);
   }
 
   return { filename, matched: true, fields, warnings };

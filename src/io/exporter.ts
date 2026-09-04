@@ -13,6 +13,8 @@ import { getAlignedSeriesForColumn, getRawSeries, getSeriesForColumn, getTimeArr
 import { toNumber } from '../app/utils';
 import { getColorsForTheme, hexToRgba } from '../ui/colors';
 import { getPixelsPerCm } from '../ui/displayCalibration';
+import { escapeHtml } from '../ui/uiHelpers';
+import { csvCell, csvRow } from './csvFormat';
 import { downloadText } from './download';
 
 const THEME_STYLES: Record<ThemeName, { paperBg: string; plotBg: string; fontColor: string; gridColor: string }> = {
@@ -78,7 +80,12 @@ export const Exporter = {
       const def = State.getMathDefinition(name);
       if (!def) return;
       const result = MathEngine.calculateVirtualColumn(def, rawTime);
-      processedDataMap[name] = { raw: result.values || [], filtered: result.values || [], isMath: true };
+      processedDataMap[name] = {
+        raw: result.values || [],
+        filtered: result.values || [],
+        quality: result.quality,
+        isMath: true
+      };
     });
 
     const outputHeaders = [`${xCol} (Working)`];
@@ -89,13 +96,9 @@ export const Exporter = {
       );
     }
     numericCols.forEach((h) => outputHeaders.push(`${h} (Filtered)`, `${h} (Filtered Quality)`));
-    mathCols.forEach((name) => outputHeaders.push(name));
+    mathCols.forEach((name) => outputHeaders.push(name, `${name} (Quality)`));
 
-    const quoteCsv = (val: unknown): string => {
-      if (val === undefined || val === null) return '';
-      const text = String(val);
-      return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-    };
+    const quoteCsv = csvCell;
 
     const lines = [outputHeaders.map(quoteCsv).join(',')];
     for (let i = 0; i < rawData.length; i++) {
@@ -116,7 +119,10 @@ export const Exporter = {
         rowData.push(quoteCsv(processedDataMap[col].filtered[i]));
         rowData.push(quoteCsv(qualityFlagNames(processedDataMap[col].quality?.[i] || 0).join('|')));
       });
-      mathCols.forEach((name) => rowData.push(quoteCsv(processedDataMap[name]?.raw[i])));
+      mathCols.forEach((name) => {
+        rowData.push(quoteCsv(processedDataMap[name]?.raw[i]));
+        rowData.push(quoteCsv(qualityFlagNames(processedDataMap[name]?.quality?.[i] || 0).join('|')));
+      });
       lines.push(rowData.join(','));
     }
 
@@ -337,9 +343,9 @@ export const Exporter = {
     if (!snapshot) return;
     const lines = ['Metric,Value'];
     Object.entries(snapshot.measurements.metrics || {}).forEach(([key, value]) => {
-      lines.push(`${key},${value ?? ''}`);
+      lines.push(csvRow([key, value]));
     });
-    downloadText(lines.join('\n'), 'measurements.csv', 'text/csv;charset=utf-8');
+    downloadText(lines.join('\r\n'), 'measurements.csv', 'text/csv;charset=utf-8');
   },
 
   downloadMeasurementsJSON(): void {
@@ -367,9 +373,10 @@ export const Exporter = {
     if (!snapshot) return;
     const rows = ['index,time,type,metadata'];
     snapshot.events.events.forEach((evt) => {
-      rows.push([evt.index ?? '', evt.time ?? '', evt.type || '', JSON.stringify(evt.metadata || {})].join(','));
+      // The metadata JSON contains commas and quotes, so every cell goes through the RFC 4180 quoter.
+      rows.push(csvRow([evt.index, evt.time, evt.type || '', JSON.stringify(evt.metadata || {})]));
     });
-    downloadText(rows.join('\n'), 'events.csv', 'text/csv;charset=utf-8');
+    downloadText(rows.join('\r\n'), 'events.csv', 'text/csv;charset=utf-8');
   },
 
   downloadSystemJSON(): void {
@@ -466,20 +473,20 @@ export const Exporter = {
   <p class="muted">Generated ${snapshot.timestamp}</p>
   <div class="card">
     <h2>Overview</h2>
-    <p><strong>Trace:</strong> ${snapshot.series.name || 'n/a'} ${snapshot.series.isMath ? '(math)' : ''}</p>
-    <p><strong>Selection:</strong> ${snapshot.selection ? `${snapshot.selection.i0}–${snapshot.selection.i1}` : 'Full record'}</p>
-    ${imageData ? `<img src="${imageData}" alt="Plot snapshot" style="max-width:100%;"/>` : '<p class="muted">Plot snapshot unavailable.</p>'}
+    <p><strong>Trace:</strong> ${escapeHtml(snapshot.series.name || 'n/a')} ${snapshot.series.isMath ? '(math)' : ''}</p>
+    <p><strong>Selection:</strong> ${snapshot.selection ? `${escapeHtml(String(snapshot.selection.i0))}–${escapeHtml(String(snapshot.selection.i1))}` : 'Full record'}</p>
+    ${imageData && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(imageData) ? `<img src="${imageData}" alt="Plot snapshot" style="max-width:100%;"/>` : '<p class="muted">Plot snapshot unavailable.</p>'}
   </div>
   <div class="card">
     <h2>Measurements</h2>
     <table><tr><th>Metric</th><th>Value</th></tr>${Object.entries(measurements)
-      .map(([k, v]) => `<tr><td>${k}</td><td>${formatNumber(v)}</td></tr>`)
+      .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${formatNumber(v)}</td></tr>`)
       .join('')}</table>
   </div>
   <div class="card">
     <h2>Events</h2>
     <p>${events.length} events detected.</p>
-    <table><tr><th>#</th><th>Time</th><th>Type</th></tr>${events.map((evt) => `<tr><td>${evt.index ?? ''}</td><td>${formatNumber(evt.time)}</td><td>${evt.type}</td></tr>`).join('') || '<tr><td colspan="3">None</td></tr>'}</table>
+    <table><tr><th>#</th><th>Time</th><th>Type</th></tr>${events.map((evt) => `<tr><td>${escapeHtml(String(evt.index ?? ''))}</td><td>${formatNumber(evt.time)}</td><td>${escapeHtml(String(evt.type ?? ''))}</td></tr>`).join('') || '<tr><td colspan="3">None</td></tr>'}</table>
   </div>
   <div class="card">
     <h2>Spectral Metrics</h2>
@@ -487,7 +494,7 @@ export const Exporter = {
   </div>
   <div class="card">
     <h2>System / FRF</h2>
-    ${system ? `<p>${system.input} → ${system.output}: delay ${formatNumber(system.delay.delaySeconds)} s (${system.delay.delaySamples} samples), corr ${formatNumber(system.delay.correlationPeak)}</p>` : '<p class="muted">Need two channels to compute FRF.</p>'}
+    ${system ? `<p>${escapeHtml(system.input)} → ${escapeHtml(system.output)}: delay ${formatNumber(system.delay.delaySeconds)} s (${system.delay.delaySamples} samples), corr ${formatNumber(system.delay.correlationPeak)}</p>` : '<p class="muted">Need two channels to compute FRF.</p>'}
   </div>
 </body>
 </html>`;

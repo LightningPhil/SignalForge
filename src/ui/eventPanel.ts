@@ -6,6 +6,7 @@ import { State } from '../state';
 import type { AnalysisSeries } from '../types';
 import { Graph } from './graph';
 import { cx, ui } from './classes';
+import { escapeHtml, renderWarningList } from './uiHelpers';
 
 const TYPE_LABELS: Record<string, string> = {
   level: 'Level Crossing',
@@ -199,14 +200,7 @@ export const EventPanel = {
   },
 
   renderWarnings(warnings: string[] = []): void {
-    if (!this.warningEl) return;
-    if (!warnings.length) {
-      this.warningEl.innerHTML = '';
-      this.warningEl.classList.add('hidden');
-      return;
-    }
-    this.warningEl.classList.remove('hidden');
-    this.warningEl.innerHTML = warnings.map((w) => `<li>${w}</li>`).join('');
+    renderWarningList(this.warningEl, warnings);
   },
 
   renderList(events: Array<{ type: string; time?: number | null; metadata?: Record<string, unknown> }> = []): void {
@@ -221,8 +215,8 @@ export const EventPanel = {
       .map(
         (evt, idx) => `
       <button type="button" class="${cx(ui.eventRow, idx === activeIdx && ui.eventRowActive)}" data-index="${idx}">
-        <div class="font-semibold">${TYPE_LABELS[evt.type] || evt.type}</div>
-        <div class="text-muted">${formatEvent(evt)}</div>
+        <div class="font-semibold">${escapeHtml(TYPE_LABELS[evt.type] || evt.type)}</div>
+        <div class="text-muted">${escapeHtml(formatEvent(evt))}</div>
       </button>
     `
       )

@@ -3,7 +3,7 @@ import { Filter, validateFilterStep } from '../../src/processing/filter';
 import { QualityFlag } from '../../src/data/quality';
 import { Config } from '../../src/config';
 import { FFT } from '../../src/processing/fft';
-import { computeFilterResponse } from '../../src/processing/iir';
+import { computeFilterResponse, iirPaddingPlan } from '../../src/processing/iir';
 import { hampelDeglitch, subtractReference, timeGate, waveletDenoiseHaar } from '../../src/processing/noise';
 import { State } from '../../src/state';
 
@@ -432,6 +432,57 @@ describe('frequency-selective filter quality', () => {
         index >= 100 && index <= Math.min(firTime.length - 1, 100 + design.tapCount - 1)
       );
     }
+  });
+
+  it('bounds recursive-filter quality footprints by the pole-aware settling length instead of the whole run', () => {
+    // Regression: one Clipped sample used to flag the entire run for IIR and one-pole filters, which
+    // then excluded the whole filtered record from analysis.
+    const rate = 4096;
+    const iirTime = uniformTime(4096, rate);
+    const values = iirTime.map((timestamp) => Math.sin(2 * Math.PI * 50 * timestamp));
+    const quality = new Uint16Array(iirTime.length);
+    quality[500] = QualityFlag.Clipped;
+    const zeroPhase = {
+      id: 'butter',
+      type: 'butterworthLowPass' as const,
+      enabled: true,
+      cutoffFreq: 400,
+      order: 4,
+      processingMode: 'zero-phase' as const
+    };
+    const causal = { ...zeroPhase, id: 'causal', processingMode: 'causal' as const };
+    const reach = iirPaddingPlan(Filter.designedIirSections(zeroPhase, rate), iirTime.length).required;
+    expect(reach).toBeGreaterThan(8);
+    expect(reach).toBeLessThan(1000);
+
+    const centered = Filter.applyPipelineWithReport(values, iirTime, [zeroPhase], quality).quality;
+    const oneSided = Filter.applyPipelineWithReport(values, iirTime, [causal], quality).quality;
+    const onePole = Filter.applyPipelineWithReport(
+      values,
+      iirTime,
+      [{ id: 'one-pole', type: 'iir', enabled: true, alpha: 0.2 }],
+      quality
+    ).quality;
+    const onePoleReach = Math.ceil(Math.log(1e-8) / Math.log(0.8));
+    for (let index = 0; index < iirTime.length; index += 1) {
+      expect(Boolean(centered[index] & QualityFlag.Clipped), `centered ${index}`).toBe(Math.abs(index - 500) <= reach);
+      expect(Boolean(oneSided[index] & QualityFlag.Clipped), `causal ${index}`).toBe(
+        index >= 500 && index <= 500 + reach
+      );
+      expect(Boolean(onePole[index] & QualityFlag.Clipped), `one-pole ${index}`).toBe(
+        index >= 500 && index <= 500 + onePoleReach
+      );
+      expect(centered[index] & QualityFlag.Processed).toBeTruthy();
+    }
+
+    // Global transforms keep the whole-run footprint.
+    const fft = Filter.applyPipelineWithReport(
+      values,
+      iirTime,
+      [{ id: 'fft', type: 'lowPassFFT', enabled: true, cutoffFreq: 400, slope: 12 }],
+      quality
+    ).quality;
+    expect(fft.every((mask) => mask & QualityFlag.Clipped)).toBe(true);
   });
 
   it('preserves strict FIR causality on uniform data and rejects non-uniform causal reconstruction', () => {

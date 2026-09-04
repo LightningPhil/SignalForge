@@ -23,4 +23,9 @@ describe('manual marker snapping', () => {
 
     expect(marker).toMatchObject({ index: 2, time: 0.16, confidence: 1 });
   });
+
+  it('clamps a free-hand time to the record so index and time stay consistent', () => {
+    expect(snapMarker([0, 1, 2], [1, 2, 3], 100, 'none')).toMatchObject({ index: 2, time: 2 });
+    expect(snapMarker([0, 1, 2], [1, 2, 3], -5, 'none')).toMatchObject({ index: 0, time: 0 });
+  });
 });

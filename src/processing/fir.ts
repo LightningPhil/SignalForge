@@ -283,6 +283,37 @@ function directMagnitude(coefficients: number[], frequencyHz: number, sampleRate
   return Math.hypot(real, imaginary);
 }
 
+/** Number of worst grid extrema per region that are re-evaluated exactly with the direct sum. */
+const EXACT_EXTREMA_PER_REGION = 24;
+
+function keepWorst(
+  list: Array<{ frequency: number; magnitude: number }>,
+  candidate: { frequency: number; magnitude: number },
+  worseIfLarger: boolean
+): void {
+  if (list.length < EXACT_EXTREMA_PER_REGION) {
+    list.push(candidate);
+    return;
+  }
+  let replaceIndex = -1;
+  let best = candidate.magnitude;
+  for (let index = 0; index < list.length; index += 1) {
+    const value = list[index].magnitude;
+    if (worseIfLarger ? value < best : value > best) {
+      best = value;
+      replaceIndex = index;
+    }
+  }
+  if (replaceIndex >= 0) list[replaceIndex] = candidate;
+}
+
+/**
+ * Verifies a design against its specification. The response is sampled on a dense FFT grid
+ * (at least 64 bins per tap, so every ripple lobe is resolved), every local extremum is refined
+ * by parabolic interpolation, and the worst candidates in each region plus the exact band edges
+ * are then re-evaluated with the direct O(taps) sum so the reported ripple/attenuation come from
+ * exact evaluations rather than grid samples.
+ */
 function verifyDesign(coefficients: number[], specification: FirSpecification): VerificationResult {
   const requestedLength = Math.max(32_768, coefficients.length * 64);
   const fftLength = Math.min(MAX_CONVOLUTION_FFT, FFT.nextPowerOfTwo(requestedLength));
@@ -294,6 +325,9 @@ function verifyDesign(coefficients: number[], specification: FirSpecification): 
   let passbandMaximum = 0;
   let stopbandMaximum = 0;
   const nyquistBin = fftLength / 2;
+  const passbandLows: Array<{ frequency: number; magnitude: number }> = [];
+  const passbandHighs: Array<{ frequency: number; magnitude: number }> = [];
+  const stopbandHighs: Array<{ frequency: number; magnitude: number }> = [];
 
   const classify = (frequency: number): 'pass' | 'stop' | 'transition' => {
     if (specification.kind === 'lowpass') {
@@ -329,27 +363,46 @@ function verifyDesign(coefficients: number[], specification: FirSpecification): 
     }
   };
 
+  const gridMagnitude = new Float64Array(nyquistBin + 1);
+  for (let bin = 0; bin <= nyquistBin; bin += 1) {
+    gridMagnitude[bin] = Math.hypot(transformed.re[bin], transformed.im[bin]);
+  }
   for (let bin = 0; bin <= nyquistBin; bin += 1) {
     const frequency = (bin * specification.sampleRate) / fftLength;
-    const magnitude = Math.hypot(transformed.re[bin], transformed.im[bin]);
-    update(classify(frequency), magnitude);
-    if (bin > 0 && bin < nyquistBin) {
-      const previous = Math.hypot(transformed.re[bin - 1], transformed.im[bin - 1]);
-      const next = Math.hypot(transformed.re[bin + 1], transformed.im[bin + 1]);
-      const isExtremum = (magnitude >= previous && magnitude >= next) || (magnitude <= previous && magnitude <= next);
-      if (isExtremum) {
-        const denominator = previous - 2 * magnitude + next;
-        const offset =
-          Math.abs(denominator) > Number.EPSILON
-            ? Math.max(-0.5, Math.min(0.5, (0.5 * (previous - next)) / denominator))
-            : 0;
-        const refinedFrequency = ((bin + offset) * specification.sampleRate) / fftLength;
-        const refinedRegion = classify(refinedFrequency);
-        if (refinedRegion === classify(frequency)) {
-          update(refinedRegion, directMagnitude(coefficients, refinedFrequency, specification.sampleRate));
-        }
-      }
+    const magnitude = gridMagnitude[bin];
+    const region = classify(frequency);
+    update(region, magnitude);
+    if (region === 'transition' || bin === 0 || bin === nyquistBin) continue;
+    const previous = gridMagnitude[bin - 1];
+    const next = gridMagnitude[bin + 1];
+    const isMaximum = magnitude >= previous && magnitude >= next;
+    const isMinimum = magnitude <= previous && magnitude <= next;
+    if (!isMaximum && !isMinimum) continue;
+    const denominator = previous - 2 * magnitude + next;
+    const offset =
+      Math.abs(denominator) > Number.EPSILON
+        ? Math.max(-0.5, Math.min(0.5, (0.5 * (previous - next)) / denominator))
+        : 0;
+    const refinedFrequency = ((bin + offset) * specification.sampleRate) / fftLength;
+    if (classify(refinedFrequency) !== region) continue;
+    const refinedMagnitude = magnitude - 0.25 * (previous - next) * offset;
+    const candidate = { frequency: refinedFrequency, magnitude: refinedMagnitude };
+    if (region === 'stop') {
+      if (isMaximum) keepWorst(stopbandHighs, candidate, true);
+    } else if (isMaximum) {
+      keepWorst(passbandHighs, candidate, true);
+    } else {
+      keepWorst(passbandLows, candidate, false);
     }
+  }
+  for (const { frequency } of passbandLows) {
+    update('pass', directMagnitude(coefficients, frequency, specification.sampleRate));
+  }
+  for (const { frequency } of passbandHighs) {
+    update('pass', directMagnitude(coefficients, frequency, specification.sampleRate));
+  }
+  for (const { frequency } of stopbandHighs) {
+    update('stop', directMagnitude(coefficients, frequency, specification.sampleRate));
   }
 
   const exactPassbandEdges =
@@ -397,7 +450,7 @@ export function designKaiserFir(specification: FirSpecification): FirDesign {
   const maximumTaps = Math.min(MAX_FIR_TAPS, Math.max(3, Math.floor(specification.maxTaps || MAX_FIR_TAPS)));
   const attenuationDb = designAttenuation(specification);
   const beta = kaiserBeta(attenuationDb);
-  let tapCount = estimateKaiserFirTapCount(specification);
+  const tapCount = estimateKaiserFirTapCount(specification);
   if (tapCount > maximumTaps) {
     throw new Error(`FIR specification requires ${tapCount} taps, above the ${maximumTaps}-tap safety limit.`);
   }
@@ -405,30 +458,57 @@ export function designKaiserFir(specification: FirSpecification): FirDesign {
   const cached = designCache.get(cacheKey);
   if (cached) return cloneDesign(cached);
 
-  for (; tapCount <= maximumTaps; tapCount += 2) {
-    const coefficients = designCoefficients(specification, tapCount, beta);
+  const attempt = (taps: number): FirDesign | null => {
+    const coefficients = designCoefficients(specification, taps, beta);
     const verification = verifyDesign(coefficients, specification);
     if (
       verification.passbandRippleDb <= specification.passbandRippleDb &&
       verification.stopbandAttenuationDb >= specification.stopbandAttenuationDb
     ) {
-      const design: FirDesign = {
+      return {
         coefficients,
-        tapCount,
+        tapCount: taps,
         beta,
-        delaySamples: (tapCount - 1) / 2,
+        delaySamples: (taps - 1) / 2,
         achievedPassbandRippleDb: verification.passbandRippleDb,
         achievedStopbandAttenuationDb: verification.stopbandAttenuationDb,
         specification: { ...specification }
       };
-      if (designCache.size >= 32) designCache.delete(designCache.keys().next().value as string);
-      designCache.set(cacheKey, design);
-      return cloneDesign(design);
     }
+    return null;
+  };
+
+  // The Kaiser estimate is usually within a few percent of the tap count that meets the
+  // specification. Bracket the first passing odd tap count with geometrically growing steps and
+  // then bisect, so the number of dense verifications is O(log taps) instead of O(taps).
+  let passing: FirDesign | null = attempt(tapCount);
+  let failing = tapCount;
+  let step = 2;
+  while (!passing) {
+    if (failing >= maximumTaps) {
+      throw new Error(`Unable to meet the FIR ripple/attenuation specification within ${maximumTaps} taps.`);
+    }
+    let candidateTaps = Math.min(maximumTaps, failing + step);
+    if (candidateTaps % 2 === 0) candidateTaps -= 1;
+    if (candidateTaps <= failing) candidateTaps = failing + 2;
+    if (candidateTaps > maximumTaps) {
+      throw new Error(`Unable to meet the FIR ripple/attenuation specification within ${maximumTaps} taps.`);
+    }
+    passing = attempt(candidateTaps);
+    if (!passing) failing = candidateTaps;
+    step *= 2;
   }
-  throw new Error(
-    `Unable to meet the FIR ripple/attenuation specification within ${Math.min(maximumTaps, tapCount - 2)} taps.`
-  );
+  while (passing.tapCount - failing > 2) {
+    let middle = Math.floor((passing.tapCount + failing) / 2);
+    if (middle % 2 === 0) middle += 1;
+    if (middle >= passing.tapCount || middle <= failing) break;
+    const candidate = attempt(middle);
+    if (candidate) passing = candidate;
+    else failing = middle;
+  }
+  if (designCache.size >= 32) designCache.delete(designCache.keys().next().value as string);
+  designCache.set(cacheKey, passing);
+  return cloneDesign(passing);
 }
 
 function directConvolution(input: number[], coefficients: number[]): number[] {

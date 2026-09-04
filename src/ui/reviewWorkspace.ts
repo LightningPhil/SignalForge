@@ -473,7 +473,8 @@ export const ReviewWorkspace = {
       this.render();
     });
     this.content.querySelector<HTMLTextAreaElement>('#review-notes')?.addEventListener('input', (event) => {
-      SessionWorkspace.updateShot({ notes: (event.target as HTMLTextAreaElement).value });
+      // Silent: a workspace re-render per keystroke would destroy the textarea and drop focus.
+      SessionWorkspace.updateShot({ notes: (event.target as HTMLTextAreaElement).value }, { silent: true });
     });
     this.content.querySelector('#review-add-marker')?.addEventListener('click', () => {
       const time = Number(this.content?.querySelector<HTMLInputElement>('#review-marker-time')?.value);
@@ -503,7 +504,9 @@ export const ReviewWorkspace = {
       this.render();
     });
     this.content.querySelector('#review-calculate-pulse')?.addEventListener('click', () => {
-      void this.calculateAndRecordPulse();
+      this.calculateAndRecordPulse().catch((error: unknown) => {
+        alert(`Pulse power calculation failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
     });
     this.content.querySelector('#review-estimate-delay')?.addEventListener('click', () => {
       this.estimateActiveDelay();
@@ -531,7 +534,8 @@ export const ReviewWorkspace = {
         if (annotation) {
           annotation.suggestionState = button.dataset.state as 'accepted' | 'rejected';
           annotation.updatedAt = new Date().toISOString();
-          SessionWorkspace.touchShot(true);
+          SessionWorkspace.invalidateMarkerResults(annotation);
+          SessionWorkspace.touchShot(false);
           this.batchAnalyzer.clearCache();
         }
         this.render();
@@ -548,7 +552,8 @@ export const ReviewWorkspace = {
         annotation.source = 'manual';
         annotation.suggestionState = 'accepted';
         annotation.updatedAt = new Date().toISOString();
-        SessionWorkspace.touchShot(true);
+        SessionWorkspace.invalidateMarkerResults(annotation);
+        SessionWorkspace.touchShot(false);
         this.batchAnalyzer.clearCache();
         this.render();
       });

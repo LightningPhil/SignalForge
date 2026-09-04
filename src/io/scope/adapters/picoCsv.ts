@@ -1,9 +1,9 @@
 import Papa from 'papaparse';
-import { validateRecordShape } from '../limits';
+import { ScopeImportLimits, validateRecordShape } from '../limits';
 import { ScopeImportError, throwIfCancelled, type ImportedWaveformRecord, type ScopeImportRequest } from '../types';
 
 const FORMAT = 'picoscope-csv' as const;
-const MAX_PICO_TEXT_BYTES = 32 * 1024 * 1024;
+const MAX_PICO_TEXT_BYTES = ScopeImportLimits.maxTextBytes;
 const MAX_ROWS = 2_000_000;
 const MAX_ROW_CHARACTERS = 64 * 1024;
 const MAX_CELL_CHARACTERS = 1024;
@@ -39,8 +39,12 @@ function picoUnit(raw: string): PicoUnit | null {
   };
   const direct = aliases[source.toLowerCase()];
   if (direct) return direct;
-  const match = /^([pnumkMG]?)(s|V|A|Hz|W)$/.exec(source);
-  if (!match) return null;
+  // The SI prefix is case-sensitive (m = milli, M = mega); the base unit is matched case-insensitively
+  // because no two base units here differ only by case.
+  const match = /^([pnumkMG]?)(s|v|a|hz|w)$/i.exec(source);
+  if (!match || !/^[pnumkMG]?$/.test(match[1])) return null;
+  const baseUnits: Record<string, string> = { s: 's', v: 'V', a: 'A', hz: 'Hz', w: 'W' };
+  const base = baseUnits[match[2].toLowerCase()];
   const scales: Record<string, number> = {
     '': 1,
     p: 1e-12,
@@ -52,9 +56,9 @@ function picoUnit(raw: string): PicoUnit | null {
     G: 1e9
   };
   return {
-    unit: match[2] === 's' ? 's' : match[2],
+    unit: base,
     scale: scales[match[1]],
-    time: match[2] === 's'
+    time: base === 's'
   };
 }
 
@@ -161,10 +165,14 @@ function preflightTextShape(text: string, request: ScopeImportRequest): void {
 export function decodePicoCsv(request: ScopeImportRequest): ImportedWaveformRecord[] {
   throwIfCancelled(request.signal);
   if (request.primary.bytes.length > MAX_PICO_TEXT_BYTES) {
-    throw new ScopeImportError('decode-budget-exceeded', 'PicoScope CSV exceeds the 32 MiB text limit.', {
-      format: FORMAT,
-      fileNames: [request.primary.name]
-    });
+    throw new ScopeImportError(
+      'decode-budget-exceeded',
+      `PicoScope CSV exceeds the ${MAX_PICO_TEXT_BYTES}-byte text limit.`,
+      {
+        format: FORMAT,
+        fileNames: [request.primary.name]
+      }
+    );
   }
   const text = new TextDecoder('utf-8', { fatal: false }).decode(request.primary.bytes);
   preflightTextShape(text, request);
@@ -212,7 +220,9 @@ export function decodePicoCsv(request: ScopeImportRequest): ImportedWaveformReco
     if (sourceRowIndex < 2) return;
     const rowIndex = sourceRowIndex - 2;
     if (rowIndex % 65_536 === 0) request.onProgress?.(rowIndex / rowCount, 'Decoding PicoScope CSV');
-    const rawTime = Number(row[0]);
+    // Number('') is 0, so a blank cell must be rejected explicitly instead of becoming a duplicate t = 0.
+    const rawTimeText = String(row[0] ?? '').trim();
+    const rawTime = rawTimeText === '' ? Number.NaN : Number(rawTimeText);
     if (!Number.isFinite(rawTime)) {
       throw new ScopeImportError('invalid-header', `PicoScope timestamp at row ${rowIndex + 3} is invalid.`, {
         format: FORMAT,
@@ -248,6 +258,13 @@ export function decodePicoCsv(request: ScopeImportRequest): ImportedWaveformReco
   });
   throwIfCancelled(request.signal);
   request.onProgress?.(1, 'PicoScope CSV decoded');
+  const unitWarnings = channelUnits.flatMap((definition, index) =>
+    definition
+      ? []
+      : [
+          `Channel "${names[index + 1]}" declares unit "(${units[index + 1]})", which is not a recognised SI unit; values were kept unscaled with the declared unit text.`
+        ]
+  );
   return [
     {
       sourceFormat: FORMAT,
@@ -262,7 +279,8 @@ export function decodePicoCsv(request: ScopeImportRequest): ImportedWaveformReco
         source_time_unit: units[0]
       },
       warnings: [
-        'PicoScope two-row CSV support is layout-tested; locale-specific exports may require generic CSV import.'
+        'PicoScope two-row CSV support is layout-tested; locale-specific exports may require generic CSV import.',
+        ...unitWarnings
       ]
     }
   ];

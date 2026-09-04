@@ -94,10 +94,39 @@ function requireSafeJson(value: unknown, field: string, depth = 0): void {
   }
 }
 
+function requireTimestamp(value: unknown, field: string): string {
+  const text = requireString(value, field, 100);
+  if (Number.isNaN(Date.parse(text))) throw new Error(`${field} must be an ISO-8601 timestamp.`);
+  return text;
+}
+
+function requireOptionalString(value: unknown, field: string, maxLength = 200): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string' || value.length > maxLength) {
+    throw new Error(`${field} must be a string no longer than ${maxLength} characters.`);
+  }
+}
+
+function requireObject(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} must be an object.`);
+  return value as Record<string, unknown>;
+}
+
 function validateSession(session: Session): Session {
   requireId(session.id, 'session.id');
   requireString(session.name, 'session.name');
   requirePrimitiveRecord(session.metadata, 'session.metadata');
+  requireTimestamp(session.createdAt, 'session.createdAt');
+  requireTimestamp(session.updatedAt, 'session.updatedAt');
+  if (session.importProfileId !== null && session.importProfileId !== undefined) {
+    requireString(session.importProfileId, 'session.importProfileId', 200);
+  }
+  if (
+    session.revision !== undefined &&
+    (!Number.isInteger(session.revision) || session.revision < 0 || session.revision > Number.MAX_SAFE_INTEGER)
+  ) {
+    throw new Error('session.revision must be a non-negative integer.');
+  }
   if (
     !session.processingRecipe ||
     typeof session.processingRecipe !== 'object' ||
@@ -116,6 +145,11 @@ function validateSession(session: Session): Session {
     ids.add(shot.id);
     requireString(shot.name, 'shot.name');
     requirePrimitiveRecord(shot.metadata, 'shot.metadata');
+    if (shot.sequence !== null && shot.sequence !== undefined && !Number.isInteger(shot.sequence)) {
+      throw new Error(`Shot "${shot.name}" sequence must be an integer or null.`);
+    }
+    requireTimestamp(shot.createdAt, `shot "${shot.name}" createdAt`);
+    requireTimestamp(shot.updatedAt, `shot "${shot.name}" updatedAt`);
     if (!['unreviewed', 'in-progress', 'accepted', 'excluded'].includes(shot.reviewStatus)) {
       throw new Error(`Shot "${shot.name}" has an invalid review status.`);
     }
@@ -133,8 +167,18 @@ function validateSession(session: Session): Session {
       requireString(sourceFile.adapterId, 'sourceFile.adapterId');
       requirePrimitiveRecord(sourceFile.metadata, 'sourceFile.metadata');
       requireStringArray(sourceFile.warnings, 'sourceFile.warnings');
+      if (!Number.isFinite(sourceFile.size) || sourceFile.size < 0) {
+        throw new Error(`Source file "${sourceFile.name}" size is invalid.`);
+      }
+      if (sourceFile.lastModified !== null && sourceFile.lastModified !== undefined) {
+        requireFinite(sourceFile.lastModified, `sourceFile "${sourceFile.name}" lastModified`);
+      }
+      requireOptionalString(sourceFile.checksum, `sourceFile "${sourceFile.name}" checksum`, 200);
       if (sourceFile.bytes !== undefined && !(sourceFile.bytes instanceof Uint8Array)) {
         throw new Error(`Source file "${sourceFile.name}" bytes are invalid.`);
+      }
+      if (sourceFile.bytes !== undefined && sourceFile.bytes.length !== sourceFile.size) {
+        throw new Error(`Source file "${sourceFile.name}" size does not match its stored bytes.`);
       }
     });
     shot.channels.forEach((channel) => {
@@ -142,6 +186,9 @@ function validateSession(session: Session): Session {
       if (ids.has(channel.id)) throw new Error(`Duplicate object identifier: ${channel.id}`);
       ids.add(channel.id);
       requireString(channel.name, 'channel.name');
+      if (channel.name === 'Time') {
+        throw new Error('Channel name "Time" is reserved for the working time column.');
+      }
       if (!(channel.time instanceof Float64Array) || !(channel.values instanceof Float64Array)) {
         throw new Error(`Channel "${channel.name}" numeric arrays are invalid.`);
       }
@@ -178,9 +225,19 @@ function validateSession(session: Session): Session {
       if (channel.sourceFormat !== undefined) {
         requireString(channel.sourceFormat, `channel "${channel.name}" sourceFormat`, 200);
       }
+      if (typeof channel.unit !== 'string' || channel.unit.length > 100) {
+        throw new Error(`Channel "${channel.name}" unit must be a bounded string.`);
+      }
+      if (typeof channel.timeUnit !== 'string' || channel.timeUnit.length > 100) {
+        throw new Error(`Channel "${channel.name}" timeUnit must be a bounded string.`);
+      }
+      requireOptionalString(channel.probe, `channel "${channel.name}" probe`, 200);
+      requireOptionalString(channel.sourceFileId, `channel "${channel.name}" sourceFileId`, 160);
       requireFinite(channel.timingOffsetSeconds, `channel "${channel.name}" timingOffsetSeconds`);
-      requireFinite(channel.calibration.scale, `channel "${channel.name}" calibration.scale`);
-      requireFinite(channel.calibration.offset, `channel "${channel.name}" calibration.offset`);
+      const calibration = requireObject(channel.calibration, `channel "${channel.name}" calibration`);
+      requireFinite(calibration.scale, `channel "${channel.name}" calibration.scale`);
+      requireFinite(calibration.offset, `channel "${channel.name}" calibration.offset`);
+      requireOptionalString(calibration.source, `channel "${channel.name}" calibration.source`, 200);
     });
     shot.annotations.forEach((annotation) => {
       requireId(annotation.id, 'annotation.id');
@@ -199,6 +256,16 @@ function validateSession(session: Session): Session {
       requireFinite(annotation.startTime, `annotation "${annotation.name}" startTime`);
       if (annotation.endTime !== undefined)
         requireFinite(annotation.endTime, `annotation "${annotation.name}" endTime`);
+      if (
+        annotation.snapMode !== undefined &&
+        !['none', 'sample', 'slope', 'curvature', 'change-point'].includes(annotation.snapMode)
+      ) {
+        throw new Error(`Annotation "${annotation.name}" has an invalid snap mode.`);
+      }
+      requireOptionalString(annotation.channelId, `annotation "${annotation.name}" channelId`, 160);
+      requireOptionalString(annotation.author, `annotation "${annotation.name}" author`, 200);
+      requireTimestamp(annotation.createdAt, `annotation "${annotation.name}" createdAt`);
+      requireTimestamp(annotation.updatedAt, `annotation "${annotation.name}" updatedAt`);
     });
     if (!Array.isArray(shot.analysisResults) || !Array.isArray(shot.repairHistory)) {
       throw new Error(`Shot "${shot.name}" result or repair collections are invalid.`);
@@ -209,10 +276,25 @@ function validateSession(session: Session): Session {
       ids.add(result.id);
       requireString(result.type, 'analysisResult.type');
       requirePrimitiveRecord(result.values, 'analysisResult.values');
-      if (!result.units || typeof result.units !== 'object') throw new Error('analysisResult.units is invalid.');
-      requireStringArray(result.provenance.sourceChannelIds, 'analysisResult.provenance.sourceChannelIds');
-      requireStringArray(result.provenance.annotationIds, 'analysisResult.provenance.annotationIds');
-      requireStringArray(result.provenance.warnings, 'analysisResult.provenance.warnings');
+      const units = requireObject(result.units, 'analysisResult.units');
+      for (const [key, unit] of Object.entries(units)) {
+        if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+          throw new Error('analysisResult.units contains a forbidden key.');
+        }
+        if (typeof unit !== 'string' || unit.length > 100) {
+          throw new Error(`analysisResult.units.${key} must be a bounded string.`);
+        }
+      }
+      const provenance = requireObject(result.provenance, 'analysisResult.provenance');
+      requireStringArray(provenance.sourceChannelIds, 'analysisResult.provenance.sourceChannelIds');
+      requireStringArray(provenance.annotationIds, 'analysisResult.provenance.annotationIds');
+      requireStringArray(provenance.warnings, 'analysisResult.provenance.warnings');
+      requireString(provenance.processingRecipeHash, 'analysisResult.provenance.processingRecipeHash', 200);
+      requireString(provenance.applicationVersion, 'analysisResult.provenance.applicationVersion', 200);
+      requireTimestamp(provenance.createdAt, 'analysisResult.provenance.createdAt');
+      if (provenance.appliedDelaySeconds !== undefined) {
+        requireFinite(provenance.appliedDelaySeconds, 'analysisResult.provenance.appliedDelaySeconds');
+      }
     });
     const repairColumns = new Set(['Time', ...shot.channels.map((channel) => channel.name)]);
     const repairRowLimit = shot.channels[0]?.time.length || 0;
@@ -272,9 +354,32 @@ export function validateCurrentSession(session: Session): Session {
   return validateSession(session);
 }
 
+/**
+ * Copies the JSON envelope of a session without duplicating typed arrays or source bytes, which can
+ * amount to hundreds of megabytes. Typed arrays are validated for their exact type, so aliasing
+ * them is safe; only the plain-object structure needs to be detached from the caller's input.
+ */
+function cloneEnvelope(value: unknown, depth = 0): unknown {
+  if (depth > 64) throw new Error('Session payload exceeds the nesting limit.');
+  if (value === null || typeof value !== 'object') return value;
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
+  if (Array.isArray(value)) return value.map((entry) => cloneEnvelope(entry, depth + 1));
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    // defineProperty keeps a "__proto__" key as an own data property instead of re-pointing the prototype.
+    Object.defineProperty(output, key, {
+      value: cloneEnvelope(entry, depth + 1),
+      enumerable: true,
+      writable: true,
+      configurable: true
+    });
+  }
+  return output;
+}
+
 export function migrateSession(input: unknown): Session {
   if (!input || typeof input !== 'object') throw new Error('Session payload is not an object.');
-  let migrated = structuredClone(input) as Record<string, unknown>;
+  let migrated = cloneEnvelope(input) as Record<string, unknown>;
   let version = Number(migrated.schemaVersion || 0);
   if (!Number.isInteger(version) || version < 0) throw new Error('Session schema version is invalid.');
   if (version > CURRENT_SESSION_SCHEMA) {

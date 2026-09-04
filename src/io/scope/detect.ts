@@ -94,20 +94,28 @@ export function detectScopeFile(source: ImportSource): DetectedScopeFile | null 
       reason: 'Tektronix waveform preamble and CURVE block.'
     };
   }
+  const textualSelection = ['.csv', '.tsv', '.txt'].includes(ext) && looksTextual(bytes);
   if (
     bytes.length >= 4 &&
     bytes[0] === 0x41 &&
     bytes[1] === 0x47 &&
     ((bytes[2] === 0x30 && (bytes[3] === 0x31 || bytes[3] === 0x33)) || (bytes[2] === 0x31 && bytes[3] === 0x30))
   ) {
-    return {
-      format: 'keysight-agxx-bin',
-      supportLevel: bytes[2] === 0x31 ? 'verified' : 'layout-tested',
-      manufacturer: 'Keysight / Agilent',
-      displayName: 'Keysight/Agilent AGxx BIN',
-      confidence: 1,
-      reason: 'AG01, AG03, or AG10 file cookie.'
-    };
+    // A four-letter ASCII cookie is weak evidence on its own: a CSV whose first cell is "AG10" must not
+    // be hijacked. The container also declares its own byte length (u32 for AG01/AG10, u64 for AG03),
+    // so a textual file whose declared size disagrees with the actual size falls through to the text
+    // importers. Binary files keep the strong signature so truncation is reported precisely.
+    const declaredSize = keysightDeclaredSize(bytes);
+    if (!textualSelection || declaredSize === bytes.length) {
+      return {
+        format: 'keysight-agxx-bin',
+        supportLevel: bytes[2] === 0x31 ? 'verified' : 'layout-tested',
+        manufacturer: 'Keysight / Agilent',
+        displayName: 'Keysight/Agilent AGxx BIN',
+        confidence: 1,
+        reason: 'AG01, AG03, or AG10 file cookie.'
+      };
+    }
   }
   if (
     normalizedProbeText.startsWith('<?XML') &&
@@ -186,9 +194,9 @@ export function detectScopeFile(source: ImportSource): DetectedScopeFile | null 
         .decode(bytes.subarray(4, Math.min(bytes.length, 24)))
         .replace(/\0.*$/s, '');
       if (!/^(?:DS|MSO)[24]/i.test(model)) supportLevel = 'provisional';
-    } else if (magic[0] === 0x02 && magic[1] === 0 && magic[2] === 0 && magic[3] === 0) {
-      supportLevel = 'provisional';
     }
+    // The DHO800 `02 00 00 00` WFM layout is fixture-backed (rigol_dho824.wfm) and the decoder itself
+    // rejects unsupported variants (trigger position, deflate limits), so it stays 'verified' here.
     return {
       format: 'rigol-wfm',
       supportLevel,
@@ -205,6 +213,9 @@ export function detectScopeFile(source: ImportSource): DetectedScopeFile | null 
   ) {
     const headerSize =
       bytes.length >= 16 ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(12, true) : 0;
+    // Same reasoning as the Keysight cookie: a textual "RG01,..." CSV without a plausible
+    // waveform-header size is not a Rigol container.
+    if (textualSelection && headerSize !== 128 && headerSize !== 140) return detectTextualScopeFile(source, ext);
     const supportLevel =
       magic[3] === 0x33 && headerSize === 140
         ? 'verified'
@@ -233,6 +244,23 @@ export function detectScopeFile(source: ImportSource): DetectedScopeFile | null 
       reason: 'PicoScope PSDATA signature or extension.'
     };
   }
+  return detectTextualScopeFile(source, ext);
+}
+
+/** Declared container length from a Keysight AGxx header (u32 at 4 for AG01/AG10, u64 at 4 for AG03). */
+function keysightDeclaredSize(bytes: Uint8Array): number | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes[2] === 0x30 && bytes[3] === 0x33) {
+    if (bytes.length < 12) return null;
+    const value = view.getBigUint64(4, true);
+    return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
+  }
+  return bytes.length >= 8 ? view.getUint32(4, true) : null;
+}
+
+/** Text-based scope exports; only reached when no binary signature claimed the file. */
+function detectTextualScopeFile(source: ImportSource, ext: string): DetectedScopeFile | null {
+  const bytes = source.bytes;
   if (['.csv', '.tsv', '.txt'].includes(ext) && looksTextual(bytes)) {
     const firstLines = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 8192))).split(/\r?\n/);
     const unitCells = firstLines[1]?.split(/[\t,;]/) || [];

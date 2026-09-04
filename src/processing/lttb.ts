@@ -65,6 +65,16 @@ export function lttbIndices(data: Point[], threshold: number): number[] {
   return sampled;
 }
 
+/**
+ * Shared-index display downsampling for time-aligned traces (raw, processed, residual).
+ *
+ * Every trace is downsampled with its own LTTB pass and the selected indices are merged, so a
+ * feature that is visually important in any one trace survives in all of them. A single combined
+ * selector was previously used; one outlier in a low-variance trace (typically the residual) shifted
+ * that trace's normalisation and hid full-scale glitches in the other traces. The per-trace budget
+ * is the largest value (found by bisection between `threshold / traceCount` and `threshold`) whose
+ * merged index set still fits the requested point budget, so similar traces keep full resolution.
+ */
 export function alignedLttbIndices(
   x: ArrayLike<number>,
   alignedSeries: ArrayLike<number>[],
@@ -72,35 +82,42 @@ export function alignedLttbIndices(
 ): number[] {
   const length = Math.min(x.length, ...alignedSeries.map((series) => series.length));
   if (threshold >= length || threshold < 3) return Array.from({ length }, (_, index) => index);
-  const ranges = alignedSeries.map((series) => {
-    let min = Infinity;
-    let max = -Infinity;
+  const xs = Array.from({ length }, (_, index) => Number(x[index]));
+  // Non-finite samples cannot form triangles; substitute the running finite value for selection
+  // purposes only (the caller still plots the original NaN at that index).
+  const pointSets: Point[][] = alignedSeries.map((series) => {
+    let lastFinite = 0;
+    const points: Point[] = new Array(length);
     for (let index = 0; index < length; index += 1) {
       const value = Number(series[index]);
-      if (!Number.isFinite(value)) continue;
-      min = Math.min(min, value);
-      max = Math.max(max, value);
+      if (Number.isFinite(value)) lastFinite = value;
+      points[index] = [xs[index], lastFinite];
     }
-    return {
-      midpoint: Number.isFinite(min) && Number.isFinite(max) ? (min + max) / 2 : 0,
-      span: Number.isFinite(max - min) && max > min ? max - min : 1
-    };
+    return points;
   });
-  const selector: Point[] = Array.from({ length }, (_, index) => {
-    let selected = 0;
-    let largestMagnitude = -1;
-    alignedSeries.forEach((series, seriesIndex) => {
-      const value = Number(series[index]);
-      if (!Number.isFinite(value)) return;
-      const normalized = (value - ranges[seriesIndex].midpoint) / ranges[seriesIndex].span;
-      if (Math.abs(normalized) > largestMagnitude) {
-        selected = normalized;
-        largestMagnitude = Math.abs(normalized);
-      }
-    });
-    return [Number(x[index]), selected];
-  });
-  return lttbIndices(selector, threshold);
+  const unionFor = (budget: number): number[] => {
+    const selected = new Uint8Array(length);
+    for (const points of pointSets) for (const index of lttbIndices(points, budget)) selected[index] = 1;
+    const indices: number[] = [];
+    for (let index = 0; index < length; index += 1) if (selected[index]) indices.push(index);
+    return indices;
+  };
+  let low = Math.max(3, Math.floor(threshold / Math.max(1, pointSets.length)));
+  let high = threshold;
+  let best = unionFor(high);
+  if (best.length <= threshold) return best;
+  best = unionFor(low);
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = unionFor(middle);
+    if (candidate.length <= threshold) {
+      best = candidate;
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return best;
 }
 
 export function lttb(data: Point[], threshold: number): Point[] {

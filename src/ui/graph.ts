@@ -2,7 +2,7 @@ import Plotly from 'plotly.js-dist-min';
 import type { Data, Layout, PlotlyHTMLElement, PlotRelayoutEvent } from 'plotly.js';
 import { State } from '../state';
 import { Config } from '../config';
-import { maskValuesForAnalysis } from '../data/quality';
+import { combineQualityMasks, maskValuesForAnalysis } from '../data/quality';
 import { alignedLttbIndices } from '../processing/lttb';
 import { FFT } from '../processing/fft';
 import { Filter } from '../processing/filter';
@@ -13,7 +13,7 @@ import { AnalysisEngine } from '../analysis/analysisEngine';
 import { SpectralMetrics } from '../analysis/spectralMetrics';
 import { TimeFrequency } from '../analysis/timeFrequency';
 import { getActiveTheme, getColorsForTheme, hexToRgba } from './colors';
-import { getRawSeries, getSeriesForColumn, getTimeArray } from '../app/traceData';
+import { getRawSeries, getSeriesForColumn, getTimeArray, recallPreparedMultiView } from '../app/traceData';
 import type {
   AnalysisEvent,
   AxisFormat,
@@ -739,12 +739,36 @@ export const Graph = {
         });
       }
     }
-    const iirResponse = Filter.calculateDesignedIirResponse(pipeline, rawSpectrum.meta.fs, rawSpectrum.freq.length);
     const plottedTimebase = analyzeTimebase(timeX, FIR_UNIFORM_TOLERANCE);
+    // IIR and smoother steps tolerate 1 % timing jitter before they resample; beyond that the
+    // complete operation (resample → filter → interpolate back) is time-varying and has no single
+    // transfer function, so the nominal response is hidden just like the FIR one.
+    const filterTimebase = analyzeTimebase(timeX, 0.01);
+    const nominalResponsesApply = filterTimebase.valid && filterTimebase.uniform;
+    const iirResponse = nominalResponsesApply
+      ? Filter.calculateDesignedIirResponse(pipeline, rawSpectrum.meta.fs, rawSpectrum.freq.length)
+      : null;
     const hasFirFilters = pipeline.some(
       (step) =>
         step.enabled !== false && ['firLowPass', 'firHighPass', 'firBandPass', 'firBandStop'].includes(step.type)
     );
+    const hasResampledLinearSteps =
+      !nominalResponsesApply &&
+      pipeline.some(
+        (step) =>
+          step.enabled !== false &&
+          [
+            'butterworthLowPass',
+            'butterworthHighPass',
+            'butterworthBandPass',
+            'iirNotch',
+            'iirComb',
+            'movingAverage',
+            'savitzkyGolay',
+            'gaussian',
+            'iir'
+          ].includes(step.type)
+      );
     let firResponse: ReturnType<typeof Filter.calculateDesignedFirResponse> = null;
     let firResponseError: string | null = null;
     if (plottedTimebase.valid && plottedTimebase.uniform) {
@@ -759,7 +783,9 @@ export const Graph = {
         firResponseError = error instanceof Error ? error.message : String(error);
       }
     }
-    const smootherResponse = Filter.calculateSmootherResponse(pipeline, rawSpectrum.meta.fs, rawSpectrum.freq.length);
+    const smootherResponse = nominalResponsesApply
+      ? Filter.calculateSmootherResponse(pipeline, rawSpectrum.meta.fs, rawSpectrum.freq.length)
+      : null;
     if (iirResponse && showMagnitude) {
       traces.push({
         x: iirResponse.frequency,
@@ -890,7 +916,7 @@ export const Graph = {
 
     this.reactPlot(traces, layout);
     this.setStatus(
-      `Frequency Analysis (Fs ≈ ${Math.round(rawSpectrum.meta.fs)} Hz · Δf ≈ ${rawSpectrum.meta.deltaF.toPrecision(3)} Hz)${firResponseError ? ` · FIR response unavailable: ${firResponseError}` : hasFirFilters && !firResponse ? ' · FIR response hidden: the complete resampled operation is not LTI' : ''}`
+      `Frequency Analysis (Fs ≈ ${Math.round(rawSpectrum.meta.fs)} Hz · Δf ≈ ${rawSpectrum.meta.deltaF.toPrecision(3)} Hz)${firResponseError ? ` · FIR response unavailable: ${firResponseError}` : hasFirFilters && !firResponse ? ' · FIR response hidden: the complete resampled operation is not LTI' : ''}${hasResampledLinearSteps ? ' · IIR/smoother responses hidden: non-uniform timebase makes the complete operation time-varying' : ''}`
     );
   },
 
@@ -1341,7 +1367,26 @@ export const Graph = {
     const yCol = State.data.dataColumn;
     if (!yCol) return;
 
-    const { rawX } = getRawSeries(yCol);
+    const { rawX, rawY } = getRawSeries(yCol);
+    const isMath = !!State.getMathDefinition(yCol);
+    const processed = State.data.processed;
+    if (!isMath && processed.length === rawY.length && rawY.length > 0) {
+      // A zoom/pan only changes the viewport; the pipeline output for this column is already in State,
+      // so redraw from it instead of filtering the whole record again on the main thread.
+      const rawQuality = combineQualityMasks(
+        rawY.length,
+        State.data.quality[yCol],
+        State.data.timeColumn ? State.data.quality[State.data.timeColumn] : null
+      );
+      this.render(rawX, rawY, processed, appliedRange, {
+        isMath: false,
+        seriesName: yCol,
+        rawQuality,
+        filteredQuality: State.data.processedQuality.length === rawY.length ? State.data.processedQuality : null
+      });
+      return;
+    }
+
     const series = getSeriesForColumn(yCol, rawX);
     if (!series) return;
 
@@ -1422,6 +1467,13 @@ export const Graph = {
         return source.rawY.length >= 100_000 || Filter.shouldRunFirInWorker(pipeline, source.rawX, source.rawY.length);
       });
     if (requiresWorker) {
+      // Zoom/pan must not re-run every column's pipeline: reuse the worker-prepared series when the
+      // column set, pipelines and working data are unchanged, otherwise request a fresh background run.
+      const prepared = recallPreparedMultiView(activeId, view.activeColumnIds);
+      if (prepared) {
+        this.renderPreparedMultiView(prepared, range, activeId);
+        return;
+      }
       document.dispatchEvent(new CustomEvent('signalforge:request-pipeline-render', { detail: range }));
       return;
     }

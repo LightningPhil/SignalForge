@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AnalysisWorkerClient, AnalysisWorkerTaskError } from '../../src/workers/client';
+import { AnalysisWorkerClient, AnalysisWorkerTaskError, AnalysisWorkerTransportError } from '../../src/workers/client';
 import type { WorkerResponse, WorkerTask } from '../../src/workers/protocol';
 
 class FakeWorker extends EventTarget {
@@ -91,5 +91,50 @@ describe('AnalysisWorkerClient', () => {
         pipeline: []
       })
     ).rejects.toBeInstanceOf(AnalysisWorkerTaskError);
+  });
+
+  it('settles as a transport failure when the worker result cannot be deserialised', async () => {
+    class BrokenResultWorker extends EventTarget {
+      terminated = false;
+      postMessage(task: WorkerTask): void {
+        void task;
+        queueMicrotask(() => this.dispatchEvent(new MessageEvent('messageerror', { data: null })));
+      }
+      terminate(): void {
+        this.terminated = true;
+      }
+    }
+
+    const worker = new BrokenResultWorker();
+    const client = new AnalysisWorkerClient(() => worker as unknown as Worker);
+    const pending = client.run({
+      kind: 'filter',
+      signal: new Float64Array([1, 2]),
+      time: new Float64Array([0, 1]),
+      quality: new Uint16Array(2),
+      pipeline: []
+    });
+    await expect(pending).rejects.toBeInstanceOf(AnalysisWorkerTransportError);
+    await expect(pending).rejects.not.toBeInstanceOf(AnalysisWorkerTaskError);
+    expect(worker.terminated).toBe(true);
+  });
+
+  it('rejects through the promise when the worker cannot be constructed', async () => {
+    const client = new AnalysisWorkerClient(() => {
+      throw new DOMException('Refused to create a worker (CSP worker-src).', 'SecurityError');
+    });
+    let pending: Promise<unknown>;
+    // The factory failure must not escape synchronously from run().
+    expect(() => {
+      pending = client.run({
+        kind: 'filter',
+        signal: new Float64Array([1, 2]),
+        time: new Float64Array([0, 1]),
+        quality: new Uint16Array(2),
+        pipeline: []
+      });
+    }).not.toThrow();
+    await expect(pending!).rejects.toBeInstanceOf(AnalysisWorkerTransportError);
+    await expect(pending!).rejects.toMatchObject({ cause: expect.objectContaining({ name: 'SecurityError' }) });
   });
 });

@@ -297,6 +297,8 @@ export interface SpectrumMeta {
   fftLength: number;
   resampled: boolean;
   medianDt?: number;
+  /** Half-width of the analysis window's spectral main lobe, in unpadded record bins. */
+  mainLobeHalfWidthBins?: number;
 }
 
 export interface SpectrumResult {
@@ -425,6 +427,8 @@ export interface AppData {
   repairHistory: DataRepairRecord[];
   repairCursor: number;
   source: DataSourceRecord | null;
+  /** Monotonic counter bumped whenever the working grid is replaced, appended to or repaired. */
+  generation: number;
 }
 
 export interface SeriesPair {
@@ -499,11 +503,17 @@ export interface ImageExportOptions {
 export interface MathValidation {
   ok: boolean;
   errors: string[];
+  /** Non-blocking notes, e.g. the number of NaN samples a guard or a missing input produced. */
+  warnings?: string[];
 }
 
 export interface MathResult {
   values: number[];
   time: number[];
+  /** Union of the input columns' quality flags (shifted with any applied x-offset) plus Processed. */
+  quality?: Uint16Array;
+  /** Set when evaluation failed; `values` is empty in that case. */
+  error?: string;
 }
 
 export interface ResolveMode {

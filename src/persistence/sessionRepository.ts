@@ -24,6 +24,23 @@ function transactionComplete(transaction: IDBTransaction): Promise<void> {
   });
 }
 
+/** Thrown when a save would overwrite a newer stored revision (another tab or a stale autosave). */
+export class SessionConflictError extends Error {
+  readonly sessionId: string;
+  readonly storedRevision: number;
+  readonly attemptedRevision: number;
+
+  constructor(sessionId: string, storedRevision: number, attemptedRevision: number) {
+    super(
+      `Session ${sessionId} was modified elsewhere (stored revision ${storedRevision}, this copy is revision ${attemptedRevision}). Reload the session before saving to avoid overwriting newer work.`
+    );
+    this.name = 'SessionConflictError';
+    this.sessionId = sessionId;
+    this.storedRevision = storedRevision;
+    this.attemptedRevision = attemptedRevision;
+  }
+}
+
 export class SessionRepository {
   private databasePromise: Promise<IDBDatabase> | null = null;
   private autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -50,7 +67,11 @@ export class SessionRepository {
       });
       request.addEventListener('success', () => {
         const database = request.result;
-        database.addEventListener('versionchange', () => database.close());
+        database.addEventListener('versionchange', () => {
+          // Another tab is upgrading or deleting the database: release our handle and reopen lazily.
+          database.close();
+          this.databasePromise = null;
+        });
         resolve(database);
       });
       request.addEventListener('error', () => {
@@ -65,13 +86,32 @@ export class SessionRepository {
     return this.databasePromise;
   }
 
+  /**
+   * Persists the session with optimistic concurrency: the stored revision is read inside the same
+   * read-write transaction and the write is refused when it differs from the revision this copy was
+   * loaded with. Successful saves increment the revision on both the stored record and `session`.
+   */
   async save(session: Session): Promise<Session> {
     const database = await this.open();
+    const previousUpdatedAt = session.updatedAt;
     session.updatedAt = new Date().toISOString();
     const copy =
       session.schemaVersion === CURRENT_SESSION_SCHEMA ? validateCurrentSession(session) : migrateSession(session);
     const transaction = database.transaction(SESSION_STORE, 'readwrite');
-    transaction.objectStore(SESSION_STORE).put(copy);
+    const store = transaction.objectStore(SESSION_STORE);
+    const stored = (await requestResult(store.get(copy.id))) as { revision?: unknown } | undefined;
+    const storedRevision =
+      stored && Number.isInteger(stored.revision) && (stored.revision as number) >= 0 ? (stored.revision as number) : 0;
+    const attemptedRevision =
+      Number.isInteger(copy.revision) && (copy.revision as number) >= 0 ? (copy.revision as number) : 0;
+    if (stored && storedRevision !== attemptedRevision) {
+      transaction.abort();
+      session.updatedAt = previousUpdatedAt;
+      throw new SessionConflictError(copy.id, storedRevision, attemptedRevision);
+    }
+    copy.revision = storedRevision + 1;
+    session.revision = copy.revision;
+    store.put(copy);
     await transactionComplete(transaction);
     return copy;
   }
@@ -101,7 +141,7 @@ export class SessionRepository {
         );
       }
     }
-    return valid.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return valid.sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')));
   }
 
   async delete(sessionId: string): Promise<void> {
@@ -125,6 +165,13 @@ export class SessionRepository {
         });
       }, delayMs)
     );
+  }
+
+  /** Drops a pending autosave, e.g. when the caller reloads the same session from storage. */
+  cancelAutosave(sessionId: string): void {
+    const existing = this.autosaveTimers.get(sessionId);
+    if (existing) clearTimeout(existing);
+    this.autosaveTimers.delete(sessionId);
   }
 
   close(): void {

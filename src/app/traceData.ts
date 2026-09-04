@@ -1,4 +1,4 @@
-import { applyXOffset, Filter } from '../processing/filter';
+import { applyXOffset, Filter, shiftQualityMask } from '../processing/filter';
 import { MathEngine } from '../processing/math';
 import { combineQualityMasks } from '../data/quality';
 import { State } from '../state';
@@ -49,12 +49,22 @@ export function getSeriesForColumn(columnId: string | null, rawX: number[]): Col
     const time = result.time.length ? result.time : rawX.slice(0, rawY.length);
     const rawQuality = combineQualityMasks(
       rawY.length,
+      result.quality,
       State.data.timeColumn ? State.data.quality[State.data.timeColumn] : null
     );
     return { columnId, rawY, rawQuality, filteredY: null, filteredQuality: null, time, isMath: true };
   }
 
   if (!State.data.headers.includes(columnId)) return null;
+  if (columnSeriesGeneration !== State.data.generation) {
+    // Any grid change (load, append, repair, undo/redo) releases every memoised series at once.
+    columnSeriesMemo.clear();
+    columnSeriesGeneration = State.data.generation;
+  }
+  const memoKey = columnSeriesKey(columnId, rawX);
+  const memo = columnSeriesMemo.get(columnId);
+  if (memo && memo.key === memoKey) return memo.series;
+
   const rawY = State.data.columns[columnId]
     ? Array.from(State.data.columns[columnId])
     : State.data.raw.map((row) => toNumber(row[columnId]));
@@ -65,7 +75,7 @@ export function getSeriesForColumn(columnId: string | null, rawX: number[]): Col
     State.data.timeColumn ? State.data.quality[State.data.timeColumn] : null
   );
   const filtered = Filter.applyPipelineWithReport(rawY, time, State.getPipelineForColumn(columnId), rawQuality);
-  return {
+  const series: ColumnSeries = {
     columnId,
     rawY,
     rawQuality,
@@ -74,6 +84,81 @@ export function getSeriesForColumn(columnId: string | null, rawX: number[]): Col
     time,
     isMath: false
   };
+  rememberColumnSeries(columnId, memoKey, series);
+  return series;
+}
+
+/**
+ * Synchronous per-column pipeline results are memoised so that side panels (System, exports) that
+ * re-read the same column after a pipeline run do not re-filter the full record on the main thread.
+ * The key covers the same inputs as the Multi View preparation key plus the timebase actually passed in.
+ * Consumers treat the returned arrays as read-only; nothing in the app mutates a ColumnSeries in place.
+ */
+const MAX_COLUMN_SERIES_MEMO = 16;
+const columnSeriesMemo = new Map<string, { key: string; series: ColumnSeries }>();
+let columnSeriesGeneration = -1;
+
+function columnSeriesKey(columnId: string, rawX: number[]): string {
+  return `${multiViewPreparationKey([columnId])}|${rawX.length}|${rawX[0]}|${rawX[rawX.length - 1]}`;
+}
+
+function rememberColumnSeries(columnId: string, key: string, series: ColumnSeries): void {
+  columnSeriesMemo.delete(columnId);
+  columnSeriesMemo.set(columnId, { key, series });
+  while (columnSeriesMemo.size > MAX_COLUMN_SERIES_MEMO) {
+    const oldest = columnSeriesMemo.keys().next().value;
+    if (oldest === undefined) break;
+    columnSeriesMemo.delete(oldest);
+  }
+}
+
+export function forgetColumnSeries(): void {
+  columnSeriesMemo.clear();
+}
+
+// Replacing the data set (new file, shot switch, session load) drops every memoised series so stale
+// arrays are released immediately rather than lingering until their key happens to be missed.
+State.onDataReplace(() => {
+  forgetColumnSeries();
+  forgetPreparedMultiViews();
+});
+
+/**
+ * Worker-prepared Multi View series are remembered so that zooming or panning re-renders the plot
+ * instead of re-running every column's pipeline. The key captures everything the prepared series
+ * depend on: the column set, each column's pipeline, and the working data grid (length + repair cursor).
+ */
+const preparedMultiViews = new Map<string, { key: string; seriesList: ColumnSeries[] }>();
+
+export function multiViewPreparationKey(columnIds: string[]): string {
+  const pipelines = columnIds.map((columnId) =>
+    State.getMathDefinition(columnId)
+      ? { math: State.getMathDefinition(columnId) }
+      : State.getPipelineForColumn(columnId)
+  );
+  return JSON.stringify({
+    columnIds,
+    pipelines,
+    rows: State.data.raw.length,
+    repairCursor: State.data.repairCursor,
+    generation: State.data.generation,
+    timeColumn: State.data.timeColumn,
+    source: State.data.source ? [State.data.source.name, State.data.source.size, State.data.source.lastModified] : null
+  });
+}
+
+export function rememberPreparedMultiView(viewId: string, columnIds: string[], seriesList: ColumnSeries[]): void {
+  preparedMultiViews.set(viewId, { key: multiViewPreparationKey(columnIds), seriesList });
+}
+
+export function recallPreparedMultiView(viewId: string, columnIds: string[]): ColumnSeries[] | null {
+  const cached = preparedMultiViews.get(viewId);
+  if (!cached || cached.key !== multiViewPreparationKey(columnIds)) return null;
+  return cached.seriesList;
+}
+
+export function forgetPreparedMultiViews(): void {
+  preparedMultiViews.clear();
 }
 
 export function getAlignedSeriesForColumn(columnId: string | null, rawX: number[]): ColumnSeries | null {
@@ -84,6 +169,11 @@ export function getAlignedSeriesForColumn(columnId: string | null, rawX: number[
   return {
     ...series,
     rawY: applyXOffset(series.rawY, offset),
-    filteredY: series.filteredY ? applyXOffset(series.filteredY, offset) : null
+    rawQuality: shiftQualityMask(series.rawQuality, offset, series.rawY),
+    filteredY: series.filteredY ? applyXOffset(series.filteredY, offset) : null,
+    filteredQuality:
+      series.filteredY && series.filteredQuality
+        ? shiftQualityMask(series.filteredQuality, offset, series.filteredY)
+        : series.filteredQuality
   };
 }

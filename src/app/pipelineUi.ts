@@ -1,7 +1,7 @@
 import { State } from '../state';
 import type { FilterStep, FilterType } from '../types';
 import { cx, ui } from '../ui/classes';
-import { createModal } from '../ui/uiHelpers';
+import { closeModal, createModal } from '../ui/uiHelpers';
 import { runPipelineAndRender } from './dataPipeline';
 import { elements } from './domElements';
 
@@ -105,6 +105,22 @@ function clamp(inputEl: HTMLInputElement | null, min: number, max: number): numb
   return val;
 }
 
+/**
+ * Clamps an integer-valued control and rounds it to the nearest multiple of `multiple` (1 for plain
+ * integers). The coerced value is written back so the user sees exactly what will be applied and
+ * the core validator (which rejects non-integers and off-grid values) is never handed a rejected
+ * value from the UI.
+ */
+function clampInteger(inputEl: HTMLInputElement | null, min: number, max: number, multiple = 1): number | null {
+  const rawVal = getNumericValue(inputEl);
+  if (rawVal === null || !inputEl) return null;
+  let val = Math.round(rawVal / multiple) * multiple;
+  if (val < min) val = min;
+  if (val > max) val = max;
+  if (String(val) !== inputEl.value.trim()) inputEl.value = String(val);
+  return val;
+}
+
 function setVisible(el: HTMLElement | null, visible: boolean): void {
   el?.classList.toggle('hidden', !visible);
 }
@@ -148,17 +164,19 @@ export function updateParamsFromUI(): void {
   if (isWindowed) {
     const maximumWindow =
       type === 'median' || type === 'hampel' ? 501 : type === 'savitzkyGolay' || type === 'gaussian' ? 1001 : 9999;
-    const minimumWindow = type === 'savitzkyGolay' || type === 'gaussian' ? 3 : 1;
-    const windowVal = clamp(inputWindow, minimumWindow, maximumWindow);
+    const minimumWindow = type === 'savitzkyGolay' || type === 'gaussian' || type === 'hampel' ? 3 : 1;
+    const windowVal = clampInteger(inputWindow, minimumWindow, maximumWindow);
     if (windowVal !== null) {
       if (type === 'gaussian') params.kernelSize = windowVal;
       else params.windowSize = windowVal;
     }
   }
   if (type === 'savitzkyGolay') {
-    const polyVal = clamp(inputPoly, 1, 10);
+    // The core requires polyOrder < windowSize (using the effective odd window).
+    const windowSize = params.windowSize ?? step.windowSize ?? 21;
+    const polyVal = clampInteger(inputPoly, 1, Math.min(10, Math.max(1, windowSize - 1)));
     if (polyVal !== null) params.polyOrder = polyVal;
-    const iterVal = clamp(inputIters, 1, 16);
+    const iterVal = clampInteger(inputIters, 1, 16);
     if (iterVal !== null) params.iterations = iterVal;
   }
   if (type === 'iir') {
@@ -174,22 +192,22 @@ export function updateParamsFromUI(): void {
     if (threshold !== null) params.thresholdSigma = threshold;
   }
   if (type === 'waveletDenoise') {
-    const levels = clamp(inputIters, 1, 20);
+    const levels = clampInteger(inputIters, 1, 20);
     if (levels !== null) params.waveletLevels = levels;
     const threshold = getNumericValue(inputSigma);
     params.waveletThreshold = threshold !== null && threshold >= 0 ? threshold : undefined;
   }
   if (type === 'startStopNorm') {
-    const startDecayVal = clamp(inputStartDecay, 0, 10000);
+    const startDecayVal = clampInteger(inputStartDecay, 0, 10000);
     if (startDecayVal !== null) params.startLength = startDecayVal;
-    const endDecayVal = clamp(inputEndDecay, 0, 10000);
+    const endDecayVal = clampInteger(inputEndDecay, 0, 10000);
     if (endDecayVal !== null) params.endLength = endDecayVal;
     if (chkApplyStart) params.applyStart = !!chkApplyStart.checked;
     if (chkApplyEnd) params.applyEnd = !!chkApplyEnd.checked;
     const startOffsetVal = getNumericValue(inputStartOffset);
     if (startOffsetVal !== null) params.startOffset = startOffsetVal;
     if (chkAutoOffset) params.autoOffset = !!chkAutoOffset.checked;
-    const autoOffsetPointsVal = clamp(inputAutoOffsetPoints, 1, 100000);
+    const autoOffsetPointsVal = clampInteger(inputAutoOffsetPoints, 1, 100000);
     if (autoOffsetPointsVal !== null) params.autoOffsetPoints = autoOffsetPointsVal;
   }
 
@@ -211,7 +229,8 @@ export function updateParamsFromUI(): void {
   }
 
   if (isFftShape) {
-    const slopeVal = clamp(inputSlope, 6, 96);
+    // The core accepts only multiples of 6 dB/octave (whole Butterworth-shaped orders).
+    const slopeVal = clampInteger(inputSlope, 6, 96, 6);
     if (slopeVal !== null) params.slope = slopeVal;
   }
   if (isFir) {
@@ -224,8 +243,10 @@ export function updateParamsFromUI(): void {
     if (attenuation !== null) params.stopbandAttenuationDb = attenuation;
   }
   if (isDesignedIir) {
-    const order = clamp(inputFilterOrder, 2, 12);
-    if (order !== null) params.order = Math.max(2, Math.round(order / 2) * 2);
+    // Only the band-pass transformation doubles the prototype order, so only it requires an even
+    // final order; low/high-pass Butterworth designs accept odd orders (a first-order section is added).
+    const order = clampInteger(inputFilterOrder, 2, 12, type === 'butterworthBandPass' ? 2 : 1);
+    if (order !== null) params.order = order;
   }
   if (isDesignedIir || isFir) {
     if (selProcessingMode) {
@@ -233,8 +254,8 @@ export function updateParamsFromUI(): void {
     }
   }
   if (type === 'iirComb') {
-    const harmonicCount = clamp(inputHarmonicCount, 1, 100);
-    if (harmonicCount !== null) params.harmonicCount = Math.round(harmonicCount);
+    const harmonicCount = clampInteger(inputHarmonicCount, 1, 100);
+    if (harmonicCount !== null) params.harmonicCount = harmonicCount;
   }
 
   State.updateStepParams(id, params);
@@ -475,7 +496,7 @@ export function updateParamEditor(): void {
     if (slider) slider.value = text;
   };
 
-  const minimumWindow = type === 'savitzkyGolay' || type === 'gaussian' ? 3 : 1;
+  const minimumWindow = type === 'savitzkyGolay' || type === 'gaussian' || type === 'hampel' ? 3 : 1;
   if (inputWindow) inputWindow.min = String(minimumWindow);
   if (sliderWindow) sliderWindow.min = String(minimumWindow);
   if (type === 'gaussian' && step.kernelSize != null) {
@@ -494,7 +515,10 @@ export function updateParamEditor(): void {
     if (inputSigma) inputSigma.value = value;
     if (sliderSigma && value) sliderSigma.value = value;
   }
-  if (inputFilterOrder) inputFilterOrder.value = String(step.order || 4);
+  if (inputFilterOrder) {
+    inputFilterOrder.value = String(step.order || 4);
+    inputFilterOrder.step = type === 'butterworthBandPass' ? '2' : '1';
+  }
   if (selProcessingMode) {
     selProcessingMode.value = step.processingMode || 'zero-phase';
     const zeroPhaseOption = selProcessingMode.querySelector<HTMLOptionElement>('option[value="zero-phase"]');
@@ -595,7 +619,7 @@ export function showAddStepMenu(): void {
       const type = btn.getAttribute('data-type') as FilterType | null;
       if (!type) return;
       State.addStep(type);
-      modal.parentElement?.remove();
+      closeModal(modal);
       renderPipelineList();
       updateParamEditor();
       runPipelineAndRender();

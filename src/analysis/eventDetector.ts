@@ -66,33 +66,99 @@ function areAdjacent(indices: number[], index: number): boolean {
   return index > 0 && indices[index] === indices[index - 1] + 1;
 }
 
+/**
+ * Robust estimate of the additive white-noise standard deviation: 1.4826·MAD of the second
+ * differences divided by √6. Second differences cancel linear trends, so a clean slowly varying
+ * signal yields ≈0 while noise on a flat or sloping baseline is measured faithfully.
+ */
+function noiseSigma(values: number[], indices: number[]): number {
+  const seconds: number[] = [];
+  for (let index = 2; index < values.length; index += 1) {
+    if (areAdjacent(indices, index) && areAdjacent(indices, index - 1)) {
+      seconds.push(values[index] - 2 * values[index - 1] + values[index - 2]);
+    }
+  }
+  if (seconds.length === 0) return 0;
+  const center = median(seconds);
+  return (median(seconds.map((value) => Math.abs(value - center))) * 1.4826) / Math.sqrt(6);
+}
+
+/**
+ * Walks back from an arming sample to the most recent adjacent pair that straddles the threshold
+ * itself, so automatic-hysteresis events are still timestamped at the configured level.
+ */
+function thresholdCrossingBefore(
+  time: number[],
+  values: number[],
+  indices: number[],
+  armedIndex: number,
+  threshold: number,
+  rising: boolean
+): { index: number; time: number } {
+  for (let index = armedIndex; index >= 1; index -= 1) {
+    if (!areAdjacent(indices, index)) break;
+    const previous = values[index - 1];
+    const current = values[index];
+    const straddles = rising
+      ? previous < threshold && current >= threshold
+      : previous > threshold && current <= threshold;
+    if (straddles) {
+      return { index, time: interpolateCrossing(time[index - 1], previous, time[index], current, threshold) };
+    }
+  }
+  return {
+    index: armedIndex,
+    time: interpolateCrossing(
+      time[armedIndex - 1],
+      values[armedIndex - 1],
+      time[armedIndex],
+      values[armedIndex],
+      threshold
+    )
+  };
+}
+
 function detectLevelCrossings(
   time: number[],
   values: number[],
   indices: number[],
   config: TriggerCfg
-): AnalysisEvent[] {
+): { events: AnalysisEvent[]; hysteresis: number; automaticHysteresis: boolean } {
   const events: AnalysisEvent[] = [];
-  const hysteresis = Math.max(0, Number(config.hysteresis) || 0);
+  const configuredHysteresis = Math.max(0, Number(config.hysteresis) || 0);
+  // With zero hysteresis a threshold sitting in the noise chatters on every sample; derive a band
+  // from the measured noise so that only genuine level changes register, and disclose it.
+  const automatic = configuredHysteresis === 0;
+  const hysteresis = automatic ? noiseSigma(values, indices) * 3 : configuredHysteresis;
   const upper = config.threshold + hysteresis;
   const lower = config.threshold - hysteresis;
-  let state: 'above' | 'below' = values[0] >= upper ? 'above' : 'below';
+  // Initial state is judged against the threshold itself, not the upper band edge, so an opening
+  // excursion that starts inside the band and dives below `lower` is still a falling crossing.
+  let state: 'above' | 'below' = values[0] >= config.threshold ? 'above' : 'below';
+
+  // User-configured hysteresis timestamps the event at the band edge that armed it (Schmitt
+  // semantics); the automatic noise band only suppresses chatter and keeps the threshold timestamp.
+  const locate = (index: number, band: number, rising: boolean): { index: number; time: number } =>
+    automatic
+      ? thresholdCrossingBefore(time, values, indices, index, config.threshold, rising)
+      : { index, time: interpolateCrossing(time[index - 1], values[index - 1], time[index], values[index], band) };
 
   for (let index = 1; index < values.length; index += 1) {
     if (!areAdjacent(indices, index)) {
-      state = values[index] >= upper ? 'above' : 'below';
+      state = values[index] >= config.threshold ? 'above' : 'below';
       continue;
     }
     const current = values[index];
     if (state === 'below' && current >= upper) {
       if (config.direction === 'rising' || config.direction === 'either') {
-        const crossingTime = interpolateCrossing(time[index - 1], values[index - 1], time[index], current, upper);
+        const crossing = locate(index, upper, true);
         events.push(
-          event(indices[index], crossingTime, 'level', {
+          event(indices[crossing.index], crossing.time, 'level', {
             direction: 'rising',
             threshold: config.threshold,
-            triggerLevel: upper,
-            amplitude: upper,
+            triggerLevel: automatic ? config.threshold : upper,
+            armingLevel: upper,
+            amplitude: automatic ? config.threshold : upper,
             sourceType: config.sourceType,
             units: config.units,
             interpolated: true
@@ -102,13 +168,14 @@ function detectLevelCrossings(
       state = 'above';
     } else if (state === 'above' && current <= lower) {
       if (config.direction === 'falling' || config.direction === 'either') {
-        const crossingTime = interpolateCrossing(time[index - 1], values[index - 1], time[index], current, lower);
+        const crossing = locate(index, lower, false);
         events.push(
-          event(indices[index], crossingTime, 'level', {
+          event(indices[crossing.index], crossing.time, 'level', {
             direction: 'falling',
             threshold: config.threshold,
-            triggerLevel: lower,
-            amplitude: lower,
+            triggerLevel: automatic ? config.threshold : lower,
+            armingLevel: lower,
+            amplitude: automatic ? config.threshold : lower,
             sourceType: config.sourceType,
             units: config.units,
             interpolated: true
@@ -118,7 +185,7 @@ function detectLevelCrossings(
       state = 'below';
     }
   }
-  return events;
+  return { events, hysteresis, automaticHysteresis: automatic && hysteresis > 0 };
 }
 
 function median(values: number[]): number {
@@ -128,10 +195,19 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
+/**
+ * Automatic slope threshold: the robust slope noise σ (1.4826·MAD) scaled by a factor that grows
+ * with the record length, so the expected number of noise-only excursions stays well below one
+ * (the largest of N Gaussian samples sits near σ·√(2·ln N)). A fixed 6·MAD (≈4σ) produced several
+ * false edges per 100k noise samples.
+ */
 function automaticSlopeThreshold(slopes: number[]): number {
-  const center = median(slopes);
-  const deviation = median(slopes.map((value) => Math.abs(value - center)));
-  return Math.max(Number.EPSILON, deviation * 6);
+  const finite = slopes.filter(Number.isFinite);
+  if (finite.length === 0) return Number.EPSILON;
+  const center = median(finite);
+  const sigma = median(finite.map((value) => Math.abs(value - center))) * 1.4826;
+  const factor = Math.max(6, Math.sqrt(2 * Math.log(Math.max(2, finite.length))) + 1.5);
+  return Math.max(Number.EPSILON, sigma * factor);
 }
 
 function detectEdges(
@@ -184,9 +260,11 @@ function detectPositivePulseWidths(
   direction: 'rising' | 'falling'
 ): AnalysisEvent[] {
   const events: AnalysisEvent[] = [];
-  let startIndex: number | null = values[0] >= config.threshold ? 0 : null;
-  let startTime = startIndex === null ? 0 : time[0];
-  let peak = startIndex === null ? -Infinity : values[0];
+  // A record that opens above the threshold is a truncated pulse without a start crossing; it is
+  // not reported as a measured width.
+  let startIndex: number | null = null;
+  let startTime = 0;
+  let peak = -Infinity;
 
   for (let index = 1; index < values.length; index += 1) {
     if (!areAdjacent(indices, index)) {
@@ -231,7 +309,11 @@ function detectPulseWidths(time: number[], values: number[], indices: number[], 
   const positive =
     config.direction === 'falling' ? [] : detectPositivePulseWidths(time, values, indices, config, 'rising');
   if (config.direction === 'rising') return positive;
-  const invertedConfig = { ...config, threshold: -config.threshold };
+  // 'either' treats the threshold as a magnitude applied symmetrically (±|threshold|) so that a
+  // baseline at 0 is never "inside" the negative pulse; 'falling' keeps the threshold as the actual
+  // level the signal must fall below (a negative value for a negative-going pulse from 0).
+  const negativeLevel = config.direction === 'either' ? -Math.abs(config.threshold) : config.threshold;
+  const invertedConfig = { ...config, threshold: -negativeLevel };
   const negative = detectPositivePulseWidths(
     time,
     values.map((value) => -value),
@@ -392,7 +474,13 @@ export const EventDetector = {
     }
     let events: AnalysisEvent[] = [];
     if (triggerConfig.type === 'level') {
-      events = detectLevelCrossings(sliced.t, sliced.y, sliced.indices, triggerConfig);
+      const levelResult = detectLevelCrossings(sliced.t, sliced.y, sliced.indices, triggerConfig);
+      events = levelResult.events;
+      if (levelResult.automaticHysteresis) {
+        warnings.push(
+          `Hysteresis was 0; applied an automatic noise-derived band of ±${levelResult.hysteresis.toPrecision(3)} to suppress chatter.`
+        );
+      }
     } else if (triggerConfig.type === 'edge') {
       const edgeResult = detectEdges(sliced.t, sliced.y, sliced.indices, triggerConfig);
       events = edgeResult.events;

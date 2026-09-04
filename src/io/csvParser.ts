@@ -1,7 +1,7 @@
 import Papa from 'papaparse';
 import { Config } from '../config';
 import type { CsvRow, DataSourceRecord } from '../types';
-import { createModal, escapeHtml } from '../ui/uiHelpers';
+import { closeModal, createModal, escapeHtml } from '../ui/uiHelpers';
 
 export const CsvParser = {
   processFile(file: File, onComplete: (results: Papa.ParseResult<CsvRow>, source: DataSourceRecord) => void): void {
@@ -68,7 +68,7 @@ export const CsvParser = {
       table.querySelectorAll<HTMLTableRowElement>('tr[data-row]').forEach((row) => {
         const choose = () => {
           const skip = parseInt(row.getAttribute('data-row') || '0', 10);
-          modalContent.parentElement?.remove();
+          closeModal(modalContent);
           this.parseFullFile(text, skip, source, onComplete);
         };
         row.addEventListener('click', choose);
@@ -99,7 +99,10 @@ export const CsvParser = {
 
     const config = {
       header: true,
-      dynamicTyping: true,
+      // Keep every cell as its source token: papaparse's dynamic typing turns ISO-8601 cells into
+      // Date objects (which the quality classifier cannot represent) and would otherwise decide the
+      // numeric interpretation before the quality flags are assigned.
+      dynamicTyping: false,
       skipEmptyLines: true,
       comments: '#',
       complete: (results: Papa.ParseResult<CsvRow>) => {
@@ -108,7 +111,12 @@ export const CsvParser = {
           return;
         }
         if (results.errors.length > 0) console.warn('CSV Parse Warnings:', results.errors);
-        onComplete(results, sourceRecord);
+        try {
+          onComplete(results, sourceRecord);
+        } catch (error) {
+          console.error('CSV import failed', error);
+          alert(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
       },
       error: (err: Error) => {
         alert(`Parse Error: ${err.message}`);

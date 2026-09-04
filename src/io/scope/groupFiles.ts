@@ -8,9 +8,26 @@ export interface ScopeSourceGroup {
   consumedNames: string[];
 }
 
-export function groupScopeSources(sources: ImportSource[]): ScopeSourceGroup[] {
+export interface ScopeGroupingFailure {
+  error: ScopeImportError;
+  sources: ImportSource[];
+}
+
+export interface ScopeGroupingResult {
+  groups: ScopeSourceGroup[];
+  /** Files that could not be grouped (orphan or ambiguous R&S halves). They are never importable. */
+  failures: ScopeGroupingFailure[];
+}
+
+/**
+ * Groups R&S description/payload pairs (case-insensitive stem match, strictly one-to-one) and leaves
+ * every other file as its own group. Pairing problems are reported per stem so unrelated files in the
+ * same selection stay importable.
+ */
+export function groupScopeSourcesWithFailures(sources: ImportSource[]): ScopeGroupingResult {
   const consumed = new Set<number>();
   const groups: ScopeSourceGroup[] = [];
+  const failures: ScopeGroupingFailure[] = [];
   const pairs = new Map<
     string,
     {
@@ -32,23 +49,31 @@ export function groupScopeSources(sources: ImportSource[]): ScopeSourceGroup[] {
   });
 
   for (const [stem, pair] of pairs) {
-    const names = [...pair.descriptions, ...pair.payloads].map(({ source }) => source.name);
+    const members = [...pair.descriptions, ...pair.payloads];
+    const names = members.map(({ source }) => source.name);
+    members.forEach(({ index }) => consumed.add(index));
     if (pair.descriptions.length === 0 || pair.payloads.length === 0) {
-      throw new ScopeImportError(
-        'missing-companion',
-        `R&S waveform "${stem}" requires exactly one description .bin and one .Wfm.bin payload.`,
-        { format: 'rohde-schwarz-rtx-bin', fileNames: names }
-      );
+      failures.push({
+        error: new ScopeImportError(
+          'missing-companion',
+          `R&S waveform "${stem}" requires exactly one description .bin and one .Wfm.bin payload.`,
+          { format: 'rohde-schwarz-rtx-bin', fileNames: names }
+        ),
+        sources: members.map(({ source }) => source)
+      });
+      continue;
     }
     if (pair.descriptions.length !== 1 || pair.payloads.length !== 1) {
-      throw new ScopeImportError(
-        'ambiguous-companion',
-        `R&S waveform "${stem}" has ${pair.descriptions.length} descriptions and ${pair.payloads.length} payloads.`,
-        { format: 'rohde-schwarz-rtx-bin', fileNames: names }
-      );
+      failures.push({
+        error: new ScopeImportError(
+          'ambiguous-companion',
+          `R&S waveform "${stem}" has ${pair.descriptions.length} descriptions and ${pair.payloads.length} payloads.`,
+          { format: 'rohde-schwarz-rtx-bin', fileNames: names }
+        ),
+        sources: members.map(({ source }) => source)
+      });
+      continue;
     }
-    consumed.add(pair.descriptions[0].index);
-    consumed.add(pair.payloads[0].index);
     groups.push({
       primary: pair.descriptions[0].source,
       companions: [pair.payloads[0].source],
@@ -59,10 +84,15 @@ export function groupScopeSources(sources: ImportSource[]): ScopeSourceGroup[] {
   for (let index = 0; index < sources.length; index += 1) {
     if (consumed.has(index)) continue;
     const primary = sources[index];
-    const detected = detectScopeFile(primary);
-    if (detected?.format === 'rohde-schwarz-wfm-bin-payload' || detected?.format === 'rohde-schwarz-rtx-bin') continue;
     consumed.add(index);
     groups.push({ primary, companions: [], consumedNames: [primary.name] });
   }
+  return { groups, failures };
+}
+
+/** Strict variant: the first grouping failure is thrown. */
+export function groupScopeSources(sources: ImportSource[]): ScopeSourceGroup[] {
+  const { groups, failures } = groupScopeSourcesWithFailures(sources);
+  if (failures.length > 0) throw failures[0].error;
   return groups;
 }

@@ -1,4 +1,5 @@
 import { authoritativeAnnotation, type Session, type SessionAnalysisResult, type Shot } from '../domain/session';
+import { analyzeTimebase } from '../processing/sampling';
 import { analysisWorkerClient } from '../workers/client';
 import { calculatePulsePower, type PulsePowerInput, type PulsePowerResult } from './pulsePower';
 
@@ -134,7 +135,7 @@ export class BatchAnalyzer {
             appliedDelaySeconds:
               current.timingOffsetSeconds -
               voltage.timingOffsetSeconds +
-              (recipe.currentDelaySamples || 0) * (voltage.time.length > 1 ? voltage.time[1] - voltage.time[0] : 0),
+              (recipe.currentDelaySamples || 0) * analyzeTimebase(voltage.time).medianDt,
             createdAt: new Date().toISOString()
           }
         };

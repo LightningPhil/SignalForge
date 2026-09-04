@@ -22,7 +22,11 @@ export const NativeScopeAdapter: WaveformImportAdapter = {
           confidence: detected.confidence,
           manufacturer: detected.manufacturer,
           format: detected.displayName,
-          reason: `${detected.reason} Evidence: ${detected.supportLevel}.`
+          // Detection runs before the layout is decoded; the final evidence level is recorded on the
+          // imported source files once the decoder has validated the file.
+          reason: `${detected.reason} Detected evidence: ${detected.supportLevel}${
+            detected.supportLevel === 'provisional' ? ' (provisional layouts are rejected at decode time)' : ''
+          }.`
         }
       : { confidence: 0, reason: 'No supported native oscilloscope signature.' };
   },

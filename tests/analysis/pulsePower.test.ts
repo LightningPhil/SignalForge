@@ -36,6 +36,84 @@ describe('structured pulse-power calculations', () => {
     expect(result.provenance.voltagePolarity).toBe(-1);
   });
 
+  it('applies non-cancelling unit scales and rejects unknown or mis-cased units', () => {
+    const scaled = calculatePulsePower({
+      time: [0, 1, 2, 3],
+      voltage: [1, 1, 1, 1],
+      current: [1, 1, 1, 1],
+      voltageUnit: 'kV',
+      currentUnit: 'A',
+      minimumCurrent: 1e-6
+    });
+    expect(scaled.metrics.averagePower.value).toBeCloseTo(1e3, 9);
+
+    const mega = calculatePulsePower({
+      time: [0, 1],
+      voltage: [1, 1],
+      current: [1, 1],
+      voltageUnit: 'MV',
+      currentUnit: 'mA',
+      minimumCurrent: 1e-6
+    });
+    expect(mega.metrics.averagePower.value).toBeCloseTo(1e3, 9);
+
+    expect(() =>
+      calculatePulsePower({ time: [0, 1], voltage: [1, 1], current: [1, 1], voltageUnit: 'furlongs' })
+    ).toThrow(/not recognised/);
+    expect(() => calculatePulsePower({ time: [0, 1], voltage: [1, 1], current: [1, 1], currentUnit: 'V' })).toThrow(
+      /not dimensionally compatible/
+    );
+  });
+
+  it('excludes clipped or missing samples from every metric instead of using them verbatim', () => {
+    const time = Array.from({ length: 11 }, (_, index) => index / 100);
+    const voltage = new Array<number>(time.length).fill(1);
+    const voltageQuality = new Uint16Array(time.length);
+    voltage[5] = 1000;
+    voltageQuality[5] = QualityFlag.Clipped;
+    const result = calculatePulsePower({
+      time,
+      voltage,
+      current: new Array<number>(time.length).fill(1),
+      voltageQuality,
+      minimumCurrent: 0
+    });
+
+    expect(result.metrics.peakVoltage.value).toBe(1);
+    expect(result.metrics.peakPower.value).toBe(1);
+    // Two intervals adjoin the excluded sample, so 8 of 10 intervals of 0.01 s × 1 W remain.
+    expect(result.metrics.energy.value).toBeCloseTo(0.08, 12);
+    expect(result.warnings.join(' ')).toContain('excluded from all pulse-power metrics');
+  });
+
+  it('restores the aligned energy when the reported current delay is applied', () => {
+    const length = 400;
+    const time = Array.from({ length }, (_, index) => index / 1000);
+    const pulse = (index: number) => (index >= 100 && index < 200 ? 1 : 0);
+    const voltage = time.map((_, index) => pulse(index));
+    const laggedCurrent = time.map((_, index) => pulse(index - 3));
+    const aligned = calculatePulsePower({
+      time,
+      voltage,
+      current: laggedCurrent,
+      currentDelaySamples: 3,
+      minimumCurrent: 0
+    });
+    const misaligned = calculatePulsePower({ time, voltage, current: laggedCurrent, minimumCurrent: 0 });
+    const wrongSign = calculatePulsePower({
+      time,
+      voltage,
+      current: laggedCurrent,
+      currentDelaySamples: -3,
+      minimumCurrent: 0
+    });
+
+    // 100 unit-power samples 1 ms apart: 99 full intervals plus two trapezoidal half-intervals at the edges.
+    expect(aligned.metrics.energy.value).toBeCloseTo(0.1, 9);
+    expect(misaligned.metrics.energy.value as number).toBeLessThan(aligned.metrics.energy.value as number);
+    expect(wrongSign.metrics.energy.value as number).toBeLessThan(misaligned.metrics.energy.value as number);
+  });
+
   it('masks dynamic impedance near zero current', () => {
     const result = calculatePulsePower({
       time: [0, 1, 2],
@@ -88,7 +166,9 @@ describe('structured pulse-power calculations', () => {
     });
 
     expect(Math.abs(result.metrics.energy.value || 0)).toBeLessThan(0.01);
-    expect(result.warnings.join(' ')).toContain('anti-alias filtering');
+    // Uniform, aligned grids use exact Fourier band-limiting (no in-band IIR droop); other grids use
+    // the IIR anti-alias cascade. Either way the 600 Hz tone above the 500 Hz Nyquist is removed.
+    expect(result.warnings.join(' ')).toMatch(/band-limited Fourier interpolation|anti-alias filtering/);
   });
 
   it('uses channel timing offsets relatively, so equal offsets do not create false deskew', () => {

@@ -46,6 +46,22 @@ test('enforces Savitzky-Golay window minima in the filter editor', async ({ page
   await expect(page.locator('#param-window')).toHaveValue('3');
 });
 
+test('a dialog closed by its own button leaves Escape working for the next dialog', async ({ page }) => {
+  await page.goto('./');
+  // The add-step picker closes itself from a button; it must leave the modal stack clean.
+  await page.getByRole('button', { name: '➕ Add' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Moving Average' }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+
+  await page.getByRole('button', { name: '❓ Help' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  // Focus is returned to the control that opened the last dialog.
+  await expect(page.getByRole('button', { name: '❓ Help' })).toBeFocused();
+});
+
 test('adds a specification-driven FIR filter and plots its exact response', async ({ page }) => {
   test.setTimeout(45_000);
   const consoleMessages: string[] = [];

@@ -113,6 +113,12 @@ export interface Session {
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;
+  /**
+   * Monotonic store revision, incremented by every successful save. A save whose revision does not
+   * match the stored record is rejected so a stale copy (another tab, an old autosave timer) cannot
+   * silently overwrite newer work.
+   */
+  revision?: number;
 }
 
 function id(prefix: string): string {

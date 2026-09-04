@@ -6,6 +6,7 @@ import { State } from '../state';
 import type { AnalysisSeries, SpectrumResult } from '../types';
 import { analysisWorkerClient } from '../workers/client';
 import { ui } from './classes';
+import { renderWarningList } from './uiHelpers';
 
 function formatNumber(val: number | null | undefined, digits = 3): string {
   if (val === null || val === undefined || Number.isNaN(val)) return '—';
@@ -17,16 +18,7 @@ function formatNumber(val: number | null | undefined, digits = 3): string {
     .replace(/\.([0-9]*?)0+$/, '.$1');
 }
 
-function renderWarnings(el: HTMLElement | null, warnings: string[] = []): void {
-  if (!el) return;
-  if (!warnings.length) {
-    el.classList.add('hidden');
-    el.innerHTML = '';
-    return;
-  }
-  el.classList.remove('hidden');
-  el.innerHTML = warnings.map((w) => `<li>${w}</li>`).join('');
-}
+const renderWarnings = renderWarningList;
 
 function autoSelectSource(series: AnalysisSeries): {
   values: number[];
@@ -274,6 +266,7 @@ export const SpectralPanel = {
           this.render(summary);
         })
         .catch((error: unknown) => {
+          if (controller.signal.aborted || generation !== this.workerGeneration) return;
           if (!(error instanceof DOMException && error.name === 'AbortError')) {
             renderWarnings(this.warningsEl, [error instanceof Error ? error.message : String(error)]);
           }
@@ -292,7 +285,9 @@ export const SpectralPanel = {
   render(summary: SpectralSummary): void {
     const { spectrum, peaks, harmonics, thd, snr, spur, bandpower, fundamentalHz } = summary;
     if (this.metaEl) {
-      this.metaEl.textContent = `Fs ≈ ${formatNumber(spectrum.meta.fs)} Hz · Δf ≈ ${formatNumber(spectrum.meta.deltaF)} Hz · Nyquist ${formatNumber(spectrum.meta.nyquist)} Hz`;
+      this.metaEl.textContent =
+        `Fs ≈ ${formatNumber(spectrum.meta.fs)} Hz · bin spacing ${formatNumber(spectrum.meta.deltaF)} Hz · ` +
+        `resolution (ENBW) ${formatNumber(spectrum.meta.enbwHz)} Hz · Nyquist ${formatNumber(spectrum.meta.nyquist)} Hz`;
     }
     renderWarnings(this.warningsEl, summary.warnings);
     if (this.peaksTable) {

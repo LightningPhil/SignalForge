@@ -105,7 +105,11 @@ describe('batch analysis', () => {
       applicationVersion: 'test'
     });
 
-    expect(result.results.get(shot.id)?.values.energy).toBeCloseTo(1.999, 3);
+    // The current record ends at 1.998 s, so the final voltage sample (1.999 s) has no measured
+    // current: it is flagged Missing by the alignment and excluded rather than extrapolated.
+    const recorded = result.results.get(shot.id);
+    expect(recorded?.values.energy).toBeCloseTo(1.998, 3);
+    expect(recorded?.provenance.warnings.join(' ')).toContain('excluded from all pulse-power metrics');
   });
 
   it('maps authoritative markers through the voltage channel timing offset', async () => {

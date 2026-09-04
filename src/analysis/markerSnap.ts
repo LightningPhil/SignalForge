@@ -42,7 +42,17 @@ export function snapMarker(
   if (length === 0 || !Number.isFinite(targetTime)) return null;
   const nearest = nearestIndex(time, targetTime);
   if (mode === 'none') {
-    return { index: nearest, time: targetTime, mode, score: 0, confidence: 1 };
+    // Keep the free-hand time but never beyond the record, so index and time stay consistent.
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+    for (let index = 0; index < length; index += 1) {
+      const stamp = Number(time[index]);
+      if (!Number.isFinite(stamp)) continue;
+      minTime = Math.min(minTime, stamp);
+      maxTime = Math.max(maxTime, stamp);
+    }
+    const clamped = Number.isFinite(minTime) ? Math.max(minTime, Math.min(maxTime, targetTime)) : targetTime;
+    return { index: nearest, time: clamped, mode, score: 0, confidence: 1 };
   }
   if (mode === 'sample') {
     return { index: nearest, time: Number(time[nearest]), mode, score: 0, confidence: 1 };

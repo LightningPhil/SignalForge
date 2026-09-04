@@ -4,7 +4,7 @@ import { Config } from '../config';
 import { State } from '../state';
 import type { AxisFormat, ThemeColors, ThemeName } from '../types';
 import { ui } from './classes';
-import { createModal, escapeHtml } from './uiHelpers';
+import { closeModal, createModal, escapeHtml } from './uiHelpers';
 
 const AXIS_FORMATS: Array<{ value: AxisFormat; label: string }> = [
   { value: 'decimal', label: 'Decimal Notation' },
@@ -207,7 +207,7 @@ export const GraphConfig = {
 
       renderColumnTabs();
       runPipelineAndRender();
-      modal.parentElement?.remove();
+      closeModal(modal);
     });
   }
 };

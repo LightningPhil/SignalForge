@@ -245,17 +245,43 @@ export function applyBiquad(values: ArrayLike<number>, coefficients: Biquad): nu
   return output;
 }
 
+/**
+ * Upper bound on the zero-phase settling extension per side. Poles extremely close to the unit
+ * circle (very narrow notches at high sample rates) can demand hundreds of millions of settling
+ * samples; beyond this bound the plan is reported as truncated and callers warn.
+ */
+export const MAX_IIR_SETTLING_PADDING = 1 << 21;
+
+/**
+ * Value of the odd-symmetric (point-reflected) extension of `values` at any integer index. Point
+ * reflection about both end samples composes to a translation by 2·(last − first) every
+ * 2·(N − 1) samples, so the extension continues indefinitely with the record's own spectral content
+ * and no discontinuity — which is what lets the settling padding exceed the record length. Records
+ * whose endpoint trend has been removed (the zero-phase path does this when the DC gain is unity)
+ * make the extension purely periodic.
+ */
+function extendedValue(values: number[], index: number): number {
+  const length = values.length;
+  if (index >= 0 && index < length) return values[index];
+  if (length === 1) return values[0];
+  const period = 2 * (length - 1);
+  const cycles = Math.floor(index / period);
+  const remainder = index - cycles * period;
+  const base = remainder < length ? values[remainder] : 2 * values[length - 1] - values[period - remainder];
+  return base + cycles * 2 * (values[length - 1] - values[0]);
+}
+
 function padded(values: number[], requestedPadding = 48): { values: number[]; padding: number } {
-  const padding = Math.min(Math.max(0, requestedPadding), Math.max(0, values.length - 1));
+  const padding = values.length < 2 ? 0 : Math.min(Math.max(0, requestedPadding), MAX_IIR_SETTLING_PADDING);
   const result = new Array<number>(values.length + padding * 2);
   for (let index = 0; index < padding; index += 1) {
-    result[index] = 2 * values[0] - values[padding - index];
+    result[index] = extendedValue(values, index - padding);
   }
   for (let index = 0; index < values.length; index += 1) {
     result[padding + index] = values[index];
   }
-  for (let index = 1; index <= padding; index += 1) {
-    result[padding + values.length + index - 1] = 2 * values[values.length - 1] - values[values.length - 1 - index];
+  for (let index = 0; index < padding; index += 1) {
+    result[padding + values.length + index] = extendedValue(values, values.length + index);
   }
   return { values: result, padding };
 }
@@ -284,7 +310,7 @@ export function iirPaddingPlan(sections: Biquad[], inputLength: number): IirPadd
   const settlingPadding =
     maximumPoleRadius > 0 && maximumPoleRadius < 1 ? Math.ceil(Math.log(1e-8) / Math.log(maximumPoleRadius)) : 48;
   const required = Math.max(48, settlingPadding);
-  const effective = Math.min(Math.max(0, inputLength - 1), required);
+  const effective = inputLength < 2 ? 0 : Math.min(MAX_IIR_SETTLING_PADDING, required);
   return { required, effective, truncated: effective < required };
 }
 

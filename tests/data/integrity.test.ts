@@ -3,6 +3,7 @@ import { QualityFlag } from '../../src/data/quality';
 import { State } from '../../src/state';
 import type { CsvRow } from '../../src/types';
 import { getTimeArray } from '../../src/app/traceData';
+import { buildForwardFillUpdates, buildLinearInterpolationUpdates } from '../../src/data/repairs';
 
 const rows = (): CsvRow[] => [
   { Time: 0, Voltage: 1 },
@@ -61,6 +62,40 @@ describe('immutable imported data and quality history', () => {
     expect(State.data.raw[1].Voltage).toBe(1.5);
     expect(State.data.quality.Voltage[1]).toBe(QualityFlag.Interpolated);
     expect(State.data.original[1].Voltage).toBe('CLIPPED');
+  });
+
+  it('lifts analysis-blocking flags when the real repair builders fill or interpolate a sample', () => {
+    State.setData(
+      [
+        { Time: 0, Voltage: 1 },
+        { Time: 1, Voltage: 'CLIPPED' },
+        { Time: 2, Voltage: '' },
+        { Time: 3, Voltage: 4 }
+      ],
+      ['Time', 'Voltage']
+    );
+    const blocking = QualityFlag.Missing | QualityFlag.Invalid | QualityFlag.Clipped | QualityFlag.Saturated;
+
+    const interpolation = buildLinearInterpolationUpdates(State.data.raw, 'Time', 'Voltage');
+    expect(interpolation.map((update) => update.rowIndex)).toEqual([1, 2]);
+    State.applyDataChanges('Interpolate', interpolation);
+    expect(State.data.raw[1].Voltage).toBe(2);
+    expect(State.data.raw[2].Voltage).toBe(3);
+    expect(State.data.quality.Voltage[1] & QualityFlag.Interpolated).toBeTruthy();
+    expect(State.data.quality.Voltage[1] & blocking).toBe(0);
+    expect(State.data.quality.Voltage[2] & blocking).toBe(0);
+    // Originals and their quality are untouched, and undo restores the blocking state.
+    expect(State.data.original[1].Voltage).toBe('CLIPPED');
+    expect(State.data.originalQuality.Voltage[1] & QualityFlag.Clipped).toBeTruthy();
+    State.undoDataRepair();
+    expect(State.data.quality.Voltage[1] & QualityFlag.Clipped).toBeTruthy();
+
+    const fill = buildForwardFillUpdates(State.data.raw, 'Voltage');
+    State.applyDataChanges('Forward fill', fill);
+    expect(State.data.raw[1].Voltage).toBe(1);
+    expect(State.data.raw[2].Voltage).toBe(1);
+    expect(State.data.quality.Voltage[2] & QualityFlag.ForwardFilled).toBeTruthy();
+    expect(State.data.quality.Voltage[2] & blocking).toBe(0);
   });
 
   it('normalizes a legacy CSV time-column unit for analysis without changing originals', () => {

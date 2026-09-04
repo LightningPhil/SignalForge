@@ -103,4 +103,18 @@ describe('scope import worker client', () => {
     await expect(client.decode(source)).rejects.toBeInstanceOf(ScopeImportError);
     await expect(client.decode(source)).rejects.toMatchObject({ code: 'unsupported-variant' });
   });
+
+  it('turns a synchronous worker construction failure into a typed import rejection', async () => {
+    const client = new ScopeImportClient(() => {
+      throw new DOMException('Refused to create a worker (CSP worker-src).', 'SecurityError');
+    });
+    let pending: Promise<unknown>;
+    expect(() => {
+      pending = client.decode(source);
+    }).not.toThrow();
+    await expect(pending!).rejects.toBeInstanceOf(ScopeImportError);
+    await expect(pending!).rejects.toMatchObject({ fileNames: [source.name] });
+    // The caller's bytes are untouched because nothing was transferred.
+    expect(source.bytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
 });

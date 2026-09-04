@@ -41,16 +41,28 @@ export class ScopeImportClient {
       }
       totalBytes += source.bytes.byteLength;
     }
-    if (totalBytes > ScopeImportLimits.maxDecodedBytes) {
+    if (totalBytes > ScopeImportLimits.maxSourceBytesPerImport) {
       return Promise.reject(
         new ScopeImportError(
           'decode-budget-exceeded',
-          `Selected native source bytes exceed the ${ScopeImportLimits.maxDecodedBytes}-byte aggregate limit.`,
+          `Selected native source bytes exceed the ${ScopeImportLimits.maxSourceBytesPerImport}-byte aggregate limit.`,
           { fileNames: sources.map((source) => source.name) }
         )
       );
     }
-    const worker = this.factory();
+    let worker: Worker;
+    try {
+      worker = this.factory();
+    } catch (cause) {
+      // Construction failures (CSP, unsupported module workers) are import failures, not exceptions
+      // that escape the file-input handler.
+      return Promise.reject(
+        new ScopeImportError('invalid-header', 'The native import worker could not be started. Nothing was imported.', {
+          fileNames: sources.map((source) => source.name),
+          cause
+        })
+      );
+    }
     const id = `scope-${crypto.randomUUID()}`;
     const transferablePrimary = transferableSource(primary);
     const transferableCompanions = (options.companions || []).map(transferableSource);
@@ -103,6 +115,17 @@ export class ScopeImportClient {
       worker.addEventListener('error', (event) => {
         if (!finish()) return;
         reject(new Error(event.message || 'Native waveform import worker failed.'));
+      });
+      worker.addEventListener('messageerror', () => {
+        // The request or the result could not be deserialised; without this the import would hang forever.
+        if (!finish()) return;
+        reject(
+          new ScopeImportError(
+            'invalid-header',
+            'The import worker could not deliver its result (message deserialisation failed). Nothing was imported.',
+            { fileNames: sources.map((source) => source.name) }
+          )
+        );
       });
       try {
         worker.postMessage(request, transfers);

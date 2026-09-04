@@ -70,7 +70,8 @@ export function parseNumericValue(value: CsvValue): number | null {
 export function classifyQuality(value: CsvValue): QualityFlagValue {
   if (value === null || value === undefined) return QualityFlag.Missing;
   if (typeof value === 'number') return Number.isFinite(value) ? QualityFlag.None : QualityFlag.Invalid;
-  if (typeof value === 'boolean') return QualityFlag.Invalid;
+  // Booleans, Date objects or any other typed cell are not numeric samples.
+  if (typeof value !== 'string') return QualityFlag.Invalid;
   const trimmed = value.trim();
   if (trimmed === '') return QualityFlag.Missing;
   if (CLIPPED_PATTERN.test(trimmed)) return QualityFlag.Clipped;

@@ -5,6 +5,8 @@ import {
   alignQualityToTimebase,
   analyzeTimebase,
   antiAliasAndDecimate,
+  interpolateToTimebase,
+  resampleBandlimited,
   resampleLinear
 } from '../../src/processing/sampling';
 import { QualityFlag } from '../../src/data/quality';
@@ -34,6 +36,46 @@ describe('sampling utilities', () => {
     expect(result.time.at(-1)).toBe(3.4);
     expect(result.values[0].at(-1)).toBeCloseTo(6.8, 12);
     expect(result.values[0].every(Number.isFinite)).toBe(true);
+  });
+
+  it('band-limited resampling of a jittered timebase preserves a 0.3 fs tone that linear resampling attenuates', () => {
+    const length = 4096;
+    let seed = 7;
+    const jitter = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return (seed / 4294967296 - 0.5) * 0.04;
+    };
+    const time = Array.from({ length }, (_, index) => (index + jitter()) / 1000);
+    const values = time.map((value) => Math.sin(2 * Math.PI * 300 * value));
+    const linear = resampleLinear(time, [values], 0.001);
+    const bandlimited = resampleBandlimited(time, [values], 0.001);
+    const error = (resampled: { time: number[]; values: number[][] }) => {
+      let worst = 0;
+      for (let index = 16; index < resampled.time.length - 16; index += 1) {
+        worst = Math.max(
+          worst,
+          Math.abs(resampled.values[0][index] - Math.sin(2 * Math.PI * 300 * resampled.time[index]))
+        );
+      }
+      return worst;
+    };
+
+    expect(bandlimited.time).toEqual(linear.time);
+    expect(error(bandlimited)).toBeLessThan(2e-3);
+    expect(error(linear)).toBeGreaterThan(0.03);
+  });
+
+  it('does not add IIR passband droop when Fourier resampling already band-limits the alignment', () => {
+    const sourceTime = Array.from({ length: 4096 }, (_, index) => index / 4096);
+    const targetTime = Array.from({ length: 1024 }, (_, index) => index / 1024);
+    const values = sourceTime.map((value) => Math.sin(2 * Math.PI * 480 * value));
+    const aligned = interpolateToTimebase(sourceTime, values, targetTime);
+    let peak = 0;
+    for (let index = 64; index < 960; index += 1) peak = Math.max(peak, Math.abs(aligned.values[index]));
+
+    expect(aligned.warnings.join(' ')).toContain('Fourier interpolation');
+    expect(aligned.warnings.join(' ')).not.toContain('IIR anti-alias');
+    expect(peak).toBeGreaterThan(0.99);
   });
 
   it('applies IIR anti-alias filtering before decimation', () => {
@@ -115,15 +157,15 @@ describe('sampling utilities', () => {
     finite.forEach((value) => expect(value).toBeCloseTo(2, 8));
   });
 
-  it('reports settling truncation from the shortest processed finite run', () => {
+  it('extends short finite runs to the full pole-aware settling length instead of record-limiting them', () => {
     const time = Array.from({ length: 201 }, (_, index) => index / 1000);
     const values = new Array<number>(time.length).fill(2);
     values[100] = Number.NaN;
     const result = antiAliasAndDecimate(time, values, 64);
 
-    expect(result.paddingSamples).toBe(99);
-    expect(result.requiredPaddingSamples).toBeGreaterThan(result.paddingSamples);
-    expect(result.settlingTruncated).toBe(true);
+    expect(result.requiredPaddingSamples).toBeGreaterThan(100);
+    expect(result.paddingSamples).toBe(result.requiredPaddingSamples);
+    expect(result.settlingTruncated).toBe(false);
     expect(result.skippedFilterRuns).toBe(0);
   });
 

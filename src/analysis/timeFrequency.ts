@@ -1,5 +1,5 @@
 import { FFT } from '../processing/fft';
-import { antiAliasAndDecimate } from '../processing/sampling';
+import { analyzeTimebase, antiAliasAndDecimate, resampleBandlimited } from '../processing/sampling';
 import type { AnalysisSelection, FftDetrend, FftWindowType } from '../types';
 
 export interface SpectrogramOptions {
@@ -40,8 +40,8 @@ function sliceBySelection(
   if (!selection || selection.i0 === null || selection.i1 === null) {
     return { y: signal.slice(), t: time.slice() };
   }
-  const start = Math.max(0, selection.i0);
-  const end = Math.min(signal.length - 1, selection.i1);
+  const start = Math.max(0, Math.min(selection.i0, selection.i1));
+  const end = Math.min(signal.length - 1, Math.max(selection.i0, selection.i1));
   return { y: signal.slice(start, end + 1), t: time.slice(start, end + 1) };
 }
 
@@ -99,14 +99,35 @@ export const TimeFrequency = {
       );
     }
 
-    const {
-      fs,
-      warnings: timingWarnings,
-      medianDt
-    } = FFT.inferSampleRate(downsampled.t.length ? downsampled.t : timeArray);
-    warnings.push(...(timingWarnings || []));
-    if (!Number.isFinite(fs) || fs <= 0) {
+    const timebase = analyzeTimebase(downsampled.t.length ? downsampled.t : timeArray);
+    warnings.push(...timebase.warnings);
+    if (!timebase.valid || !Number.isFinite(timebase.sampleRate) || timebase.sampleRate <= 0) {
       return { timeBins: [], freqBins: [], magnitudeDb: [], warnings: ['Invalid sampling rate'], meta: {} };
+    }
+    const medianDt = timebase.medianDt;
+    let fs = timebase.sampleRate;
+    if (!timebase.uniform && downsampled.y.length >= 2) {
+      // STFT frames assume equally spaced samples; re-grid jittered records the same way the FFT view does.
+      const finiteMask = downsampled.y.map(
+        (value, index) => Number.isFinite(value) && Number.isFinite(downsampled.t[index])
+      );
+      const finiteY = downsampled.y.filter((_, index) => finiteMask[index]);
+      const finiteT = downsampled.t.filter((_, index) => finiteMask[index]);
+      if (finiteY.length !== downsampled.y.length) {
+        warnings.push(`Excluded ${downsampled.y.length - finiteY.length} non-finite sample(s) before resampling.`);
+      }
+      if (finiteY.length < 2) {
+        return { timeBins: [], freqBins: [], magnitudeDb: [], warnings: ['Spectrogram window too small'], meta: {} };
+      }
+      const uniform = resampleBandlimited(finiteT, [finiteY], medianDt);
+      downsampled = { ...downsampled, y: uniform.values[0], t: uniform.time };
+      fs =
+        uniform.time.length > 1
+          ? (uniform.time.length - 1) / (uniform.time[uniform.time.length - 1] - uniform.time[0])
+          : fs;
+      warnings.push(
+        `Resampled ${finiteY.length} samples to ${uniform.time.length} uniformly spaced samples before the STFT.`
+      );
     }
 
     const segmentLength = Math.min(windowSize, downsampled.y.length);

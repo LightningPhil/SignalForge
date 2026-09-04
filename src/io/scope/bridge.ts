@@ -89,16 +89,23 @@ export function bridgeScopeRecords(
   const sourceBytes =
     primary.bytes.byteLength + companions.reduce((total, source) => total + source.bytes.byteLength, 0);
   const predictedResidentBytes = estimateNativeSessionPeakBytes(sourceBytes, totalChannelSamples);
-  if (!Number.isSafeInteger(predictedResidentBytes) || predictedResidentBytes > ScopeImportLimits.maxDecodedBytes) {
+  if (
+    !Number.isSafeInteger(predictedResidentBytes) ||
+    predictedResidentBytes > ScopeImportLimits.maxSessionResidentBytes
+  ) {
     throw new ScopeImportError(
       'decode-budget-exceeded',
-      `Import would require approximately ${predictedResidentBytes} bytes after preserving working/original arrays; the session limit is ${ScopeImportLimits.maxDecodedBytes} bytes.`,
+      `Import would require approximately ${predictedResidentBytes} bytes after preserving working/original arrays; the session limit is ${ScopeImportLimits.maxSessionResidentBytes} bytes.`,
       { format: detected.format, fileNames: [primary.name, ...companions.map((source) => source.name)] }
     );
   }
+  // The decoder's evidence level is authoritative: detection is a static guess made before the
+  // layout was validated, so provenance and preview must report what was actually decoded.
+  const decodedSupportLevel = records[0].supportLevel;
+  const evidence: DetectedScopeFile = { ...detected, supportLevel: decodedSupportLevel };
   const sourceFiles = [
-    sourceRecord(primary, adapterId, detected, 'primary'),
-    ...companions.map((source) => sourceRecord(source, adapterId, detected, 'companion'))
+    sourceRecord(primary, adapterId, evidence, 'primary'),
+    ...companions.map((source) => sourceRecord(source, adapterId, evidence, 'companion'))
   ];
   const adapterRecords: AdapterWaveformRecord[] = records.map((record) => ({
     channels: record.channels.map((_, index) => toSessionChannel(record, index, sourceFiles[0].id)),
@@ -124,6 +131,6 @@ export function bridgeScopeRecords(
     metadata: first.metadata,
     warnings,
     records: adapterRecords,
-    supportLevel: detected.supportLevel
+    supportLevel: decodedSupportLevel
   };
 }

@@ -117,7 +117,7 @@ export const HelpSystem = {
                         <h3>Loading Data</h3>
                         <ol>
                             <li>Click <strong>Load</strong> and select a CSV file. The preview shows raw text so header rows are explicit.</li>
-                            <li>Select the header row (e.g., <em>Time, Voltage</em>) to name your columns. Column names become plot tabs and filter targets.</li>
+                            <li>Select the header row (e.g., <em>Time, Voltage</em>) to name your columns. Column names become plot tabs and filter targets. (In Multi Import, a text file whose first row is entirely numeric is treated as headerless: columns become <code>Time</code>, <code>Channel 1</code>, … and no sample is consumed as a name.)</li>
                             <li>Confirm delimiter detection; most files auto-detect, but you can re-open with corrected headers at any time.</li>
                             <li>Use the column tabs above the plot to choose which signal is currently processed. Other columns remain available for math expressions.</li>
                         </ol>
@@ -422,12 +422,13 @@ export const HelpSystem = {
                             <li><strong>Layout-tested beta:</strong> Tektronix ISF, Keysight AG01/AG03, R&S int16, big-endian LeCroy TRC and PicoScope two-row CSV.</li>
                             <li>Detection is content-first. R&S requires both its description <code>.bin</code> and matching <code>.Wfm.bin</code>. FastFrame creates one shot per frame.</li>
                             <li><strong>Conversion/provisional:</strong> PSDATA requires PicoScope export/BatchConvert; HDF5 is detection-only; Siglent and unproved Tek/Rigol variants are rejected.</li>
-                            <li>Native parsing runs in a dedicated cancellable worker with exact length checks and 64 MB/file, four-channel, 3M samples/channel, 3M total-sample and 192 MB end-to-end session-budget limits.</li>
-                            <li>Multi-import preview accepts up to 10,000 files and 64 MB aggregate source bytes; cumulative source/session arrays must remain within the 192 MB persistence budget.</li>
+                            <li>Native parsing runs in a dedicated cancellable worker with exact length checks and 64 MiB/file, four-channel, 3M samples/channel, 3M total-sample and 192 MiB end-to-end session-budget limits. Delimited text is limited to 32 MiB and 64 channels, and its row × channel memory is checked before parsing.</li>
+                            <li>Multi-import preview accepts up to 10,000 files and 64 MiB aggregate source bytes; cumulative source/session arrays must remain within the 192 MiB persistence budget. The evidence level shown per source is what the decoder actually accepted.</li>
+                            <li>Tektronix WFM vendor tails after the declared EOF are disclosed and ignored; LeCroy TRC files with undeclared trailing bytes and ISF preambles without <code>XINCR</code>/<code>YMULT</code> are rejected.</li>
                             <li>Pipeline processing moves to a cancellable worker at 100,000 samples; optional display downsampling defaults to 20,000 shared-index points.</li>
                             <li>The grid virtualizes records above 1,000 rows.</li>
                             <li>Mixed-rate records with fewer than 64 source samples return no anti-aliased engineering result rather than an unreliable value.</li>
-                            <li>Production builds cache same-origin application resources for offline reuse.</li>
+                            <li>Production builds cache same-origin application resources for offline reuse. The cache is versioned per deployment: hashed assets are cache-first, everything else is network-first, and the previous deployment's cache is deleted on activation.</li>
                         </ul>
                     </div>
 

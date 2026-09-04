@@ -252,10 +252,6 @@ function parseNumberValue(raw: string, field: CanonicalField, sourceName: string
   return requireFinite(Number(raw), `Tektronix ISF field ${field}`, FORMAT);
 }
 
-function numberField(fields: PreambleFields, field: CanonicalField, fallback: number, sourceName: string): number {
-  return parsedField(fields, field, (raw) => parseNumberValue(raw, field, sourceName), sourceName) ?? fallback;
-}
-
 function textField(fields: PreambleFields, field: CanonicalField, fallback: string, sourceName: string): string {
   return parsedField(fields, field, (raw) => raw, sourceName) ?? fallback;
 }
@@ -578,14 +574,33 @@ function decode(request: ScopeImportRequest): ImportedWaveformRecord[] {
 
   validateTrailingBytes(reader.bytes, payloadEnd, sourceName, request.signal);
 
-  const yMultiplier = numberField(fields, 'YMULT', 1, sourceName);
-  const yOffset = numberField(fields, 'YOFF', 0, sourceName);
-  const yZero = numberField(fields, 'YZERO', 0, sourceName);
-  const xIncrement = numberField(fields, 'XINCR', 1, sourceName);
-  const xZero = numberField(fields, 'XZERO', 0, sourceName);
-  const pointOffset = numberField(fields, 'PT_OFF', 0, sourceName);
+  // XINCR and YMULT define the time and amplitude scales; defaulting them would fabricate a 1 s/sample
+  // axis or raw-count volts, so they are required. The remaining calibration terms have well-defined
+  // neutral defaults but every defaulted field is disclosed.
+  const defaultedFields: string[] = [];
+  const optionalNumber = (field: CanonicalField, fallback: number): number => {
+    const parsed = parsedField(fields, field, (raw) => parseNumberValue(raw, field, sourceName), sourceName);
+    if (parsed === undefined) defaultedFields.push(`${field}=${fallback}`);
+    return parsed ?? fallback;
+  };
+  const optionalText = (field: CanonicalField, fallback: string): string => {
+    const parsed = parsedField(fields, field, (raw) => raw, sourceName);
+    if (parsed === undefined) defaultedFields.push(`${field}=${JSON.stringify(fallback)}`);
+    return parsed ?? fallback;
+  };
+  const requiredNumber = (field: CanonicalField): number => {
+    const parsed = parsedField(fields, field, (raw) => parseNumberValue(raw, field, sourceName), sourceName);
+    if (parsed === undefined) fail('invalid-header', `Tektronix ISF preamble has no ${field} field.`, sourceName);
+    return parsed;
+  };
+  const yMultiplier = requiredNumber('YMULT');
+  const yOffset = optionalNumber('YOFF', 0);
+  const yZero = optionalNumber('YZERO', 0);
+  const xIncrement = requiredNumber('XINCR');
+  const xZero = optionalNumber('XZERO', 0);
+  const pointOffset = optionalNumber('PT_OFF', 0);
 
-  const xUnit = normalizeSiUnit(textField(fields, 'XUNIT', 's', sourceName));
+  const xUnit = normalizeSiUnit(optionalText('XUNIT', 's'));
   if (!xUnit.recognized || xUnit.unit !== 's') {
     fail(
       'unsupported-variant',
@@ -593,7 +608,7 @@ function decode(request: ScopeImportRequest): ImportedWaveformRecord[] {
       sourceName
     );
   }
-  const yUnit = normalizeSiUnit(textField(fields, 'YUNIT', 'V', sourceName));
+  const yUnit = normalizeSiUnit(optionalText('YUNIT', 'V'));
   const sampleIntervalSeconds = requireFinite(xIncrement * xUnit.scale, 'Tektronix ISF sample interval', FORMAT);
   if (!(sampleIntervalSeconds > 0)) {
     fail('invalid-header', 'Tektronix ISF sample interval must be positive.', sourceName);
@@ -668,7 +683,10 @@ function decode(request: ScopeImportRequest): ImportedWaveformRecord[] {
         y_to_si_scale: yUnit.scale,
         waveform_id: waveformId
       },
-      warnings: []
+      warnings:
+        defaultedFields.length > 0
+          ? [`Tektronix ISF preamble omitted ${defaultedFields.join(', ')}; the neutral default was used.`]
+          : []
     }
   ];
 }

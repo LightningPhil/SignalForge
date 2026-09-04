@@ -196,6 +196,97 @@ export function resampleLinear(
   return { time, values, analysis };
 }
 
+/**
+ * Resample onto the same uniform grid as `resampleLinear`, but with the 16-point band-limited
+ * barycentric polynomial interpolator instead of linear segments. Linear interpolation is a strong
+ * low-pass filter (roughly -4 dB at 0.3 fs for a few percent of jitter) and raises the noise floor,
+ * so spectral analysis of jittered timebases uses this path.
+ */
+export function resampleBandlimited(
+  timeArray: ArrayLike<number>,
+  valueSeries: ArrayLike<number>[],
+  targetDt?: number
+): ResampledSeries {
+  const analysis = analyzeTimebase(timeArray);
+  if (!analysis.valid) {
+    throw new Error(analysis.warnings[0] || 'Cannot resample an invalid timebase.');
+  }
+  const sourceLength = Math.min(timeArray.length, ...valueSeries.map((values) => values.length));
+  if (sourceLength < 2) {
+    throw new Error('At least two aligned samples are required for resampling.');
+  }
+  const requestedDt = targetDt && targetDt > 0 ? targetDt : analysis.medianDt;
+  const sourceTime = Array.from({ length: sourceLength }, (_, index) => Number(timeArray[index]));
+  const sourceValues = valueSeries.map((series) => Array.from({ length: sourceLength }, (_, i) => Number(series[i])));
+  const start = sourceTime[0];
+  const end = sourceTime[sourceLength - 1];
+  const intervals = Math.max(1, Math.round((end - start) / requestedDt));
+  const dt = (end - start) / intervals;
+  const count = intervals + 1;
+  const time = new Array<number>(count);
+  const values = sourceValues.map(() => new Array<number>(count));
+  const interpolators = sourceValues.map((series) => new BandlimitedInterpolator(sourceTime, series));
+  let sourceIndex = 0;
+  for (let outputIndex = 0; outputIndex < count; outputIndex += 1) {
+    const target = outputIndex === count - 1 ? end : start + outputIndex * dt;
+    time[outputIndex] = target;
+    while (sourceIndex + 1 < sourceLength - 1 && sourceTime[sourceIndex + 1] < target) sourceIndex += 1;
+    for (let seriesIndex = 0; seriesIndex < sourceValues.length; seriesIndex += 1) {
+      values[seriesIndex][outputIndex] = interpolators[seriesIndex].at(sourceIndex, target);
+    }
+  }
+  return { time, values, analysis };
+}
+
+/**
+ * Barycentric Lagrange interpolation over a sliding 16-point window. The window weights depend only
+ * on the window's time samples, so they are cached while consecutive targets share a window.
+ */
+class BandlimitedInterpolator {
+  private readonly time: number[];
+  private readonly values: number[];
+  private readonly windowSize: number;
+  private cachedStart = -1;
+  private cachedWeights: Float64Array | null = null;
+
+  constructor(time: number[], values: number[]) {
+    this.time = time;
+    this.values = values;
+    this.windowSize = Math.min(16, time.length);
+  }
+
+  at(leftIndex: number, target: number): number {
+    const { time, values, windowSize } = this;
+    if (windowSize < 6) return interpolateCubic(time, values, leftIndex, target);
+    const start = Math.max(0, Math.min(time.length - windowSize, leftIndex - Math.floor(windowSize / 2) + 1));
+    const end = start + windowSize;
+    for (let index = start; index < end; index += 1) {
+      if (!Number.isFinite(values[index])) return interpolateCubic(time, values, leftIndex, target);
+      if (target === time[index]) return values[index];
+    }
+    if (start !== this.cachedStart || !this.cachedWeights) {
+      const weights = new Float64Array(windowSize);
+      for (let index = start; index < end; index += 1) {
+        let weight = 1;
+        for (let other = start; other < end; other += 1) {
+          if (other !== index) weight /= time[index] - time[other];
+        }
+        weights[index - start] = weight;
+      }
+      this.cachedStart = start;
+      this.cachedWeights = weights;
+    }
+    let numerator = 0;
+    let denominator = 0;
+    for (let index = start; index < end; index += 1) {
+      const scaledWeight = this.cachedWeights[index - start] / (target - time[index]);
+      numerator += scaledWeight * values[index];
+      denominator += scaledWeight;
+    }
+    return denominator !== 0 ? numerator / denominator : interpolateCubic(time, values, leftIndex, target);
+  }
+}
+
 export function interpolateLinearToTimebase(
   sourceTime: ArrayLike<number>,
   sourceValues: ArrayLike<number>,
@@ -270,7 +361,32 @@ export function interpolateToTimebase(
       ]
     };
   }
-  const usesAntiAlias = needsDownsampling;
+  const sourcePeriod = length * analysis.medianDt;
+  const targetPeriod = targetTime.length * targetAnalysis.medianDt;
+  const sameStart =
+    Math.abs(shiftedTime[0] - Number(targetTime[0])) <= Math.min(analysis.medianDt, targetAnalysis.medianDt) * 0.1;
+  const allFinite = interpolationValues.every(Number.isFinite);
+  const canUseFourierInterpolation =
+    analysis.uniform &&
+    targetAnalysis.uniform &&
+    allFinite &&
+    sameStart &&
+    Math.abs(sourcePeriod - targetPeriod) <= Math.max(sourcePeriod, targetPeriod) * 1e-6;
+  const sourceSpan = shiftedTime[length - 1] - shiftedTime[0];
+  const targetSpan = Number(targetTime[targetTime.length - 1]) - Number(targetTime[0]);
+  const canUseEndpointFourierInterpolation =
+    !canUseFourierInterpolation &&
+    length >= 16 &&
+    targetTime.length >= 16 &&
+    analysis.uniform &&
+    targetAnalysis.uniform &&
+    allFinite &&
+    sourceEndpointsContinuous &&
+    sameStart &&
+    Math.abs(sourceSpan - targetSpan) <= Math.max(sourceSpan, targetSpan) * 1e-6;
+  // Fourier resampling truncates every bin at or above the new Nyquist frequency exactly, so the
+  // IIR pre-filter would only add in-band droop (about -4 dB at 0.94x Nyquist) on that path.
+  const usesAntiAlias = needsDownsampling && !canUseFourierInterpolation && !canUseEndpointFourierInterpolation;
   if (usesAntiAlias) {
     const cutoffHz = targetAnalysis.sampleRate * 0.475;
     const sections = designButterworth('lowpass', analysis.sampleRate, cutoffHz, ALIGNMENT_FILTER_ORDER);
@@ -298,31 +414,15 @@ export function interpolateToTimebase(
       `Applied 16th-order zero-phase IIR anti-alias filtering at ${cutoffHz.toPrecision(5)} Hz with minimum per-run padding ${padding.effective}/${padding.required}${padding.truncated ? ' (record-limited)' : ''}${padding.skippedRuns ? `; skipped ${padding.skippedRuns} run(s) shorter than 8 samples` : ''} before timebase alignment.`
     );
   }
-  const sourcePeriod = length * analysis.medianDt;
-  const targetPeriod = targetTime.length * targetAnalysis.medianDt;
-  const sameStart =
-    Math.abs(shiftedTime[0] - Number(targetTime[0])) <= Math.min(analysis.medianDt, targetAnalysis.medianDt) * 0.1;
-  const canUseFourierInterpolation =
-    analysis.uniform &&
-    targetAnalysis.uniform &&
-    interpolationValues.every(Number.isFinite) &&
-    sameStart &&
-    Math.abs(sourcePeriod - targetPeriod) <= Math.max(sourcePeriod, targetPeriod) * 1e-6;
   if (canUseFourierInterpolation) {
-    warnings.push('Used band-limited Fourier interpolation for the aligned uniform timebase.');
+    warnings.push(
+      'Used band-limited Fourier interpolation for the aligned uniform timebase' +
+        (needsDownsampling
+          ? ' (spectral anti-alias filtering removes content at or above the target Nyquist frequency).'
+          : '.')
+    );
     return { values: fourierResample(interpolationValues, targetTime.length), warnings };
   }
-  const sourceSpan = shiftedTime[length - 1] - shiftedTime[0];
-  const targetSpan = Number(targetTime[targetTime.length - 1]) - Number(targetTime[0]);
-  const canUseEndpointFourierInterpolation =
-    length >= 16 &&
-    targetTime.length >= 16 &&
-    analysis.uniform &&
-    targetAnalysis.uniform &&
-    interpolationValues.every(Number.isFinite) &&
-    sourceEndpointsContinuous &&
-    sameStart &&
-    Math.abs(sourceSpan - targetSpan) <= Math.max(sourceSpan, targetSpan) * 1e-6;
   if (canUseEndpointFourierInterpolation) {
     const values = fourierResample(interpolationValues.slice(0, -1), targetTime.length - 1);
     values.push(interpolationValues[interpolationValues.length - 1]);

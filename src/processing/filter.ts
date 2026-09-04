@@ -17,6 +17,7 @@ import {
   designButterworthBandPass,
   designCombNotch,
   designNotch,
+  iirPaddingPlan,
   type Biquad,
   type FilterResponse
 } from './iir';
@@ -188,6 +189,40 @@ function analyzeFilterTimebase(step: FilterStep, time: ArrayLike<number>) {
   return analyzeTimebase(time, firFilterTypes.has(step.type) ? FIR_UNIFORM_TOLERANCE : 0.01);
 }
 
+/**
+ * Writes `Processed | OR(inputQuality[index - leftReach .. index + rightReach])` for every index of
+ * the run `[start, end)`. Uses one prefix count per flag bit present in the run so the cost is
+ * O(bits × run length) regardless of the reach (recursive filters can reach thousands of samples).
+ */
+function applyReachMask(
+  output: Uint16Array,
+  inputQuality: ArrayLike<number>,
+  start: number,
+  end: number,
+  leftReach: number,
+  rightReach: number,
+  baseFlag: number = QualityFlag.Processed
+): void {
+  const length = end - start;
+  if (length <= 0) return;
+  let union = 0;
+  for (let index = start; index < end; index += 1) union |= inputQuality[index] || 0;
+  for (let index = start; index < end; index += 1) output[index] = baseFlag;
+  if (union === 0) return;
+  const prefix = new Int32Array(length + 1);
+  for (let bit = 1; bit <= union; bit <<= 1) {
+    if (!(union & bit)) continue;
+    for (let index = 0; index < length; index += 1) {
+      prefix[index + 1] = prefix[index] + ((inputQuality[start + index] || 0) & bit ? 1 : 0);
+    }
+    for (let index = 0; index < length; index += 1) {
+      const low = Math.max(0, index - leftReach);
+      const high = Math.min(length - 1, index + rightReach);
+      if (prefix[high + 1] - prefix[low] > 0) output[start + index] |= bit;
+    }
+  }
+}
+
 export function validateFilterStep(step: FilterStep, sampleRate?: number): void {
   if (!step || typeof step.id !== 'string' || !step.id || typeof step.type !== 'string') {
     throw new Error('Filter step is missing a valid id or type.');
@@ -205,9 +240,10 @@ export function validateFilterStep(step: FilterStep, sampleRate?: number): void 
   if (step.type === 'savitzkyGolay') {
     integerParameter(step.windowSize, 'savitzkyGolay windowSize', 3, 1001);
   }
-  if (step.type === 'median' || step.type === 'hampel') {
-    integerParameter(step.windowSize, `${step.type} windowSize`, 1, 501);
-  }
+  if (step.type === 'median') integerParameter(step.windowSize, 'median windowSize', 1, 501);
+  // A Hampel window needs at least one neighbour on each side to form a median/MAD estimate; the
+  // implementation always uses radius >= 1, so smaller requests would silently widen the window.
+  if (step.type === 'hampel') integerParameter(step.windowSize, 'hampel windowSize', 3, 501);
   if (step.type === 'savitzkyGolay') {
     integerParameter(step.polyOrder, 'Savitzky-Golay polyOrder', 0, 10);
     if ((step.polyOrder || 0) >= (step.windowSize || 1)) {
@@ -555,6 +591,9 @@ export const Filter = {
       return {
         order: step.order || 4,
         processingMode: step.processingMode || 'zero-phase',
+        // Butterworth edges are the -3 dB points of a single pass; the forward/backward pass squares
+        // the magnitude, so the same edge frequencies sit at -6 dB in zero-phase mode.
+        edgeGainDb: (step.processingMode || 'zero-phase') === 'zero-phase' ? -6.02 : -3.01,
         ...(step.type === 'butterworthBandPass'
           ? {
               centerFreq: step.centerFreq || 0,
@@ -585,12 +624,42 @@ export const Filter = {
       return { cutoffFreq: step.cutoffFreq || 0, slope: step.slope || 12 };
     }
     if (step.type === 'notchFFT') {
-      return { centerFreq: step.centerFreq || 0, bandwidth: step.bandwidth || 0 };
+      // `bandwidth` is the full-rejection width; a raised-cosine taper of the same half-width follows
+      // on each side, so the -3 dB width is wider and the total affected width is twice the request.
+      const bandwidth = step.bandwidth || 0;
+      return {
+        centerFreq: step.centerFreq || 0,
+        bandwidth,
+        rejectionBandwidthHz: bandwidth,
+        minus3dBBandwidthHz: bandwidth * (1 + Math.acos(1 - Math.SQRT2) / Math.PI),
+        affectedBandwidthHz: 2 * bandwidth
+      };
     }
     if (step.type === 'iir') return { alpha: step.alpha || 0.1 };
     if (step.type === 'waveletDenoise') {
+      const requestedLevels = step.waveletLevels || 4;
+      let effectiveLevelsMin: number | null = null;
+      if (dataArray) {
+        let start = 0;
+        while (start < dataArray.length) {
+          while (start < dataArray.length && !Number.isFinite(Number(dataArray[start]))) start += 1;
+          if (start >= dataArray.length) break;
+          let end = start + 1;
+          while (end < dataArray.length && Number.isFinite(Number(dataArray[end]))) end += 1;
+          const runLength = end - start;
+          if (runLength >= 2) {
+            const maximum = Math.floor(Math.log2(2 ** Math.ceil(Math.log2(runLength))));
+            const effective = Math.max(1, Math.min(maximum, requestedLevels));
+            effectiveLevelsMin = effectiveLevelsMin === null ? effective : Math.min(effectiveLevelsMin, effective);
+          }
+          start = end;
+        }
+      }
       return {
-        levels: step.waveletLevels || 4,
+        levels: requestedLevels,
+        ...(effectiveLevelsMin !== null && effectiveLevelsMin !== requestedLevels
+          ? { effectiveLevels: effectiveLevelsMin }
+          : {}),
         threshold: step.waveletThreshold ?? null,
         thresholdRule: step.waveletThreshold === undefined ? 'per-level universal soft' : 'explicit soft'
       };
@@ -650,6 +719,23 @@ export const Filter = {
               );
             }
           }
+          if (
+            ['butterworthLowPass', 'butterworthHighPass', 'butterworthBandPass', 'iirNotch', 'iirComb'].includes(
+              step.type
+            )
+          ) {
+            const sections = this.designedIirSections(step, analysis.sampleRate);
+            const plan = iirPaddingPlan(sections, end - start);
+            if (step.processingMode === 'causal') {
+              warnings.push(
+                `Causal IIR run ${start}–${end - 1} starts from the DC steady state of its first sample; roughly the first ${plan.required} samples contain the start-up transient.`
+              );
+            } else if (plan.truncated) {
+              warnings.push(
+                `Zero-phase IIR run ${start}–${end - 1} (${end - start} samples) is shorter than the ${plan.required}-sample settling padding the poles require (used ${plan.effective}); samples near both ends may carry residual transients.`
+              );
+            }
+          }
         }
       } else if (!timeArray || timeArray.length < 2) {
         warnings.push('No finite, increasing timebase was available for this frequency-selective step.');
@@ -702,28 +788,44 @@ export const Filter = {
         const causal = step.processingMode === 'causal';
         const leftReach = causal ? design.tapCount - 1 : design.delaySamples;
         const rightReach = causal ? 0 : design.delaySamples;
-        for (let index = start; index < end; index += 1) {
-          let mask = QualityFlag.Processed;
-          const firstSource = Math.max(start, index - leftReach);
-          const lastSource = Math.min(end - 1, index + rightReach);
-          for (let sourceIndex = firstSource; sourceIndex <= lastSource; sourceIndex += 1) {
-            mask |= inputQuality[sourceIndex] || QualityFlag.None;
-          }
-          output[index] = mask;
-        }
+        applyReachMask(output, inputQuality, start, end, leftReach, rightReach);
       }
       return output;
     }
-    const frequencyTypes = new Set([
-      'lowPassFFT',
-      'highPassFFT',
-      'notchFFT',
-      'butterworthLowPass',
-      'butterworthHighPass',
-      'butterworthBandPass',
-      'iirNotch',
-      'iirComb'
-    ]);
+    if (
+      ['butterworthLowPass', 'butterworthHighPass', 'butterworthBandPass', 'iirNotch', 'iirComb'].includes(step.type)
+    ) {
+      // Recursive filters have an infinite impulse response, but it decays geometrically; the
+      // footprint uses the same 1e-8 pole-aware settling length that sizes the zero-phase padding
+      // (one-sided for causal, two-sided for forward/backward). Resampled runs remain whole-run.
+      const time = Array.from(timeArray || []);
+      for (const { start, end } of frequencyRunPlan(data, timeArray).ranges) {
+        const analysis = analyzeFilterTimebase(step, time.slice(start, end));
+        if (!analysis.uniform) {
+          applyReachMask(output, inputQuality, start, end, end - start, end - start);
+          continue;
+        }
+        const reach = iirPaddingPlan(this.designedIirSections(step, analysis.sampleRate), end - start).required;
+        const causal = step.processingMode === 'causal';
+        applyReachMask(output, inputQuality, start, end, reach, causal ? 0 : reach);
+      }
+      return output;
+    }
+    if (step.type === 'iir') {
+      const alpha = Math.min(1, Math.max(Number.EPSILON, step.alpha ?? 0.1));
+      const reach = alpha >= 1 ? 0 : Math.ceil(Math.log(1e-8) / Math.log(1 - alpha));
+      let start = 0;
+      while (start < data.length) {
+        while (start < data.length && !Number.isFinite(data[start])) start += 1;
+        if (start >= data.length) break;
+        let end = start + 1;
+        while (end < data.length && Number.isFinite(data[end])) end += 1;
+        applyReachMask(output, inputQuality, start, end, reach, 0);
+        start = end;
+      }
+      return output;
+    }
+    const frequencyTypes = new Set(['lowPassFFT', 'highPassFFT', 'notchFFT']);
     if (frequencyTypes.has(step.type)) {
       for (const { start, end } of frequencyRunPlan(data, timeArray).ranges) {
         let runMask = QualityFlag.Processed;
@@ -1043,7 +1145,7 @@ export const Filter = {
           } else if (step.type === 'savitzkyGolay') {
             let size = Math.max(3, Math.round(step.windowSize || 21));
             if (size % 2 === 0) size += 1;
-            coefficients = this.computeSGWeights(Math.floor(size / 2), step.polyOrder || 2);
+            coefficients = this.computeSGWeights(Math.floor(size / 2), step.polyOrder ?? 2);
           } else {
             let size = Math.max(3, Math.round(step.kernelSize || 5));
             if (size % 2 === 0) size += 1;
@@ -1460,26 +1562,66 @@ export const Filter = {
   }
 };
 
+/** Half-width (in samples) of the Kaiser-windowed sinc used for fractional sample shifts. */
+export const FRACTIONAL_SHIFT_HALF_TAPS = 32;
+const FRACTIONAL_SHIFT_KAISER_BETA = 8;
+
+function kaiserBessel0(x: number): number {
+  let sum = 1;
+  let term = 1;
+  for (let k = 1; k < 60; k += 1) {
+    term *= (x * x) / (4 * k * k);
+    sum += term;
+    if (term < 1e-14 * sum) break;
+  }
+  return sum;
+}
+
+/**
+ * Kaiser-windowed sinc kernel h[k] = sinc(k - d) * w(k - d) for k in [-H, H], normalised to unit DC
+ * gain so a constant input is reproduced exactly. The kernel is band-limited and local: interpolation
+ * error is below 1e-4 up to roughly 0.4 fs and boundary effects stay within H samples of a run edge,
+ * unlike a circular FFT phase ramp whose wrap-around ringing spreads across the record.
+ */
+function fractionalShiftKernel(delay: number): Float64Array {
+  const half = FRACTIONAL_SHIFT_HALF_TAPS;
+  const kernel = new Float64Array(2 * half + 1);
+  const denominator = kaiserBessel0(FRACTIONAL_SHIFT_KAISER_BETA);
+  let sum = 0;
+  for (let k = -half; k <= half; k += 1) {
+    const x = k - delay;
+    const sinc = x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+    const ratio = x / (half + 1);
+    const window =
+      Math.abs(ratio) >= 1
+        ? 0
+        : kaiserBessel0(FRACTIONAL_SHIFT_KAISER_BETA * Math.sqrt(1 - ratio * ratio)) / denominator;
+    kernel[k + half] = sinc * window;
+    sum += kernel[k + half];
+  }
+  if (sum !== 0) for (let i = 0; i < kernel.length; i += 1) kernel[i] /= sum;
+  return kernel;
+}
+
 function shiftFiniteRun(source: number[], delay: number): number[] {
   if (source.length < 2 || delay === 0) return source.slice();
-  const padding = Math.min(512, Math.max(32, source.length));
-  const transformLength = FFT.nextPowerOfTwo(source.length + padding * 2);
-  const work = new Float64Array(transformLength);
-  work.fill(source[source.length - 1]);
-  work.fill(source[0], 0, padding);
-  work.set(source, padding);
-  const transformed = FFT.forward(work, { zeroPadMode: 'none' });
-  for (let bin = 0; bin < transformLength; bin += 1) {
-    const signedBin = bin <= transformLength / 2 ? bin : bin - transformLength;
-    const angle = (-2 * Math.PI * signedBin * delay) / transformLength;
-    const cosine = Math.cos(angle);
-    const sine = Math.sin(angle);
-    const real = transformed.re[bin];
-    const imaginary = transformed.im[bin];
-    transformed.re[bin] = real * cosine - imaginary * sine;
-    transformed.im[bin] = real * sine + imaginary * cosine;
+  const half = FRACTIONAL_SHIFT_HALF_TAPS;
+  const kernel = fractionalShiftKernel(delay);
+  const n = source.length;
+  const first = source[0];
+  const last = source[n - 1];
+  const output = new Array<number>(n);
+  for (let index = 0; index < n; index += 1) {
+    // y[n] = x(n - d) = sum_k x[n - k] * sinc(k - d); samples beyond either edge hold the edge value.
+    let acc = 0;
+    for (let k = -half; k <= half; k += 1) {
+      const sourceIndex = index - k;
+      const value = sourceIndex < 0 ? first : sourceIndex >= n ? last : source[sourceIndex];
+      acc += value * kernel[k + half];
+    }
+    output[index] = acc;
   }
-  return FFT.inverse(transformed.re, transformed.im).slice(padding, padding + source.length);
+  return output;
 }
 
 function fractionalShiftFiniteRuns(source: number[], delay: number): number[] {
@@ -1516,4 +1658,50 @@ export function applyXOffset(data: ArrayLike<number> = [], offset = 0): number[]
   const fractionalOffset = resolvedOffset - integerOffset;
   const fractionallyShifted = fractionalShiftFiniteRuns(source, fractionalOffset);
   return integerShift(fractionallyShifted, integerOffset);
+}
+
+/**
+ * Quality companion of {@link applyXOffset}: the mask moves with the values. The integer part is a
+ * pure index shift (edge-held outputs beyond the record are `Missing | Interpolated`); the fractional
+ * part marks every sample of each finite run `Interpolated` and ORs the flags of the
+ * ±FRACTIONAL_SHIFT_HALF_TAPS source samples the kernel actually reads. Samples that are non-finite
+ * in `data` keep their own flags because the kernel skips them (runs are shifted independently).
+ */
+export function shiftQualityMask(mask: ArrayLike<number>, offset: number, data?: ArrayLike<number>): Uint16Array {
+  const length = mask.length;
+  const source = Uint16Array.from({ length }, (_, index) => Number(mask[index]) || 0);
+  const resolvedOffset = Number.isFinite(offset) ? offset : 0;
+  if (length === 0 || resolvedOffset === 0) return source;
+  const integerOffset = Math.trunc(resolvedOffset);
+  const fractionalOffset = resolvedOffset - integerOffset;
+  let working = source;
+  if (fractionalOffset !== 0) {
+    working = source.slice();
+    const isFinite = (index: number) => (data ? Number.isFinite(Number(data[index])) : true);
+    let start = 0;
+    while (start < length) {
+      while (start < length && !isFinite(start)) start += 1;
+      if (start >= length) break;
+      let end = start + 1;
+      while (end < length && isFinite(end)) end += 1;
+      applyReachMask(
+        working,
+        source,
+        start,
+        end,
+        FRACTIONAL_SHIFT_HALF_TAPS,
+        FRACTIONAL_SHIFT_HALF_TAPS,
+        QualityFlag.Interpolated
+      );
+      start = end;
+    }
+  }
+  if (integerOffset === 0) return working;
+  const shifted = new Uint16Array(length);
+  for (let index = 0; index < length; index += 1) {
+    const sourceIndex = index - integerOffset;
+    shifted[index] =
+      sourceIndex < 0 || sourceIndex >= length ? QualityFlag.Missing | QualityFlag.Interpolated : working[sourceIndex];
+  }
+  return shifted;
 }

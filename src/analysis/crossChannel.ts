@@ -189,9 +189,15 @@ export const CrossChannel = {
     );
     const requestedLimit =
       options.maxLagSeconds !== null && options.maxLagSeconds !== undefined
-        ? Math.floor(Math.abs(options.maxLagSeconds) * prepared.fs)
+        ? Math.floor(Math.abs(options.maxLagSeconds) * prepared.fs + 1e-6)
         : 2000;
     const maxLagSamples = Math.max(0, Math.min(requestedLimit, prepared.time.length - minimumOverlap));
+    const boundaryWarnings: string[] = [];
+    if (maxLagSamples === 0) {
+      boundaryWarnings.push(
+        'The maximum lag rounds to zero samples at this sample rate; the delay could not be searched.'
+      );
+    }
     const correlations = new Map<number, number>();
     let bestLag = 0;
     let bestCorrelation = 0;
@@ -215,7 +221,7 @@ export const CrossChannel = {
     const fractionalOffset =
       bestLag > -maxLagSamples && bestLag < maxLagSamples ? parabolicOffset(left, center, right) : 0;
     const delaySamples = bestLag + fractionalOffset;
-    const warnings = prepared.warnings.slice();
+    const warnings = [...prepared.warnings, ...boundaryWarnings];
     const overlapAtPeak = prepared.time.length - Math.abs(bestLag);
     const lagCount = maxLagSamples * 2 + 1;
     if (bestCorrelation < 0) warnings.push('Best alignment is polarity-inverted (negative correlation).');

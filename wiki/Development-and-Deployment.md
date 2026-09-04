@@ -25,12 +25,16 @@ application, lazy chunks, `/SignalForge/` base path and service worker. CI runs
 ## GitHub Pages
 
 The workflow in `.github/workflows/quality-and-pages.yml` runs on `dev` and
-`master`; deployment occurs only for a successful push to `master`.
+`master`; pull requests also receive a dependency-diff review, and deployment
+occurs only for a successful push to `master`.
 
 The repository currently retains the existing `master:/docs` branch deployment
 as a production fallback. When this development work is merged, switch
 Settings → Pages → Source to **GitHub Actions** before relying on artifact
-deployment. Generated `dist` bundles are ignored and are not committed.
+deployment. The compiled `dist/` output (hashed assets, workers, service worker,
+`.nojekyll` and `THIRD_PARTY_NOTICES.txt`) is intentionally tracked and must be
+rebuilt from the verified source before a release so the committed bundle is the
+exact tested build; stale hashed assets are removed by the build's `emptyOutDir`.
 
 ## Native adapter policy
 

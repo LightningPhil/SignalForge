@@ -196,6 +196,34 @@ describe('Kaiser FIR design', () => {
     expect(design.tapCount).toBeLessThanOrEqual(16_385);
     expect(design.achievedStopbandAttenuationDb).toBeGreaterThanOrEqual(160);
   });
+
+  it('designs a 10k-tap filter in bounded time and its reported extrema match an independent dense sweep', () => {
+    // Regression: the search stepped +2 taps per dense verification and re-evaluated every grid
+    // extremum with the direct O(taps) sum, so this specification took more than ten minutes.
+    const specification: FirSpecification = {
+      kind: 'lowpass',
+      sampleRate: 1_000_000,
+      passbandEdgeHz: 10_000,
+      stopbandEdgeHz: 10_500,
+      passbandRippleDb: 0.1,
+      stopbandAttenuationDb: 80
+    };
+    const started = performance.now();
+    const design = designKaiserFir(specification);
+    const elapsedMs = performance.now() - started;
+
+    expect(design.tapCount).toBeGreaterThan(10_000);
+    expect(elapsedMs).toBeLessThan(30_000);
+    expect(design.achievedStopbandAttenuationDb).toBeGreaterThanOrEqual(80);
+    expect(design.achievedPassbandRippleDb).toBeLessThanOrEqual(0.1);
+
+    // Independent sweep of the stopband just above the edge where the worst lobe lives.
+    let stopbandMaximum = 0;
+    for (let frequency = 10_500; frequency <= 12_000; frequency += 2.5) {
+      stopbandMaximum = Math.max(stopbandMaximum, independentMagnitude(design.coefficients, frequency, 1_000_000));
+    }
+    expect(-20 * Math.log10(stopbandMaximum)).toBeGreaterThanOrEqual(design.achievedStopbandAttenuationDb - 1e-6);
+  });
 });
 
 describe('FIR application', () => {

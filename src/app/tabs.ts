@@ -3,7 +3,7 @@ import { State } from '../state';
 import type { MultiView } from '../types';
 import { cx, ui } from '../ui/classes';
 import { Graph } from '../ui/graph';
-import { createModal, escapeHtml } from '../ui/uiHelpers';
+import { closeModal as closeSharedModal, createModal, escapeHtml } from '../ui/uiHelpers';
 import { renderComposerPanel } from './composerUi';
 import { runPipelineAndRender } from './dataPipeline';
 import { elements } from './domElements';
@@ -351,8 +351,7 @@ export function renderColumnTabs(): void {
         </div>
       `;
       const modal = createModal(html);
-      const overlay = modal.parentElement;
-      const closeModal = () => overlay?.remove();
+      const closeModal = () => closeSharedModal(modal);
 
       modal.querySelector('#btn-create-multiview')?.addEventListener('click', () => {
         const defaultCol = activeCol || yCols[0] || virtualCols[0];

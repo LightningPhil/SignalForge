@@ -563,6 +563,21 @@ function decode(request: ScopeImportRequest): ImportedWaveformRecord[] {
   );
   reader.requireRange(header.descriptorOffset, logicalLength, 'LeCroy declared logical blocks');
   reader.requireRange(waveArrayOffset, requiredWaveBytes, 'LeCroy WAVE_ARRAY_1 payload');
+  const logicalEnd = reader.checkedSum([header.descriptorOffset, logicalLength], 'LeCroy logical block end');
+  const trailing = reader.bytes.subarray(logicalEnd);
+  // The IEEE 488.2 block export may terminate with a single line ending; anything else is not part of
+  // the declared waveform and the file is rejected rather than partially trusted.
+  const trailingIsLineEnding =
+    trailing.length === 0 ||
+    (trailing.length === 1 && trailing[0] === 0x0a) ||
+    (trailing.length === 2 && trailing[0] === 0x0d && trailing[1] === 0x0a);
+  if (!trailingIsLineEnding) {
+    fail(
+      request,
+      'length-mismatch',
+      `LeCroy declared blocks end at byte ${logicalEnd}, but the source contains ${reader.bytes.byteLength} bytes.`
+    );
+  }
 
   const unit = normalizeVerticalUnit(request, header.verticalUnit);
   requireSecondsUnit(request, header.horizontalUnit);

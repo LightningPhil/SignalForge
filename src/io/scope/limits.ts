@@ -1,12 +1,29 @@
 import { ScopeImportError, type ScopeFormat } from './types';
 
+/**
+ * Import resource limits. Every budget has one meaning:
+ * - `maxFileBytes`: a single selected source file (native binary, text or companion).
+ * - `maxSelectionBytes`: all files selected together for one multi-file preview/import.
+ * - `maxSourceBytesPerImport`: the raw bytes handed to one worker request (primary + companions).
+ * - `maxDecodedBytes`: the decoded working set of one import (timebase + samples + temporaries).
+ * - `maxSessionResidentBytes`: predicted resident bytes of the whole session after an import
+ *   (retained source bytes plus working/original arrays for every channel).
+ * - `maxTextBytes`: text (CSV/TSV) that may be decoded to a string before parsing.
+ * - `maxXmlBytes`: an R&S XML description.
+ * These numbers are documented in the wiki (Importing-and-Sessions) and must stay in step with it.
+ */
 export const ScopeImportLimits = {
   maxFileBytes: 64 * 1024 * 1024,
+  maxSelectionBytes: 64 * 1024 * 1024,
+  maxSourceBytesPerImport: 192 * 1024 * 1024,
+  maxTextBytes: 32 * 1024 * 1024,
   maxXmlBytes: 16 * 1024 * 1024,
   maxDecodedBytes: 192 * 1024 * 1024,
+  maxSessionResidentBytes: 192 * 1024 * 1024,
   maxTotalChannelSamples: 3_000_000,
   maxSamplesPerChannel: 3_000_000,
   maxChannels: 4,
+  maxDelimitedChannels: 64,
   maxRecords: 10_000,
   maxMetadataStringBytes: 4096
 } as const;

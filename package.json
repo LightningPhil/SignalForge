@@ -2,6 +2,7 @@
   "name": "signal-forge",
   "private": true,
   "version": "6.0.0",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24 <25"

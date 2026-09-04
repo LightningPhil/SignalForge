@@ -83,33 +83,42 @@ async function inflateExact(
 
   const output = new Uint8Array(expectedSize);
   let written = 0;
-  while (true) {
-    checkpoint(request);
-    let result: ReadableStreamReadResult<Uint8Array>;
-    try {
-      result = await streamReader.read();
-    } catch (cause) {
-      importFailure(
-        'invalid-header',
-        'Rigol DHO800 metadata contains an invalid deflate stream.',
-        'rigol-wfm',
-        request,
-        cause
-      );
+  let completed = false;
+  try {
+    while (true) {
+      checkpoint(request);
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await streamReader.read();
+      } catch (cause) {
+        importFailure(
+          'invalid-header',
+          'Rigol DHO800 metadata contains an invalid deflate stream.',
+          'rigol-wfm',
+          request,
+          cause
+        );
+      }
+      if (result.done) {
+        completed = true;
+        break;
+      }
+      const chunk = result.value;
+      if (chunk.byteLength > expectedSize || written > expectedSize - chunk.byteLength) {
+        importFailure(
+          'length-mismatch',
+          'Rigol DHO800 metadata expanded beyond its declared size.',
+          'rigol-wfm',
+          request
+        );
+      }
+      output.set(chunk, written);
+      written += chunk.byteLength;
     }
-    if (result.done) break;
-    const chunk = result.value;
-    if (chunk.byteLength > expectedSize || written > expectedSize - chunk.byteLength) {
-      void streamReader.cancel();
-      importFailure(
-        'length-mismatch',
-        'Rigol DHO800 metadata expanded beyond its declared size.',
-        'rigol-wfm',
-        request
-      );
-    }
-    output.set(chunk, written);
-    written += chunk.byteLength;
+  } finally {
+    // Cancellation, size violations and stream errors all stop the inflater immediately instead of
+    // letting it keep expanding until garbage collection.
+    if (!completed) void streamReader.cancel().catch(() => undefined);
   }
   if (written !== expectedSize) {
     importFailure(

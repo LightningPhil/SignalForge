@@ -1,4 +1,4 @@
-import { applyXOffset } from '../processing/filter';
+import { applyXOffset, shiftQualityMask } from '../processing/filter';
 import { QualityFlag } from '../data/quality';
 import { alignQualityToTimebase, interpolateToTimebase } from '../processing/sampling';
 import { dimensionsEqual, normalizeUnit } from '../units/units';
@@ -114,47 +114,32 @@ function noiseMetrics(values: number[]): { rms: number | null; peakToPeak: numbe
   };
 }
 
-function shiftQualityMask(mask: Uint16Array, offset: number): Uint16Array {
-  if (offset === 0) return mask.slice();
-  const shifted = new Uint16Array(mask.length);
-  const fractional = offset !== Math.trunc(offset);
-  let aggregateMask = QualityFlag.None;
-  if (fractional) {
-    for (const quality of mask) aggregateMask |= quality;
-  }
-  for (let index = 0; index < mask.length; index += 1) {
-    const sourceIndex = index - offset;
-    if (sourceIndex < 0 || sourceIndex > mask.length - 1) {
-      shifted[index] = QualityFlag.Missing | QualityFlag.Interpolated;
-      continue;
-    }
-    const lower = Math.floor(sourceIndex);
-    const upper = Math.min(mask.length - 1, Math.ceil(sourceIndex));
-    shifted[index] =
-      mask[lower] |
-      mask[upper] |
-      aggregateMask |
-      (fractional || lower !== upper ? QualityFlag.Interpolated : QualityFlag.None);
-  }
-  return shifted;
-}
-
 export function calculatePulsePower(input: PulsePowerInput): PulsePowerResult {
   const warnings: string[] = [];
   const voltageUnit = normalizeUnit(input.voltageUnit || 'V');
   const currentUnit = normalizeUnit(input.currentUnit || 'A');
   const expectedVoltage = normalizeUnit('V');
   const expectedCurrent = normalizeUnit('A');
-  if (!voltageUnit) warnings.push(`Unknown voltage unit "${input.voltageUnit}". Values were treated as volts.`);
-  if (!currentUnit) warnings.push(`Unknown current unit "${input.currentUnit}". Values were treated as amperes.`);
-  if (voltageUnit && expectedVoltage && !dimensionsEqual(voltageUnit.dimension, expectedVoltage.dimension)) {
+  // Unknown units are rejected rather than assumed: an unrecognised "MV"/"kA" spelling silently
+  // treated as V/A would be off by orders of magnitude in every power and energy figure.
+  if (!voltageUnit) {
+    throw new Error(
+      `Voltage channel unit "${input.voltageUnit}" is not recognised. Set the channel unit to V, kV, mV (case-sensitive SI prefixes) before computing pulse power.`
+    );
+  }
+  if (!currentUnit) {
+    throw new Error(
+      `Current channel unit "${input.currentUnit}" is not recognised. Set the channel unit to A, kA, mA (case-sensitive SI prefixes) before computing pulse power.`
+    );
+  }
+  if (expectedVoltage && !dimensionsEqual(voltageUnit.dimension, expectedVoltage.dimension)) {
     throw new Error(`Voltage channel unit "${voltageUnit.symbol}" is not dimensionally compatible with volts.`);
   }
-  if (currentUnit && expectedCurrent && !dimensionsEqual(currentUnit.dimension, expectedCurrent.dimension)) {
+  if (expectedCurrent && !dimensionsEqual(currentUnit.dimension, expectedCurrent.dimension)) {
     throw new Error(`Current channel unit "${currentUnit.symbol}" is not dimensionally compatible with amperes.`);
   }
-  const voltageScale = voltageUnit?.scale ?? 1;
-  const currentScale = currentUnit?.scale ?? 1;
+  const voltageScale = voltageUnit.scale;
+  const currentScale = currentUnit.scale;
   const voltagePolarity = input.voltagePolarity ?? 1;
   const currentPolarity = input.currentPolarity ?? 1;
   const delay = Number.isFinite(input.currentDelaySamples) ? input.currentDelaySamples || 0 : 0;
@@ -196,23 +181,37 @@ export function calculatePulsePower(input: PulsePowerInput): PulsePowerResult {
         aligned.set(sourceCurrentQuality.slice(0, length));
         return aligned;
       })();
-  const fullCurrentQuality = shiftQualityMask(alignedCurrentQuality, -delay);
+  const fullCurrentQuality = shiftQualityMask(alignedCurrentQuality, -delay, alignedCurrent.values);
   const start = Math.max(0, Math.min(input.region?.i0 ?? 0, length - 1));
   const end = Math.max(start, Math.min(input.region?.i1 ?? length - 1, length - 1));
   const time = fullTime.slice(start, end + 1);
   const voltage = fullVoltage.slice(start, end + 1);
   const current = fullCurrent.slice(start, end + 1);
+  // Samples whose voltage or current is clipped, saturated, invalid or missing are excluded from
+  // every metric (set to NaN so the integrators skip the interval) instead of being used verbatim:
+  // a clipped 1000 V sample would otherwise dominate peak power and energy.
   const qualityMask = QualityFlag.Clipped | QualityFlag.Saturated | QualityFlag.Invalid | QualityFlag.Missing;
   let suspectQualitySamples = 0;
   for (let index = start; index <= end; index += 1) {
     const voltageQuality = Number(input.voltageQuality?.[index] || 0);
     const currentQuality = fullCurrentQuality[index] || 0;
-    if ((voltageQuality & qualityMask) !== 0 || (currentQuality & qualityMask) !== 0) suspectQualitySamples += 1;
+    if ((voltageQuality & qualityMask) !== 0 || (currentQuality & qualityMask) !== 0) {
+      suspectQualitySamples += 1;
+      voltage[index - start] = Number.NaN;
+      current[index - start] = Number.NaN;
+    }
   }
   if (suspectQualitySamples > 0) {
     warnings.push(
-      `${suspectQualitySamples} sample(s) in the calculation region have missing, invalid or clipped quality flags.`
+      `${suspectQualitySamples} sample(s) in the calculation region have missing, invalid or clipped quality flags and were excluded from all pulse-power metrics.`
     );
+  }
+  const finiteSamples = voltage.reduce(
+    (count, value, index) => count + (Number.isFinite(value) && Number.isFinite(current[index]) ? 1 : 0),
+    0
+  );
+  if (finiteSamples < 2) {
+    warnings.push('Fewer than two usable samples remain in the calculation region; metrics are unavailable.');
   }
   const power = voltage.map((value, index) => value * current[index]);
   const currentSquared = current.map((value) => value * value);

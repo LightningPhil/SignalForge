@@ -479,6 +479,15 @@ function decode(request: ScopeImportRequest): ImportedWaveformRecord[] {
     totalCurveBytes + FILE_CHECKSUM_BYTES,
     'Tektronix curve data and file checksum'
   );
+  // Real Tektronix exports (including the redistributable fixtures) carry a short vendor tail after the
+  // declared EOF/file checksum. The declared extents are decoded exactly and the tail is disclosed, never read.
+  const trailingBytes = reader.bytes.byteLength - declaredEof;
+  const fileWarnings =
+    trailingBytes > 0
+      ? [
+          `${trailingBytes} byte(s) after the declared Tektronix EOF were ignored; only the declared frame set was decoded.`
+        ]
+      : [];
 
   const totalSamples = reader.checkedProduct(frameCount, sampleCount, 'Tektronix decoded sample count');
   if (totalSamples > ScopeImportLimits.maxTotalChannelSamples) {
@@ -584,7 +593,7 @@ function decode(request: ScopeImportRequest): ImportedWaveformRecord[] {
         trigger_time_offset: update.triggerTimeOffset,
         trigger_timestamp_s: Number.isFinite(timestamp) ? timestamp : null
       },
-      warnings: []
+      warnings: frameIndex === 0 ? [...fileWarnings] : []
     });
     request.onProgress?.(
       (frameIndex + 1) / frameCount,

@@ -8,6 +8,11 @@ const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 256 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 10_000;
 const MAX_CHANNEL_SAMPLES = 50_000_000;
+const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
 
 interface ArchivedChannel extends Omit<SessionChannel, 'time' | 'values' | 'quality'> {
   timePath: string;
@@ -400,12 +405,29 @@ export async function importProjectArchive(bytes: Uint8Array): Promise<Session> 
   if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new Error('Project archive exceeds the 512 MB safety limit.');
   const files = unzipSafely(bytes);
   const manifestBytes = safePayload(files, 'manifest.json');
-  const manifest = JSON.parse(strFromU8(manifestBytes)) as ProjectManifest;
+  if (manifestBytes.byteLength > MAX_MANIFEST_BYTES) {
+    throw new Error('Project manifest exceeds the 64 MB limit.');
+  }
+  let parsedManifest: unknown;
+  try {
+    parsedManifest = JSON.parse(strFromU8(manifestBytes));
+  } catch {
+    throw new Error('Project manifest is not valid JSON.');
+  }
+  if (!isPlainObject(parsedManifest)) throw new Error('Project manifest must be a JSON object.');
+  const manifest = parsedManifest as unknown as ProjectManifest;
   if (manifest.format !== FORMAT || manifest.formatVersion !== FORMAT_VERSION) {
     throw new Error('Unsupported SignalForge project format or version.');
   }
-  if (!manifest.session?.id || !Array.isArray(manifest.session.shots)) {
+  if (!isPlainObject(manifest.session) || typeof manifest.session.id !== 'string' || !manifest.session.id) {
     throw new Error('Project manifest is missing required session fields.');
+  }
+  if (!Array.isArray(manifest.session.shots)) throw new Error('Project manifest is missing required session fields.');
+  if (!isPlainObject(manifest.checksums)) throw new Error('Project manifest is missing its checksum table.');
+  for (const [path, checksum] of Object.entries(manifest.checksums)) {
+    if (typeof checksum !== 'string' || !/^[0-9a-f]{64}$/.test(checksum)) {
+      throw new Error(`Project manifest has a malformed checksum for ${path}.`);
+    }
   }
 
   const shots: Shot[] = [];
@@ -414,6 +436,34 @@ export async function importProjectArchive(bytes: Uint8Array): Promise<Session> 
     if (referencedPayloads.has(path)) throw new Error(`Project payload is referenced more than once: ${path}`);
     referencedPayloads.add(path);
   };
+  const requirePath = (value: unknown, label: string): string => {
+    if (typeof value !== 'string' || !value) throw new Error(`Project manifest has an invalid ${label} path.`);
+    return value;
+  };
+  manifest.session.shots.forEach((shot, shotIndex) => {
+    if (!isPlainObject(shot) || !Array.isArray(shot.channels) || !Array.isArray(shot.sourceFiles)) {
+      throw new Error(`Project manifest shot #${shotIndex + 1} is missing its channel or source-file lists.`);
+    }
+    shot.channels.forEach((channel, channelIndex) => {
+      if (!isPlainObject(channel) || typeof channel.name !== 'string') {
+        throw new Error(`Project manifest shot #${shotIndex + 1} channel #${channelIndex + 1} is malformed.`);
+      }
+      requirePath(channel.timePath, 'time payload');
+      requirePath(channel.valuesPath, 'values payload');
+      requirePath(channel.qualityPath, 'quality payload');
+      for (const optional of [channel.originalTimePath, channel.originalValuesPath, channel.originalQualityPath]) {
+        if (optional !== undefined && (typeof optional !== 'string' || !optional)) {
+          throw new Error(`Channel "${channel.name}" has an invalid original-data payload path.`);
+        }
+      }
+    });
+    shot.sourceFiles.forEach((sourceFile, fileIndex) => {
+      if (!isPlainObject(sourceFile) || typeof sourceFile.name !== 'string') {
+        throw new Error(`Project manifest shot #${shotIndex + 1} source file #${fileIndex + 1} is malformed.`);
+      }
+      if (sourceFile.payloadPath !== undefined) requirePath(sourceFile.payloadPath, 'source payload');
+    });
+  });
   for (const shot of manifest.session.shots) {
     const channels: SessionChannel[] = [];
     const sourceFiles: SourceFileRecord[] = [];
@@ -497,6 +547,16 @@ export async function importProjectArchive(bytes: Uint8Array): Promise<Session> 
       });
     }
     shots.push({ ...shot, channels, sourceFiles });
+  }
+  const unreferenced = Object.keys(files).filter((path) => path !== 'manifest.json' && !referencedPayloads.has(path));
+  if (unreferenced.length > 0) {
+    throw new Error(
+      `Project archive contains ${unreferenced.length} entr${unreferenced.length === 1 ? 'y' : 'ies'} not referenced by the manifest (e.g. ${unreferenced[0]}).`
+    );
+  }
+  const orphanChecksums = Object.keys(manifest.checksums).filter((path) => !referencedPayloads.has(path));
+  if (orphanChecksums.length > 0) {
+    throw new Error(`Project manifest lists checksums for payloads it never references (e.g. ${orphanChecksums[0]}).`);
   }
   return migrateSession({ ...manifest.session, shots });
 }

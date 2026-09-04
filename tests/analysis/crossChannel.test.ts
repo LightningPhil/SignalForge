@@ -35,6 +35,24 @@ describe('CrossChannel', () => {
     expect(estimate.correlationPeak).toBeGreaterThan(0.999);
   });
 
+  it('does not let floating-point rounding collapse the lag bound to zero and warns when it is zero', () => {
+    const length = 512;
+    const sampleRate = 1e6;
+    const time = uniformTime(length, sampleRate);
+    const waveform = (sample: number) => Math.exp(-(((sample - 200) / 20) ** 2));
+    const input = Array.from({ length }, (_, index) => waveform(index));
+    const output = Array.from({ length }, (_, index) => waveform(index - 1));
+
+    // 3 / fs is exactly three samples; 3e-6 * 1e6 evaluates to 2.9999999999999996 in floating point.
+    const bounded = CrossChannel.estimateDelay(time, input, output, { maxLagSeconds: 3 / sampleRate });
+    expect(bounded.delaySamples).toBeCloseTo(1, 2);
+    expect(bounded.warnings.join(' ')).not.toContain('rounds to zero');
+
+    const zero = CrossChannel.estimateDelay(time, input, output, { maxLagSeconds: 0.1 / sampleRate });
+    expect(zero.delaySamples).toBe(0);
+    expect(zero.warnings.join(' ')).toContain('rounds to zero samples');
+  });
+
   it('computes Welch transfer magnitude and coherence for a linear response', () => {
     const sampleRate = 4096;
     const input = pseudoRandom(8192, 0x12345678);

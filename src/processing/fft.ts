@@ -1,6 +1,6 @@
 import type { AnalysisSelection, FftDetrend, FftWindowType, FftZeroPad, SpectrumResult } from '../types';
 import { AnalysisExclusionMask, QualityFlag } from '../data/quality';
-import { analyzeTimebase, resampleLinear } from './sampling';
+import { analyzeTimebase, resampleBandlimited } from './sampling';
 
 type ComplexBuffers = {
   re: Float64Array;
@@ -24,6 +24,41 @@ export interface WindowResult {
   coherentGain: number;
   enbw: number;
   powerSum: number;
+  /** Half-width of the window's spectral main lobe in record bins (rectangular = 1, Hann = 2, ...). */
+  mainLobeHalfWidthBins: number;
+}
+
+/**
+ * Textbook main-lobe half-widths (first zero of the window transform) in unpadded record bins.
+ * These bound how far a tone's own energy leaks before the sidelobe region begins.
+ */
+export function windowMainLobeHalfWidthBins(windowType: FftWindowType, beta = 6): number {
+  switch (windowType) {
+    case 'rectangular':
+      return 1;
+    case 'hann':
+    case 'hamming':
+      return 2;
+    case 'blackman':
+      return 3;
+    case 'blackman-harris':
+      return 4;
+    case 'flattop':
+      return 5;
+    case 'kaiser':
+      return Math.ceil(Math.sqrt(1 + (beta / Math.PI) ** 2));
+    default:
+      return 2;
+  }
+}
+
+function uniformSampleRate(time: ArrayLike<number>, fallbackDt: number): number {
+  const n = time.length;
+  if (n >= 2) {
+    const span = Number(time[n - 1]) - Number(time[0]);
+    if (span > 0) return (n - 1) / span;
+  }
+  return fallbackDt > 0 ? 1 / fallbackDt : 1;
 }
 
 export interface SampleRateEstimate {
@@ -272,11 +307,14 @@ export const FFT = {
 
   getWindow(windowType: FftWindowType = 'hann', length = 0, opts: { beta?: number } = {}): WindowResult {
     const n = Math.max(1, length);
-    if (n <= 1) return { window: new Float64Array([1]), coherentGain: 1, enbw: 1, powerSum: 1 };
+    const mainLobeHalfWidthBins = windowMainLobeHalfWidthBins(windowType, opts.beta);
+    if (n <= 1) {
+      return { window: new Float64Array([1]), coherentGain: 1, enbw: 1, powerSum: 1, mainLobeHalfWidthBins };
+    }
     const window = new Float64Array(n);
     if (windowType === 'rectangular') {
       window.fill(1);
-      return { window, coherentGain: 1, enbw: 1, powerSum: n };
+      return { window, coherentGain: 1, enbw: 1, powerSum: n, mainLobeHalfWidthBins };
     }
 
     const pi = Math.PI;
@@ -330,7 +368,7 @@ export const FFT = {
     }
     const coherentGain = sum / n;
     const enbw = coherentGain === 0 ? 1 : power / (coherentGain * coherentGain * n);
-    return { window, coherentGain, enbw, powerSum: power };
+    return { window, coherentGain, enbw, powerSum: power, mainLobeHalfWidthBins };
   },
 
   applyWindow(signal: ArrayLike<number> = [], window: ArrayLike<number> | null = null): Float64Array {
@@ -476,16 +514,25 @@ export const FFT = {
     let analysisTime = slicedTime;
     let resampled = false;
     if (!timebase.uniform) {
-      const uniform = resampleLinear(slicedTime, [sliced], timebase.medianDt);
+      const uniform = resampleBandlimited(slicedTime, [sliced], timebase.medianDt);
       analysisSignal = uniform.values[0];
       analysisTime = uniform.time;
       resampled = true;
-      warnings.push(`Resampled ${sliced.length} samples to ${analysisSignal.length} uniformly spaced samples.`);
+      warnings.push(
+        `Resampled ${sliced.length} samples to ${analysisSignal.length} uniformly spaced samples using ` +
+          'band-limited polynomial interpolation; content above roughly 40% of the sample rate is attenuated.'
+      );
     }
 
-    const fs = 1 / (analysisTime[1] - analysisTime[0]);
+    // The record is uniform to within tolerance, so the span-based estimate is the least biased
+    // sample rate; a single first interval can be off by the full uniformity tolerance.
+    const fs = uniformSampleRate(analysisTime, timebase.medianDt);
     const detrended = this.applyDetrend(analysisSignal, detrend);
-    const { window, coherentGain, enbw, powerSum } = this.getWindow(windowType, detrended.length, windowOpts);
+    const { window, coherentGain, enbw, powerSum, mainLobeHalfWidthBins } = this.getWindow(
+      windowType,
+      detrended.length,
+      windowOpts
+    );
     const windowed = this.applyWindow(detrended, window);
     const { re, im, length } = this.forward(windowed, { zeroPadMode, zeroPadFactor });
     const { freq, deltaF } = this.computeFreqAxis(length, fs);
@@ -509,7 +556,8 @@ export const FFT = {
         sampleCount,
         fftLength: length,
         resampled,
-        medianDt: analysisTime[1] - analysisTime[0]
+        medianDt: 1 / fs,
+        mainLobeHalfWidthBins
       },
       re,
       im,

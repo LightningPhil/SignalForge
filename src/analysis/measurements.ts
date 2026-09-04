@@ -2,7 +2,7 @@ import { analyzeTimebase } from '../processing/sampling';
 import { maskValuesForAnalysis } from '../data/quality';
 import type { AnalysisSelection } from '../types';
 import { sliceSeries, toFinitePairs } from './analysisUtils';
-import { estimatePulseLevels, findCrossingAfterPeak, findCrossingBeforePeak, type PulseLevels } from './pulse';
+import { estimatePulseLevels, locatePulseTransitions, type PulseLevels } from './pulse';
 
 export interface MeasurementOptions {
   dutyThreshold?: number;
@@ -65,16 +65,22 @@ function minMax(values: number[]): { min: number; max: number; minIndex: number;
   return minIndex >= 0 ? { min, max, minIndex, maxIndex } : null;
 }
 
-function zeroCrossings(
+/**
+ * Strict crossings of `level`: the signal must be on opposite sides of the level (samples exactly on
+ * it complete a crossing but never start one), so a 0/1 square wave crossing level 0.5 counts once per
+ * transition and flat runs sitting on the level produce nothing.
+ */
+function levelCrossings(
   time: number[],
   values: number[],
-  sourceIndices: number[]
+  sourceIndices: number[],
+  level: number
 ): Array<{ time: number; direction: 'rising' | 'falling' }> {
   const crossings: Array<{ time: number; direction: 'rising' | 'falling' }> = [];
   for (let index = 0; index < values.length - 1; index += 1) {
     if (sourceIndices[index + 1] !== sourceIndices[index] + 1) continue;
-    const first = values[index];
-    const second = values[index + 1];
+    const first = values[index] - level;
+    const second = values[index + 1] - level;
     if ((first < 0 && second >= 0) || (first > 0 && second <= 0)) {
       const fraction = Math.abs(first) / (Math.abs(first) + Math.abs(second) || 1);
       crossings.push({
@@ -118,7 +124,17 @@ function integrate(time: number[], values: number[], sourceIndices: number[], ab
   return intervals > 0 ? area : null;
 }
 
-function dutyCycle(time: number[], values: number[], sourceIndices: number[], threshold: number): number | null {
+/**
+ * Fraction of the record spent in the active (top) state. `polarity` −1 means the pulse goes below
+ * the baseline, so "active" is below the threshold.
+ */
+function dutyCycle(
+  time: number[],
+  values: number[],
+  sourceIndices: number[],
+  threshold: number,
+  polarity: 1 | -1 = 1
+): number | null {
   let highTime = 0;
   let duration = 0;
   for (let index = 1; index < values.length; index += 1) {
@@ -126,8 +142,8 @@ function dutyCycle(time: number[], values: number[], sourceIndices: number[], th
     const dt = time[index] - time[index - 1];
     if (!(dt > 0)) continue;
     duration += dt;
-    const firstHigh = values[index - 1] >= threshold;
-    const secondHigh = values[index] >= threshold;
+    const firstHigh = polarity * (values[index - 1] - threshold) >= 0;
+    const secondHigh = polarity * (values[index] - threshold) >= 0;
     if (firstHigh && secondHigh) {
       highTime += dt;
     } else if (firstHigh !== secondHigh) {
@@ -151,14 +167,12 @@ function pulseMetrics(time: number[], values: number[], sourceIndices: number[],
       undershootPct: null
     };
   }
-  const rising = levels.polarity === 1;
-  const riseStart = findCrossingBeforePeak(time, values, levels.lowThreshold, levels.peakIndex, rising, sourceIndices);
-  const riseEnd = findCrossingBeforePeak(time, values, levels.highThreshold, levels.peakIndex, rising, sourceIndices);
-  const fallStart = findCrossingAfterPeak(time, values, levels.highThreshold, levels.peakIndex, rising, sourceIndices);
-  const fallEnd = findCrossingAfterPeak(time, values, levels.lowThreshold, levels.peakIndex, rising, sourceIndices);
-  const midThreshold = levels.baseline + levels.amplitude * 0.5;
-  const widthStart = findCrossingBeforePeak(time, values, midThreshold, levels.peakIndex, rising, sourceIndices);
-  const widthEnd = findCrossingAfterPeak(time, values, midThreshold, levels.peakIndex, rising, sourceIndices);
+  const { riseStart, riseEnd, fallStart, fallEnd, widthStart, widthEnd } = locatePulseTransitions(
+    time,
+    values,
+    levels,
+    sourceIndices
+  );
   const extreme = values[levels.peakIndex];
   const amplitude = Math.abs(levels.amplitude);
   const overshoot = amplitude > 0 ? Math.max(0, (levels.polarity * (extreme - levels.top) * 100) / amplitude) : null;
@@ -217,8 +231,6 @@ export const Measurements = {
       };
     }
     const average = mean(sliced.y);
-    const crossings = zeroCrossings(sliced.t, sliced.y, sliced.indices);
-    const frequency = estimateFrequency(crossings);
     const levels = estimatePulseLevels(sliced.y, {
       lowFraction: options.edgeThresholds?.lowFraction,
       highFraction: options.edgeThresholds?.highFraction
@@ -226,6 +238,11 @@ export const Measurements = {
     const pulse = pulseMetrics(sliced.t, sliced.y, sliced.indices, levels);
     const dutyThreshold =
       options.dutyThreshold ?? (levels ? levels.baseline + levels.amplitude * 0.5 : (extrema.min + extrema.max) / 2);
+    // Frequency/period come from mesial (50 %) crossings so DC-offset sines and 0/1 logic levels are
+    // measured; literal zero crossings are reported separately.
+    const zeroCrossings = levelCrossings(sliced.t, sliced.y, sliced.indices, 0);
+    const midCrossings = levelCrossings(sliced.t, sliced.y, sliced.indices, dutyThreshold);
+    const frequency = estimateFrequency(midCrossings);
     const timebase = analyzeTimebase(sliced.t);
     const warnings = timebase.warnings.slice();
     if (invalidPairCount > 0) {
@@ -247,10 +264,11 @@ export const Measurements = {
         peakToPeak: extrema.max - extrema.min,
         stddev: stddev(sliced.y, average),
         median: median(sliced.y),
-        zeroCrossings: crossings.length,
+        zeroCrossings: zeroCrossings.length,
+        midCrossings: midCrossings.length,
         frequencyHz: frequency.frequencyHz,
         period: frequency.period,
-        dutyCycle: dutyCycle(sliced.t, sliced.y, sliced.indices, dutyThreshold),
+        dutyCycle: dutyCycle(sliced.t, sliced.y, sliced.indices, dutyThreshold, levels?.polarity ?? 1),
         ...pulse,
         area: integrate(sliced.t, sliced.y, sliced.indices),
         absArea: integrate(sliced.t, sliced.y, sliced.indices, true),
