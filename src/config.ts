@@ -1,7 +1,7 @@
 import type { AppConfig } from './types';
 
 export const Config: AppConfig = {
-  settingsVersion: 4,
+  settingsVersion: 5,
   graph: {
     title: 'Signal Analysis',
     xAxisTitle: 'Time',
@@ -88,7 +88,40 @@ export const Config: AppConfig = {
       processingMode: 'zero-phase'
     },
     hampel: { windowSize: 7, thresholdSigma: 3 },
-    waveletDenoise: { waveletLevels: 4 }
+    waveletDenoise: { waveletLevels: 4 },
+    baselineSubtract: {
+      regionMode: 'selection',
+      regionMarker: '',
+      startMarker: '',
+      endMarker: '',
+      regionStartTime: 0,
+      regionEndTime: 1,
+      regionStartIndex: 0,
+      regionEndIndex: 1,
+      baselineEstimator: 'median'
+    },
+    timeGate: {
+      regionMode: 'selection',
+      regionMarker: '',
+      startMarker: '',
+      endMarker: '',
+      regionStartTime: 0,
+      regionEndTime: 1,
+      regionStartIndex: 0,
+      regionEndIndex: 1
+    },
+    artifactBlank: {
+      regionMode: 'selection',
+      regionMarker: '',
+      startMarker: '',
+      endMarker: '',
+      regionStartTime: 0,
+      regionEndTime: 1,
+      regionStartIndex: 0,
+      regionEndIndex: 1,
+      artifactMode: 'missing'
+    },
+    referenceSubtract: { referenceColumnId: '', referenceScale: 1 }
   },
   colors: {
     light: {

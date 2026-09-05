@@ -1,4 +1,6 @@
-import type { FilterStep, FilterType, PipelineStepReport, SerializedFirDesign } from '../types';
+import type { AnalysisSelection, FilterStep, FilterType, PipelineStepReport, SerializedFirDesign } from '../types';
+import type { Annotation } from '../domain/session';
+import { resolveRegionBinding, type RegionBinding, type RegionResolution } from '../analysis/regionBinding';
 import { QualityFlag } from '../data/quality';
 import { FFT } from './fft';
 import {
@@ -21,16 +23,45 @@ import {
   type Biquad,
   type FilterResponse
 } from './iir';
-import { hampelDeglitch, waveletDenoiseHaar } from './noise';
+import {
+  blankArtifact,
+  hampelDeglitch,
+  subtractBaseline,
+  subtractReference,
+  timeGate,
+  waveletDenoiseHaar,
+  type ProcessingResult
+} from './noise';
 import {
   analyzeTimebase,
+  alignQualityToTimebase,
   estimateSampleRate,
   frequencyBinWidth,
+  interpolateToTimebase,
   interpolateLinearToTimebase,
   resampleLinear
 } from './sampling';
 
 type GainKind = FilterStep['type'] | 'lowpass' | 'highpass' | 'notch';
+
+export interface FilterReferenceSeries {
+  values: ArrayLike<number>;
+  time?: ArrayLike<number>;
+  timingOffsetSeconds?: number;
+  quality?: ArrayLike<number>;
+}
+
+export interface FilterExecutionContext {
+  annotations?: readonly Annotation[];
+  selection?: AnalysisSelection | null;
+  timingOffsetSeconds?: number;
+  references?: Record<string, FilterReferenceSeries>;
+}
+
+interface ContextualStepResult extends ProcessingResult {
+  resolution?: RegionResolution;
+  referenceQuality?: Uint16Array;
+}
 const savitzkyGolayWeightCache = new Map<string, number[]>();
 const firFilterTypes = new Set<FilterType>(['firLowPass', 'firHighPass', 'firBandPass', 'firBandStop']);
 const supportedFilterTypes = new Set<string>([
@@ -54,7 +85,11 @@ const supportedFilterTypes = new Set<string>([
   'iirNotch',
   'iirComb',
   'hampel',
-  'waveletDenoise'
+  'waveletDenoise',
+  'baselineSubtract',
+  'timeGate',
+  'artifactBlank',
+  'referenceSubtract'
 ]);
 
 const parameterKeys: Record<FilterType, ReadonlyArray<keyof FilterStep>> = {
@@ -100,7 +135,40 @@ const parameterKeys: Record<FilterType, ReadonlyArray<keyof FilterStep>> = {
   iirNotch: ['centerFreq', 'bandwidth', 'processingMode'],
   iirComb: ['centerFreq', 'bandwidth', 'harmonicCount', 'processingMode'],
   hampel: ['windowSize', 'thresholdSigma'],
-  waveletDenoise: ['waveletLevels', 'waveletThreshold']
+  waveletDenoise: ['waveletLevels', 'waveletThreshold'],
+  baselineSubtract: [
+    'regionMode',
+    'regionMarker',
+    'startMarker',
+    'endMarker',
+    'regionStartTime',
+    'regionEndTime',
+    'regionStartIndex',
+    'regionEndIndex',
+    'baselineEstimator'
+  ],
+  timeGate: [
+    'regionMode',
+    'regionMarker',
+    'startMarker',
+    'endMarker',
+    'regionStartTime',
+    'regionEndTime',
+    'regionStartIndex',
+    'regionEndIndex'
+  ],
+  artifactBlank: [
+    'regionMode',
+    'regionMarker',
+    'startMarker',
+    'endMarker',
+    'regionStartTime',
+    'regionEndTime',
+    'regionStartIndex',
+    'regionEndIndex',
+    'artifactMode'
+  ],
+  referenceSubtract: ['referenceColumnId', 'referenceScale']
 };
 
 function finiteParameter(
@@ -187,6 +255,159 @@ function frequencyRunPlan(data: ArrayLike<number>, timeArray: ArrayLike<number> 
 
 function analyzeFilterTimebase(step: FilterStep, time: ArrayLike<number>) {
   return analyzeTimebase(time, firFilterTypes.has(step.type) ? FIR_UNIFORM_TOLERANCE : 0.01);
+}
+
+function regionBindingForStep(step: FilterStep): RegionBinding {
+  if (step.regionMode === 'region-marker') {
+    return { kind: 'region-marker', markerName: step.regionMarker || '' };
+  }
+  if (step.regionMode === 'marker-pair') {
+    return { kind: 'marker-pair', startMarker: step.startMarker || '', endMarker: step.endMarker || '' };
+  }
+  if (step.regionMode === 'times') {
+    return { kind: 'times', startTime: step.regionStartTime as number, endTime: step.regionEndTime as number };
+  }
+  if (step.regionMode === 'indices') {
+    return { kind: 'indices', startIndex: step.regionStartIndex as number, endIndex: step.regionEndIndex as number };
+  }
+  return { kind: 'selection' };
+}
+
+function applyContextualStep(
+  values: number[],
+  time: ArrayLike<number>,
+  step: FilterStep,
+  context: FilterExecutionContext
+): ContextualStepResult {
+  if (step.type === 'referenceSubtract') {
+    const reference = step.referenceColumnId ? context.references?.[step.referenceColumnId] : undefined;
+    if (!reference) {
+      return {
+        values: values.slice(),
+        changedIndices: [],
+        warnings: [`Reference column "${step.referenceColumnId || '(not selected)'}" is unavailable.`]
+      };
+    }
+    const targetTime = Array.from(time, (stamp) => Number(stamp) + (context.timingOffsetSeconds || 0));
+    const sourceTime = reference.time || time;
+    const aligned = interpolateToTimebase(sourceTime, reference.values, targetTime, reference.timingOffsetSeconds || 0);
+    const referenceQuality = reference.quality
+      ? alignQualityToTimebase(
+          sourceTime,
+          reference.quality,
+          targetTime,
+          reference.timingOffsetSeconds || 0,
+          reference.values
+        )
+      : new Uint16Array(targetTime.length);
+    const result = subtractReference(values, aligned.values, step.referenceScale ?? 1);
+    return {
+      ...result,
+      warnings: [...aligned.warnings, ...result.warnings],
+      effectiveParameters: {
+        referenceColumnId: step.referenceColumnId || '',
+        scale: step.referenceScale ?? 1,
+        targetTimingOffsetSeconds: context.timingOffsetSeconds || 0,
+        referenceTimingOffsetSeconds: reference.timingOffsetSeconds || 0,
+        alignment: 'timebase-interpolated'
+      },
+      referenceQuality
+    };
+  }
+  const resolution = resolveRegionBinding(regionBindingForStep(step), time, {
+    annotations: context.annotations,
+    selection: context.selection,
+    timingOffsetSeconds: context.timingOffsetSeconds
+  });
+  if (!resolution.resolved) {
+    return {
+      values: values.slice(),
+      changedIndices: [],
+      warnings: [resolution.message, ...resolution.warnings],
+      resolution
+    };
+  }
+  let result: ProcessingResult;
+  if (step.type === 'baselineSubtract') {
+    result = subtractBaseline(
+      values,
+      { startIndex: resolution.startIndex, endIndex: resolution.endIndex },
+      step.baselineEstimator || 'median'
+    );
+  } else if (step.type === 'timeGate') {
+    result = timeGate(time, values, Number(time[resolution.startIndex]), Number(time[resolution.endIndex]));
+  } else {
+    result = blankArtifact(
+      time,
+      values,
+      Number(time[resolution.startIndex]),
+      Number(time[resolution.endIndex]),
+      step.artifactMode || 'missing'
+    );
+  }
+  return {
+    ...result,
+    warnings: [...resolution.warnings, ...result.warnings],
+    effectiveParameters: {
+      ...result.effectiveParameters,
+      startTime: resolution.startTime,
+      endTime: resolution.endTime,
+      startIndex: resolution.startIndex,
+      endIndex: resolution.endIndex,
+      annotationIds: resolution.annotationIds.join(',')
+    },
+    resolution
+  };
+}
+
+function propagateContextualQuality(
+  inputQuality: Uint16Array,
+  step: FilterStep,
+  result: ContextualStepResult
+): Uint16Array {
+  const output = inputQuality.slice();
+  const affectedIndices = result.affectedIndices || result.changedIndices;
+  if (affectedIndices.length === 0) return output;
+  if (step.type === 'baselineSubtract' && result.resolution?.resolved) {
+    let baselineMask = QualityFlag.None;
+    for (let index = result.resolution.startIndex; index <= result.resolution.endIndex; index += 1) {
+      baselineMask |= inputQuality[index] || QualityFlag.None;
+    }
+    for (let index = 0; index < output.length; index += 1) {
+      output[index] = (inputQuality[index] || QualityFlag.None) | baselineMask | QualityFlag.Processed;
+    }
+    return output;
+  }
+  if (step.type === 'referenceSubtract') {
+    for (let index = 0; index < output.length; index += 1) {
+      output[index] =
+        (inputQuality[index] || QualityFlag.None) |
+        (result.referenceQuality?.[index] || QualityFlag.None) |
+        QualityFlag.Processed |
+        (!Number.isFinite(result.values[index]) ? QualityFlag.Missing : QualityFlag.None);
+    }
+    return output;
+  }
+  const actualArtifactOperation = result.effectiveParameters?.operation;
+  const additional =
+    step.type === 'artifactBlank' && actualArtifactOperation === 'interpolate'
+      ? QualityFlag.Interpolated
+      : step.type === 'artifactBlank'
+        ? QualityFlag.Missing
+        : QualityFlag.None;
+  const leftAnchor = Number(result.effectiveParameters?.leftAnchorIndex);
+  const rightAnchor = Number(result.effectiveParameters?.rightAnchorIndex);
+  const anchorMask =
+    step.type === 'artifactBlank' &&
+    actualArtifactOperation === 'interpolate' &&
+    Number.isInteger(leftAnchor) &&
+    Number.isInteger(rightAnchor)
+      ? (inputQuality[leftAnchor] || QualityFlag.None) | (inputQuality[rightAnchor] || QualityFlag.None)
+      : QualityFlag.None;
+  for (const index of affectedIndices) {
+    output[index] = (inputQuality[index] || QualityFlag.None) | anchorMask | QualityFlag.Processed | additional;
+  }
+  return output;
 }
 
 /**
@@ -318,6 +539,39 @@ export function validateFilterStep(step: FilterStep, sampleRate?: number): void 
     integerParameter(step.waveletLevels, 'Wavelet levels', 1, 20);
     finiteParameter(step.waveletThreshold, 'Wavelet threshold', 0, Number.MAX_VALUE, false);
   }
+  if (['baselineSubtract', 'timeGate', 'artifactBlank'].includes(step.type)) {
+    if (!['region-marker', 'marker-pair', 'times', 'indices', 'selection'].includes(step.regionMode || '')) {
+      throw new Error(`${step.type} regionMode is invalid.`);
+    }
+    for (const [name, value] of [
+      ['regionMarker', step.regionMarker],
+      ['startMarker', step.startMarker],
+      ['endMarker', step.endMarker]
+    ] as const) {
+      if (typeof value !== 'string' || value.length > 500)
+        throw new Error(`${step.type} ${name} must be a bounded string.`);
+    }
+    if (step.regionMode === 'times') {
+      finiteParameter(step.regionStartTime, `${step.type} regionStartTime`, -Number.MAX_VALUE, Number.MAX_VALUE);
+      finiteParameter(step.regionEndTime, `${step.type} regionEndTime`, -Number.MAX_VALUE, Number.MAX_VALUE);
+    }
+    if (step.regionMode === 'indices') {
+      integerParameter(step.regionStartIndex, `${step.type} regionStartIndex`, 0, 100_000_000);
+      integerParameter(step.regionEndIndex, `${step.type} regionEndIndex`, 0, 100_000_000);
+    }
+  }
+  if (step.type === 'baselineSubtract' && !['mean', 'median', 'trimmed-mean'].includes(step.baselineEstimator || '')) {
+    throw new Error('baselineSubtract baselineEstimator is invalid.');
+  }
+  if (step.type === 'artifactBlank' && !['missing', 'interpolate'].includes(step.artifactMode || '')) {
+    throw new Error('artifactBlank artifactMode is invalid.');
+  }
+  if (step.type === 'referenceSubtract') {
+    if (typeof step.referenceColumnId !== 'string' || step.referenceColumnId.length > 500) {
+      throw new Error('referenceSubtract referenceColumnId must be a bounded string.');
+    }
+    finiteParameter(step.referenceScale, 'referenceSubtract referenceScale', -Number.MAX_VALUE, Number.MAX_VALUE);
+  }
 
   if (sampleRate !== undefined) {
     if (!Number.isFinite(sampleRate) || !(sampleRate > 0)) throw new Error('Sample rate must be finite and positive.');
@@ -378,7 +632,8 @@ export const Filter = {
   applyPipeline(
     dataArray: ArrayLike<number> | null | undefined,
     timeArray: ArrayLike<number> | null | undefined,
-    pipeline?: FilterStep[] | null
+    pipeline?: FilterStep[] | null,
+    context: FilterExecutionContext = {}
   ): number[] {
     if (!dataArray || dataArray.length === 0) return [];
 
@@ -436,6 +691,12 @@ export const Filter = {
           break;
         case 'startStopNorm':
           currentData = this.startStopNorm(currentData, step);
+          break;
+        case 'baselineSubtract':
+        case 'timeGate':
+        case 'artifactBlank':
+        case 'referenceSubtract':
+          currentData = applyContextualStep(currentData, timeArray || [], step, context).values;
           break;
         case 'lowPassFFT':
           currentData = processFrequencyRuns((run, sampleRate) =>
@@ -540,6 +801,16 @@ export const Filter = {
       let kernelSize = Math.max(3, Math.round(step.kernelSize ?? step.windowSize ?? 5));
       if (kernelSize % 2 === 0) kernelSize += 1;
       return { sigma: step.sigma || 1, kernelSize };
+    }
+    if (step.type === 'baselineSubtract') {
+      return { regionMode: step.regionMode || 'selection', estimator: step.baselineEstimator || 'median' };
+    }
+    if (step.type === 'timeGate') return { regionMode: step.regionMode || 'selection' };
+    if (step.type === 'artifactBlank') {
+      return { regionMode: step.regionMode || 'selection', mode: step.artifactMode || 'missing' };
+    }
+    if (step.type === 'referenceSubtract') {
+      return { referenceColumnId: step.referenceColumnId || '', scale: step.referenceScale ?? 1 };
     }
     if (['firLowPass', 'firHighPass', 'firBandPass', 'firBandStop'].includes(step.type)) {
       const base = {
@@ -870,7 +1141,8 @@ export const Filter = {
     dataArray: ArrayLike<number> | null | undefined,
     timeArray: ArrayLike<number> | null | undefined,
     pipeline?: FilterStep[] | null,
-    inputQuality?: ArrayLike<number>
+    inputQuality?: ArrayLike<number>,
+    context: FilterExecutionContext = {}
   ): { values: number[]; quality: Uint16Array; steps: PipelineStepReport[] } {
     if (!dataArray || dataArray.length === 0) {
       return { values: [], quality: new Uint16Array(0), steps: [] };
@@ -885,8 +1157,12 @@ export const Filter = {
     for (const step of normalizedPipeline) {
       if (step.enabled === false) continue;
       const before = values;
-      values = this.applyPipeline(before, timeArray, [step]);
-      quality = this.propagateStepQuality(before, quality, step, timeArray);
+      const contextual = ['baselineSubtract', 'timeGate', 'artifactBlank', 'referenceSubtract'].includes(step.type);
+      const runtime = contextual ? applyContextualStep(before, timeArray || [], step, context) : null;
+      values = runtime ? runtime.values : this.applyPipeline(before, timeArray, [step], context);
+      quality = runtime
+        ? propagateContextualQuality(quality, step, runtime)
+        : this.propagateStepQuality(before, quality, step, timeArray);
       let changedSamples = 0;
       for (let index = 0; index < Math.min(before.length, values.length); index += 1) {
         if (!Object.is(before[index], values[index])) changedSamples += 1;
@@ -896,8 +1172,11 @@ export const Filter = {
         type: step.type,
         changedSamples,
         totalSamples: values.length,
-        warnings: this.filterWarnings(step, timeArray, before),
-        effectiveParameters: this.effectiveParameters(step, timeArray, before)
+        warnings: [...this.filterWarnings(step, timeArray, before), ...(runtime?.warnings || [])],
+        effectiveParameters: {
+          ...this.effectiveParameters(step, timeArray, before),
+          ...(runtime?.effectiveParameters || {})
+        } as Record<string, string | number | boolean | null>
       });
     }
     return { values, quality, steps: reports };

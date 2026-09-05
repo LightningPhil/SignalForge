@@ -2,6 +2,7 @@ import type { TransferFunctionOptions, TransferFunctionResult } from '../analysi
 import type { SpectrogramOptions, SpectrogramResult } from '../analysis/timeFrequency';
 import type { PulsePowerInput, PulsePowerResult } from '../analysis/pulsePower';
 import type { SpectrumOptions } from '../processing/fft';
+import type { FilterExecutionContext } from '../processing/filter';
 import type { FilterStep, PipelineStepReport, SerializedFirDesign, SpectrumResult } from '../types';
 
 export interface FilterWorkerResult {
@@ -41,6 +42,7 @@ export type WorkerTask =
       time: Float64Array;
       quality: Uint16Array;
       pipeline: FilterStep[];
+      context?: FilterExecutionContext;
     }
   | {
       id: string;

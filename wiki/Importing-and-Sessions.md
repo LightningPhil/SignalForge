@@ -106,9 +106,16 @@ line ending) are rejected. Tektronix ISF preambles must declare `XINCR` and
 A session contains shots, channels, source files, annotations, processing
 settings and provenance-rich results.
 
-- Navigate with Previous/Next or Alt+arrow keys.
+- Filter the sidebar to needs-review, warning-bearing, excluded or all shots;
+  the progress summary updates as statuses change.
+- Navigate the active queue with Previous/Next or Alt+arrow keys.
 - Add notes and accepted/excluded review status.
 - Place markers directly or snap to samples, slope, curvature or change points.
+  With the review plot focused, arrows move the sample cursor, Enter places the
+  marker, and A/R accepts or rejects the next pending suggestion.
 - Treat accepted manual markers as authoritative.
-- Use overlay, small-multiple, event-aligned and waterfall comparisons.
+- Use overlay, small-multiple, event-aligned amplitude waterfall and bounded
+  per-shot STFT spectrogram comparisons.
+- The review header reports pending, saving, saved and failed persistence
+  states; failed autosaves remain visible until a later save succeeds.
 - Save locally in IndexedDB or export a `.signalforge` project archive.

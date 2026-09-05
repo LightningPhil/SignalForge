@@ -1,4 +1,5 @@
 import { authoritativeAnnotation, type Session, type SessionAnalysisResult, type Shot } from '../domain/session';
+import { hashCanonicalJson } from '../domain/provenance';
 import { analyzeTimebase } from '../processing/sampling';
 import { analysisWorkerClient } from '../workers/client';
 import { calculatePulsePower, type PulsePowerInput, type PulsePowerResult } from './pulsePower';
@@ -31,10 +32,7 @@ export interface BatchResult {
 }
 
 async function hashRecipe(recipe: BatchPulseRecipe): Promise<string> {
-  const keys = Object.keys(recipe).sort();
-  const canonical = JSON.stringify(recipe, keys);
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  return hashCanonicalJson(recipe);
 }
 
 function markerIndex(

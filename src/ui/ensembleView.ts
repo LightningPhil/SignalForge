@@ -1,6 +1,7 @@
 import Plotly from 'plotly.js-dist-min';
 import type { Data, Layout } from 'plotly.js';
 import { eventAlignShots } from '../analysis/ensemble';
+import { computeEventAlignedSpectrogram } from '../analysis/eventAlignedSpectrogram';
 import { analyzeRinging } from '../analysis/ringing';
 import type { Session } from '../domain/session';
 import { createModal, escapeHtml } from './uiHelpers';
@@ -27,6 +28,7 @@ export const EnsembleView = {
             <option value="overlay">Overlay</option>
             <option value="small-multiple">Small multiples</option>
             <option value="waterfall">Shot waterfall</option>
+            <option value="spectrogram">Event-aligned spectrogram</option>
             <option value="ringing">Ringing vs metadata</option>
           </select>
         </label>
@@ -34,6 +36,12 @@ export const EnsembleView = {
         <label class="text-sm">After (s)<input id="ensemble-after" class="sf-field" type="number" step="any" value="0.00005"></label>
         <label class="text-sm">Metadata x-axis
           <select id="ensemble-metadata" class="sf-field">${metadataNames.map((name) => `<option>${escapeHtml(name)}</option>`).join('')}</select>
+        </label>
+        <label class="text-sm">STFT window
+          <input id="ensemble-stft-window" class="sf-field" type="number" min="8" max="4096" step="1" value="128">
+        </label>
+        <label class="text-sm">STFT overlap
+          <input id="ensemble-stft-overlap" class="sf-field" type="number" min="0" max="0.95" step="0.05" value="0.5">
         </label>
       </div>
       <button id="ensemble-render" class="sf-btn mb-2" type="button">Render comparison</button>
@@ -70,7 +78,62 @@ export const EnsembleView = {
       showlegend: true
     };
 
-    if (mode === 'waterfall') {
+    if (mode === 'spectrogram') {
+      const stftWindow = Number(content.querySelector<HTMLInputElement>('#ensemble-stft-window')?.value) || 128;
+      const requestedOverlap = Number(content.querySelector<HTMLInputElement>('#ensemble-stft-overlap')?.value);
+      const stftOverlap = Number.isFinite(requestedOverlap) ? requestedOverlap : 0.5;
+      const result = computeEventAlignedSpectrogram(session.shots, channelName, markerName, {
+        beforeSeconds,
+        afterSeconds,
+        sampleCount: 1000,
+        windowSize: stftWindow,
+        overlap: stftOverlap,
+        maxPoints: 1000
+      });
+      if (warning) warning.textContent = result.warnings.join(' ');
+      const visibleShots = result.shots;
+      let zmin = Infinity;
+      let zmax = -Infinity;
+      for (const shot of visibleShots) {
+        for (const row of shot.magnitudeDb) {
+          for (const magnitude of row) {
+            if (!Number.isFinite(magnitude)) continue;
+            zmin = Math.min(zmin, magnitude);
+            zmax = Math.max(zmax, magnitude);
+          }
+        }
+      }
+      if (!Number.isFinite(zmin) || !Number.isFinite(zmax)) {
+        zmin = -120;
+        zmax = 0;
+      } else {
+        zmin = Math.max(zmin, zmax - 120);
+      }
+      visibleShots.forEach((shot, index) => {
+        const yAxis = index === 0 ? 'y' : `y${index + 1}`;
+        traces.push({
+          type: 'heatmap',
+          x: shot.timeBins,
+          y: shot.freqBins,
+          z: shot.magnitudeDb,
+          name: shot.shotName,
+          yaxis: yAxis,
+          colorscale: 'Turbo',
+          zmin,
+          zmax,
+          showscale: index === 0,
+          hovertemplate: `${escapeHtml(shot.shotName)}<br>t=%{x:.6g}s<br>f=%{y:.6g}Hz<br>%{z:.2f}dB<extra></extra>`
+        });
+        const rowHeight = 1 / Math.max(1, visibleShots.length);
+        (layout as Record<string, unknown>)[index === 0 ? 'yaxis' : `yaxis${index + 1}`] = {
+          title: index === 0 ? 'Frequency (Hz)' : shot.shotName,
+          domain: [1 - (index + 1) * rowHeight, 1 - index * rowHeight]
+        };
+      });
+      layout.title = `${channelName} spectrograms aligned to ${markerName}`;
+      layout.xaxis = { title: 'Time from marker (s)' };
+      layout.showlegend = false;
+    } else if (mode === 'waterfall') {
       traces.push({
         type: 'heatmap',
         x: ensemble.relativeTime,

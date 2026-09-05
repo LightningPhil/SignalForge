@@ -1,10 +1,12 @@
 import { authoritativeAnnotation, type Shot } from '../domain/session';
+import { alignQualityToTimebase, interpolateToTimebase } from '../processing/sampling';
 
 export interface AlignedShotSeries {
   shotId: string;
   shotName: string;
   relativeTime: number[];
   values: number[];
+  quality: Uint16Array;
   metadata: Shot['metadata'];
 }
 
@@ -15,21 +17,6 @@ export interface EventAlignedEnsemble {
   median: number[];
   trimmedMean: number[];
   warnings: string[];
-}
-
-function interpolate(time: Float64Array, values: Float64Array, target: number): number {
-  if (target < time[0] || target > time[time.length - 1]) return Number.NaN;
-  let low = 0;
-  let high = time.length - 1;
-  while (high - low > 1) {
-    const middle = Math.floor((low + high) / 2);
-    if (time[middle] <= target) low = middle;
-    else high = middle;
-  }
-  const interval = time[high] - time[low];
-  if (!(interval > 0)) return Number.NaN;
-  const fraction = (target - time[low]) / interval;
-  return values[low] + (values[high] - values[low]) * fraction;
 }
 
 function aggregate(rows: number[][], mode: 'mean' | 'median' | 'trimmed', trimFraction = 0.1): number[] {
@@ -72,14 +59,22 @@ export function eventAlignShots(
       warnings.push(`${shot.name}: missing accepted "${markerName}" marker or "${channelName}" channel.`);
       continue;
     }
-    const values = relativeTime.map((relative) =>
-      interpolate(channel.time, channel.values, marker.startTime + relative - channel.timingOffsetSeconds)
+    const targetTime = relativeTime.map((relative) => marker.startTime + relative);
+    const interpolation = interpolateToTimebase(channel.time, channel.values, targetTime, channel.timingOffsetSeconds);
+    warnings.push(...interpolation.warnings.map((warning) => `${shot.name}: ${warning}`));
+    const quality = alignQualityToTimebase(
+      channel.time,
+      channel.quality,
+      targetTime,
+      channel.timingOffsetSeconds,
+      channel.values
     );
     aligned.push({
       shotId: shot.id,
       shotName: shot.name,
       relativeTime,
-      values,
+      values: interpolation.values,
+      quality,
       metadata: shot.metadata
     });
   }

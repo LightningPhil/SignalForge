@@ -13,9 +13,17 @@ const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:
 const openModalOverlays: HTMLElement[] = [];
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true'
-  );
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => {
+    if (
+      element.hasAttribute('disabled') ||
+      element.getAttribute('aria-hidden') === 'true' ||
+      (element instanceof HTMLInputElement && element.type === 'hidden')
+    ) {
+      return false;
+    }
+    const style = getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+  });
 }
 
 export function createModal(htmlContent: string, options: { onClose?: () => void } = {}): HTMLElement {
@@ -44,7 +52,7 @@ export function createModal(htmlContent: string, options: { onClose?: () => void
     if (stackIndex >= 0) openModalOverlays.splice(stackIndex, 1);
     overlay.remove();
     options.onClose?.();
-    if (previouslyFocused?.isConnected && openModalOverlays.length === 0) previouslyFocused.focus();
+    if (previouslyFocused?.isConnected) previouslyFocused.focus();
   };
   const isTopmost = () => {
     // Overlays removed directly from the DOM (rather than via close()) must not stay on the stack,
@@ -93,10 +101,19 @@ export function createModal(htmlContent: string, options: { onClose?: () => void
   overlay.addEventListener('signalforge:close', close);
   window.addEventListener('keydown', handleDocumentKeydown, true);
 
+  content.classList.add('relative');
+  const closeButton = document.createElement('button');
+  closeButton.type = 'button';
+  closeButton.className = 'sf-btn absolute right-3 top-3 z-10 px-2 py-1';
+  closeButton.setAttribute('aria-label', 'Close dialog');
+  closeButton.textContent = '×';
+  closeButton.addEventListener('click', close);
+  content.prepend(closeButton);
+
   overlay.appendChild(content);
   document.body.appendChild(overlay);
   openModalOverlays.push(overlay);
-  const focusable = content.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+  const focusable = focusableElements(content)[0];
   (focusable || overlay).focus();
   return content;
 }

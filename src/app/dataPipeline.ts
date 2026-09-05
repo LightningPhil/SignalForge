@@ -1,4 +1,5 @@
 import { Filter } from '../processing/filter';
+import { AnalysisEngine } from '../analysis/analysisEngine';
 import { FIR_UNIFORM_TOLERANCE } from '../processing/fir';
 import { analyzeTimebase } from '../processing/sampling';
 import { combineQualityMasks } from '../data/quality';
@@ -11,6 +12,7 @@ import { SpectralPanel } from '../ui/spectralPanel';
 import { SystemPanel } from '../ui/systemPanel';
 import { AnalysisWorkerTaskError, analysisWorkerClient } from '../workers/client';
 import type { FilterWorkerResult } from '../workers/protocol';
+import { buildFilterExecutionContext, cloneFilterExecutionContextForWorker } from './filterContext';
 import { getRawSeries, getSeriesForColumn, rememberPreparedMultiView } from './traceData';
 
 let activePipelineTask: AbortController | null = null;
@@ -101,7 +103,8 @@ async function runMultiViewWithWorkers(
           signal: Float64Array.from(rawY),
           time: Float64Array.from(rawX),
           quality: inputQuality.slice(),
-          pipeline: State.clonePipeline(pipeline)
+          pipeline: State.clonePipeline(pipeline),
+          context: cloneFilterExecutionContextForWorker(buildFilterExecutionContext(columnId, rawX))
         },
         {
           signal: controller.signal,
@@ -229,6 +232,7 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
   }
 
   const pipeline = State.getPipeline();
+  const filterContext = buildFilterExecutionContext(seriesName, rawX);
   if (
     (rawY.length >= 100_000 || Filter.shouldRunFirInWorker(pipeline, rawX, rawY.length)) &&
     typeof Worker !== 'undefined'
@@ -243,7 +247,8 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
           signal: Float64Array.from(rawY),
           time: Float64Array.from(rawX),
           quality: inputQuality.slice(),
-          pipeline: State.clonePipeline(pipeline)
+          pipeline: State.clonePipeline(pipeline),
+          context: cloneFilterExecutionContextForWorker(filterContext)
         },
         {
           signal: controller.signal,
@@ -290,7 +295,7 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
         const transportMessage = error instanceof Error ? error.message : String(error);
         notifyDataWarning(`Background worker unavailable (${transportMessage}); filtering on the main thread.`);
         try {
-          const filtered = Filter.applyPipelineWithReport(rawY, rawX, pipeline, inputQuality);
+          const filtered = Filter.applyPipelineWithReport(rawY, rawX, pipeline, inputQuality, filterContext);
           State.data.processed = filtered.values;
           State.data.processedQuality = filtered.quality;
           State.data.pipelineReport = filtered.steps;
@@ -321,7 +326,7 @@ export function runPipelineAndRender(range: ViewRange | null = null): void {
   }
 
   try {
-    const filtered = Filter.applyPipelineWithReport(rawY, rawX, pipeline, inputQuality);
+    const filtered = Filter.applyPipelineWithReport(rawY, rawX, pipeline, inputQuality, filterContext);
     State.data.processed = filtered.values;
     State.data.processedQuality = filtered.quality;
     State.data.pipelineReport = filtered.steps;
@@ -376,5 +381,26 @@ if (typeof document !== 'undefined') {
     runPipelineAndRender(range || null);
   });
 }
+
+let contextualSelectionTimer: ReturnType<typeof setTimeout> | null = null;
+AnalysisEngine.onSelectionChange(() => {
+  const columns = State.ui.activeMultiViewId
+    ? State.multiViews.find((view) => view.id === State.ui.activeMultiViewId)?.activeColumnIds || []
+    : [State.data.dataColumn].filter((column): column is string => Boolean(column));
+  const usesSelection = columns.some((column) =>
+    State.getPipelineForColumn(column).some(
+      (step) =>
+        step.enabled !== false &&
+        ['baselineSubtract', 'timeGate', 'artifactBlank'].includes(step.type) &&
+        step.regionMode === 'selection'
+    )
+  );
+  if (!usesSelection) return;
+  if (contextualSelectionTimer) clearTimeout(contextualSelectionTimer);
+  contextualSelectionTimer = setTimeout(() => {
+    contextualSelectionTimer = null;
+    runPipelineAndRender();
+  }, 75);
+});
 
 export { getRawSeries };

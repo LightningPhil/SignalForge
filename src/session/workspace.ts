@@ -17,6 +17,7 @@ import { getTimeArray } from '../app/traceData';
 import { timeScaleToSeconds } from '../units/units';
 
 type WorkspaceListener = (session: Session | null, shot: Shot | null) => void;
+export type SessionSaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
 function headerUnit(header: string): string {
   return header.match(/(?:\(|\[)\s*([^\])]+)\s*(?:\)|\])\s*$/)?.[1] || '';
@@ -121,6 +122,9 @@ export const SessionWorkspace = {
   activeSession: null as Session | null,
   activeShotId: null as string | null,
   persistenceError: null as string | null,
+  saveState: 'idle' as SessionSaveState,
+  lastSavedAt: null as string | null,
+  saveGeneration: 0,
   hydratingShot: false,
   listeners: new Set<WorkspaceListener>(),
 
@@ -134,27 +138,58 @@ export const SessionWorkspace = {
     this.listeners.forEach((listener) => listener(this.activeSession, shot));
   },
 
+  setSaveState(saveState: SessionSaveState): void {
+    this.saveState = saveState;
+    if (saveState === 'saved') this.lastSavedAt = new Date().toISOString();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('signalforge:save-state', {
+          detail: { state: this.saveState, savedAt: this.lastSavedAt, error: this.persistenceError }
+        })
+      );
+    }
+  },
+
   scheduleSave(): void {
     if (!this.activeSession) return;
+    const session = this.activeSession;
+    const generation = ++this.saveGeneration;
     this.persistenceError = null;
-    sessionRepository.scheduleAutosave(this.activeSession, 500, (error) => {
-      this.persistenceError = error.message;
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('signalforge:persistence-error', { detail: this.persistenceError }));
+    this.setSaveState('pending');
+    sessionRepository.scheduleAutosave(
+      session,
+      500,
+      (error) => {
+        if (this.activeSession !== session || this.saveGeneration !== generation) return;
+        this.persistenceError = error.message;
+        this.setSaveState('error');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('signalforge:persistence-error', { detail: this.persistenceError }));
+        }
+        this.notify();
+      },
+      () => {
+        if (this.activeSession === session && this.saveGeneration === generation) this.setSaveState('saved');
+      },
+      () => {
+        if (this.activeSession === session && this.saveGeneration === generation) this.setSaveState('saving');
       }
-      this.notify();
-    });
+    );
   },
 
   create(name: string): Session {
+    this.saveGeneration += 1;
     this.activeSession = createSession(name);
     this.activeSession.processingRecipe = cloneConfig();
     this.activeShotId = null;
+    this.lastSavedAt = null;
+    this.setSaveState('idle');
     this.notify();
     return this.activeSession;
   },
 
   setActive(session: Session, shotId: string | null = null): void {
+    this.saveGeneration += 1;
     const previous = this.activeSession;
     if (previous && previous !== session && previous.id === session.id) {
       // Reloading the same session from storage replaces the in-memory copy; a pending autosave of the
@@ -162,6 +197,8 @@ export const SessionWorkspace = {
       sessionRepository.cancelAutosave(previous.id);
     }
     this.activeSession = session;
+    this.persistenceError = null;
+    this.setSaveState('saved');
     this.activeShotId = shotId || session.shots[0]?.id || null;
     const shot = this.getActiveShot();
     if (shot?.channels.length) this.openShot(shot.id);
@@ -572,6 +609,17 @@ export const SessionWorkspace = {
         result.provenance.annotationIds.includes(marker.id) ||
         (result.type === 'pulse-power' && this.resultUsesMarkerName(result, marker.name))
     );
+    const markerBoundPipeline = State.getPipeline().some(
+      (step) =>
+        step.enabled !== false &&
+        (step.regionMarker === marker.name || step.startMarker === marker.name || step.endMarker === marker.name)
+    );
+    if (markerBoundPipeline) {
+      State.data.processed = [];
+      State.data.processedQuality = new Uint16Array(0);
+      State.data.pipelineReport = [];
+      State.data.firDesigns = [];
+    }
   },
 
   resultUsesMarkerName(result: SessionAnalysisResult, name: string): boolean {
@@ -608,13 +656,22 @@ export const SessionWorkspace = {
 
   async save(): Promise<Session | null> {
     if (!this.activeSession) return null;
+    const session = this.activeSession;
+    const generation = ++this.saveGeneration;
+    sessionRepository.cancelAutosave(session.id);
     try {
-      this.activeSession = await sessionRepository.save(this.activeSession);
+      this.setSaveState('saving');
+      const saved = await sessionRepository.save(session);
+      if (this.activeSession !== session || this.saveGeneration !== generation) return saved;
+      this.activeSession = saved;
       this.persistenceError = null;
+      this.setSaveState('saved');
       this.notify();
       return this.activeSession;
     } catch (error) {
+      if (this.activeSession !== session || this.saveGeneration !== generation) throw error;
       this.persistenceError = error instanceof Error ? error.message : String(error);
+      this.setSaveState('error');
       this.notify();
       throw error;
     }

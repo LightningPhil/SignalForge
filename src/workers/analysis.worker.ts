@@ -40,7 +40,7 @@ function execute(task: WorkerTask): WorkerTaskResult {
   }
   if (task.kind === 'filter') {
     progress(task.id, 0.2, 'Applying processing recipe');
-    const result = Filter.applyPipelineWithReport(task.signal, task.time, task.pipeline, task.quality);
+    const result = Filter.applyPipelineWithReport(task.signal, task.time, task.pipeline, task.quality, task.context);
     const timebase = analyzeTimebase(task.time, FIR_UNIFORM_TOLERANCE);
     return {
       ...result,

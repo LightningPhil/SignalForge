@@ -1,0 +1,33 @@
+name: Synthetic scale validation
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  million-sample:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify deterministic scenario checksums
+        run: npm run lab:checksums
+      - name: Run one-million-sample structural validation
+        run: npm run test:bench:1m
+      - name: Publish analytic memory report
+        run: npm run --silent bench:report > synthetic-bench-report.json
+      - name: Record informational performance benchmark
+        run: npm run --silent bench:performance -- --million > synthetic-performance-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-bench-report
+          path: |
+            synthetic-bench-report.json
+            synthetic-performance-report.json

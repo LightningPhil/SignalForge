@@ -1,6 +1,6 @@
-// 6.0.0-f03f07548296 is replaced at build time with the package version and a hash of the built
+// 6.0.0-72f8ec07a1ee is replaced at build time with the package version and a hash of the built
 // entry document, so every deployment gets its own runtime cache and stale hashed chunks are evicted.
-const CACHE_NAME = 'signalforge-runtime-6.0.0-f03f07548296';
+const CACHE_NAME = 'signalforge-runtime-6.0.0-72f8ec07a1ee';
 
 self.addEventListener('install', () => self.skipWaiting());
 

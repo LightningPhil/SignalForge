@@ -44,14 +44,16 @@ export function showExportModal(): void {
 
     <section class="${ui.modalPanel}">
       <h4 class="mb-2 font-semibold">Analysis Exports</h4>
-      <p class="mb-3 text-sm text-muted">Save measurements, events, spectral metrics, or a full HTML report.</p>
+      <p class="mb-3 text-sm text-muted">Save individual results or reproducible engineering reports with hashes, quality exclusions, warnings and version metadata.</p>
+      <p class="mb-3 text-xs text-amber-500">Reports may contain source filenames, marker/selection details, metadata and repair values. Review the downloaded file before sharing it.</p>
       <div class="flex flex-wrap gap-2.5">
         <button class="sf-btn" id="btn-export-measure-json" type="button">Measurements (JSON)</button>
         <button class="sf-btn" id="btn-export-measure-csv" type="button">Measurements (CSV)</button>
         <button class="sf-btn" id="btn-export-events" type="button">Events (CSV)</button>
         <button class="sf-btn" id="btn-export-spectral" type="button">Spectral (JSON)</button>
         <button class="sf-btn" id="btn-export-system" type="button">System / FRF (JSON)</button>
-        <button class="sf-btn" id="btn-export-report" type="button">Full Report (HTML)</button>
+        <button class="sf-btn" id="btn-export-report" type="button">Engineering Report (HTML)</button>
+        <button class="sf-btn" id="btn-export-report-json" type="button">Engineering Report (JSON)</button>
       </div>
     </section>
 
@@ -108,7 +110,7 @@ export function showExportModal(): void {
         <button class="sf-btn" id="btn-download-settings" type="button">Download Settings (.json)</button>
         <button class="sf-btn" id="btn-upload-settings" type="button">Load Settings from File</button>
       </div>
-      <input type="file" id="input-settings-file" accept="application/json" class="hidden">
+      <input type="file" id="input-settings-file" accept="application/json" class="hidden" aria-label="Choose settings file">
     </section>
   `;
 
@@ -178,6 +180,9 @@ export function showExportModal(): void {
   modal.querySelector('#btn-export-system')?.addEventListener('click', () => Exporter.downloadSystemJSON());
   modal.querySelector('#btn-export-report')?.addEventListener('click', () => {
     void Exporter.downloadReport();
+  });
+  modal.querySelector('#btn-export-report-json')?.addEventListener('click', () => {
+    void Exporter.downloadEngineeringReportJSON();
   });
 
   const exportImage = (format: 'png' | 'svg') => {

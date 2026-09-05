@@ -156,9 +156,17 @@ function computeSystem(): void {
   const selection = analysis.systemSelectionOnly === false ? null : State.getAnalysisSelection();
   const inputY = inputSeries.isMath ? inputSeries.rawY : inputSeries.filteredY || inputSeries.rawY;
   const outputY = outputSeries.isMath ? outputSeries.rawY : outputSeries.filteredY || outputSeries.rawY;
+  const inputQuality = inputSeries.isMath
+    ? inputSeries.rawQuality
+    : inputSeries.filteredQuality || inputSeries.rawQuality;
+  const outputQuality = outputSeries.isMath
+    ? outputSeries.rawQuality
+    : outputSeries.filteredQuality || outputSeries.rawQuality;
   const delay: DelayEstimate = CrossChannel.estimateDelay(outputSeries.time, inputY, outputY, {
     selection,
-    maxLagSeconds: analysis.systemMaxLagSeconds
+    maxLagSeconds: analysis.systemMaxLagSeconds,
+    inputQuality,
+    outputQuality
   });
   const time = inputSeries.time.length <= outputSeries.time.length ? inputSeries.time : outputSeries.time;
   const frf = CrossChannel.computeTransferFunction(inputY, outputY, time, {
@@ -166,7 +174,9 @@ function computeSystem(): void {
     windowType: analysis.fftWindow,
     detrend: analysis.fftDetrend,
     zeroPadMode: analysis.fftZeroPad,
-    zeroPadFactor: analysis.fftZeroPadFactor
+    zeroPadFactor: analysis.fftZeroPadFactor,
+    inputQuality,
+    outputQuality
   });
 
   latestResult = {

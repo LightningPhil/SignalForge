@@ -34,9 +34,21 @@ export class AnalysisWorkerTransportError extends Error {
 function transferableBuffers(task: WorkerTask): Transferable[] {
   if (task.kind === 'parse-delimited') return [];
   const buffers: Transferable[] = [];
-  for (const value of Object.values(task)) {
-    if (ArrayBuffer.isView(value) && value.buffer instanceof ArrayBuffer) buffers.push(value.buffer);
-  }
+  const seen = new Set<unknown>();
+  const visit = (value: unknown): void => {
+    if (value === null || typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+    if (ArrayBuffer.isView(value)) {
+      if (value.buffer instanceof ArrayBuffer && !buffers.includes(value.buffer)) buffers.push(value.buffer);
+      return;
+    }
+    if (value instanceof ArrayBuffer) {
+      if (!buffers.includes(value)) buffers.push(value);
+      return;
+    }
+    Object.values(value as Record<string, unknown>).forEach(visit);
+  };
+  visit(task);
   return buffers;
 }
 

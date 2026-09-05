@@ -61,6 +61,13 @@ export interface StateDataChange {
   columnIds: string[];
 }
 
+interface PipelineHistorySnapshot {
+  pipeline: FilterStep[];
+  columnPipelines: Record<string, FilterStep[]>;
+  pipelineScope: boolean;
+  selectedStepId: string | null;
+}
+
 const dataChangeListeners = new Set<(change: StateDataChange) => void>();
 const traceConfigListeners = new Set<(columnId: string, config: TraceConfig) => void>();
 const dataReplaceListeners = new Set<() => void>();
@@ -96,6 +103,9 @@ export const State = {
     viewRanges: {},
     analysis: { selection: null, events: [], activeEventIndex: 0 }
   } as UiState,
+  pipelineUndoStack: [] as PipelineHistorySnapshot[],
+  pipelineRedoStack: [] as PipelineHistorySnapshot[],
+  restoringPipelineHistory: false,
 
   onDataChange(listener: (change: StateDataChange) => void): () => void {
     dataChangeListeners.add(listener);
@@ -144,6 +154,7 @@ export const State = {
     this.composer = { views: {} };
     this.traceConfigs = {};
     this.config.mathDefinitions = [];
+    this.clearPipelineHistory();
     this.resetAnalysisUi();
     if (notifyReplacement) dataReplaceListeners.forEach((listener) => listener());
   },
@@ -468,6 +479,59 @@ export const State = {
     delete this.ui.viewRanges[key];
   },
 
+  capturePipelineHistory(): PipelineHistorySnapshot {
+    return {
+      pipeline: this.clonePipeline(this.config.pipeline),
+      columnPipelines: clone(this.config.columnPipelines || {}),
+      pipelineScope: this.config.pipelineScope,
+      selectedStepId: this.ui.selectedStepId
+    };
+  },
+
+  recordPipelineHistory(): void {
+    if (this.restoringPipelineHistory) return;
+    this.pipelineUndoStack.push(this.capturePipelineHistory());
+    if (this.pipelineUndoStack.length > 100) this.pipelineUndoStack.shift();
+    this.pipelineRedoStack = [];
+  },
+
+  restorePipelineHistory(snapshot: PipelineHistorySnapshot): void {
+    this.restoringPipelineHistory = true;
+    try {
+      this.config.pipeline = this.clonePipeline(snapshot.pipeline);
+      this.config.columnPipelines = clone(snapshot.columnPipelines);
+      this.config.pipelineScope = snapshot.pipelineScope;
+      this.ui.selectedStepId = snapshot.selectedStepId;
+      this.data.processed = [];
+      this.data.processedQuality = new Uint16Array(0);
+      this.data.pipelineReport = [];
+      this.data.firDesigns = [];
+    } finally {
+      this.restoringPipelineHistory = false;
+    }
+  },
+
+  undoPipelineChange(): boolean {
+    const previous = this.pipelineUndoStack.pop();
+    if (!previous) return false;
+    this.pipelineRedoStack.push(this.capturePipelineHistory());
+    this.restorePipelineHistory(previous);
+    return true;
+  },
+
+  redoPipelineChange(): boolean {
+    const next = this.pipelineRedoStack.pop();
+    if (!next) return false;
+    this.pipelineUndoStack.push(this.capturePipelineHistory());
+    this.restorePipelineHistory(next);
+    return true;
+  },
+
+  clearPipelineHistory(): void {
+    this.pipelineUndoStack = [];
+    this.pipelineRedoStack = [];
+  },
+
   clonePipeline(pipeline?: FilterStep[] | null): FilterStep[] {
     return clone(pipeline || []);
   },
@@ -525,6 +589,8 @@ export const State = {
 
   setPipelineScope(isGlobal: boolean, columnIds: string[] = []): void {
     const desired = !!isGlobal;
+    if (desired === this.config.pipelineScope) return;
+    this.recordPipelineHistory();
     const activePipeline = this.clonePipeline(this.getPipeline());
 
     if (desired) {
@@ -551,6 +617,7 @@ export const State = {
   },
 
   addStep(type: FilterType): FilterStep {
+    this.recordPipelineHistory();
     const pipeline = this.getPipeline();
     if (pipeline.length === 1 && pipeline[0].type === 'nullFilter') {
       pipeline.pop();
@@ -562,6 +629,11 @@ export const State = {
       enabled: true,
       ...(type === 'nullFilter' ? {} : defaultKeys[type] || {})
     };
+    if (type === 'referenceSubtract' && !newStep.referenceColumnId) {
+      newStep.referenceColumnId =
+        this.data.headers.find((header) => header !== this.data.timeColumn && header !== this.getActiveColumnId()) ||
+        '';
+    }
 
     const frequencyTypes = new Set<FilterType>([
       'lowPassFFT',
@@ -632,6 +704,8 @@ export const State = {
   },
 
   removeStep(id: string): void {
+    if (!this.getPipeline().some((step) => step.id === id)) return;
+    this.recordPipelineHistory();
     this.setPipelineForColumn(
       this.getActiveColumnId(),
       this.getPipeline().filter((s) => s.id !== id)
@@ -645,6 +719,7 @@ export const State = {
     if (idx === -1) return;
     const newIdx = idx + direction;
     if (newIdx < 0 || newIdx >= pipeline.length) return;
+    this.recordPipelineHistory();
     const temp = pipeline[idx];
     pipeline[idx] = pipeline[newIdx];
     pipeline[newIdx] = temp;
@@ -652,7 +727,11 @@ export const State = {
 
   updateStepParams(id: string, params: Partial<FilterStep>): void {
     const step = this.getPipeline().find((s) => s.id === id);
-    if (step) Object.assign(step, params);
+    if (!step) return;
+    const changed = Object.entries(params).some(([key, value]) => !Object.is(step[key as keyof FilterStep], value));
+    if (!changed) return;
+    this.recordPipelineHistory();
+    Object.assign(step, params);
   },
 
   getSelectedStep(): FilterStep | undefined {

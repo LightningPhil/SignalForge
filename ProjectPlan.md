@@ -82,18 +82,19 @@ document.
   `.signalforge` archives.
 - **Gate 6:** baseline implemented, including typed profiles and
   convention-free import; opt-in expert regular expressions remain unshipped.
-- **Gate 7:** baseline implemented and browser-tested. A filtered review queue
-  and cross-shot STFT spectrogram remain unshipped; the current shot list and
-  waterfall heatmap do not claim those deliverables.
-- **Gate 8:** exposed filters are implemented and reference-tested. Baseline,
-  gating, blanking and reference subtraction remain library-only until their
-  marker/channel/provenance UI is completed.
+- **Gate 7:** implemented and browser-tested, including derived review queues,
+  progress and save-state summaries, keyboard marker review and event-aligned
+  per-shot STFT comparison.
+- **Gate 8:** implemented and reference-tested. Baseline subtraction, time
+  gating, artifact blanking/interpolation and reference subtraction are
+  marker/selection-aware pipeline steps with quality propagation, provenance,
+  residual inspection and recipe undo/redo.
 - **Gate 9:** adapter framework complete; model-specific native decoders remain
   fixture-required.
-- **Gate 10:** partial. CI, `npm audit`, pull-request dependency review,
-  workers, lazy chunks, service worker and archive limits are present. Measured
-  performance budgets and service-worker upgrade/version tests remain future
-  work.
+- **Gate 10:** implemented. CI, audit/dependency review, workers, lazy chunks,
+  bounded archives, two-deployment service-worker testing, accessibility
+  regressions, deterministic tracked-build verification, release-note
+  configuration and 100k/1M synthetic performance budgets are present.
 
 ## Definition of stable
 
@@ -369,9 +370,11 @@ convention-free mode ship; opt-in expert regular expressions do not.
 
 ## Gate 7 — Manual review workspace
 
-**Current status: baseline implemented.** The current all-shot list is not yet
-a warning/incomplete-only review queue. The event-aligned waterfall is a
-cross-shot amplitude heatmap, not an STFT spectrogram.
+**Current status: implemented.** Needs-review, warning-bearing, excluded and
+all-shot queues are derived without changing session data. Review progress and
+pending/saving/saved/error states are visible. Keyboard marker placement and
+suggestion decisions are supported, and comparison offers both an amplitude
+waterfall and bounded per-shot event-aligned STFT spectrograms.
 
 ### Deliverables
 
@@ -397,10 +400,13 @@ cross-shot amplitude heatmap, not an STFT spectrogram.
 
 ## Gate 8 — Noise and transient-preserving processing
 
-**Current status:** exposed FIR and IIR filters are UI-integrated and
-reference-tested. Baseline subtraction, time gating, artifact blanking and
-reference-channel subtraction are library-only pending
-marker/channel/provenance-aware UI.
+**Current status: implemented.** Exposed FIR and IIR filters remain
+reference-tested. Baseline subtraction, time gating, artifact
+blanking/interpolation and reference/common-mode subtraction are now explicit
+pipeline steps bound to plot selections, explicit bounds, named regions,
+marker pairs or aligned reference channels. Pipeline reports preserve resolved
+bounds, annotation IDs, quality effects and warnings; recipe undo/redo and the
+raw-minus-processed residual provide reversible review.
 
 ### Deliverables
 
@@ -460,24 +466,24 @@ scaling, timestamp metadata and known malformed cases. An adapter remains
 
 ## Gate 10 — Batch analysis, offline use and release hardening
 
-**Current status: partial.** The service worker ships with an
-installation/cache browser assertion. Its runtime cache name is stamped at
-build time (package version + hash of the built entry document) so each
-deployment activates a fresh cache and deletes the previous one; only
-content-hashed `assets/` are cache-first, everything else is network-first with
-cache fallback. Update behavior is verified by the build-time stamp and unit
-tests, not yet by a two-deployment browser test. CI runs both `npm audit` and
-GitHub Dependency Review for pull-request dependency changes.
+**Current status: implemented.** The service worker runtime cache is stamped
+with the package version and built-entry hash. A two-deployment same-origin
+Playwright test verifies activation, old-cache eviction, new content and
+offline reuse. CI runs audit/dependency review, accessibility regressions and a
+tracked-`dist` parity/reference/stamp check. Seeded 100k validation runs on the
+normal gate; the one-million-sample structural suite and informational timing
+report run on the scheduled/manual synthetic workflow.
 
 - Queue batch processing by session/shot with deterministic recipe hashes.
 - Cache immutable results and invalidate by dependency.
 - Add progress, cancellation, retry and per-shot failure isolation.
 - Split Plotly and heavy analysis code to reduce initial bundle cost.
-- Add a two-deployment browser test for service-worker update/version behavior
-  (the versioned cache name is already stamped at build time).
+- Maintain the two-deployment browser test for service-worker update/version
+  behavior.
 - Add dependency review and vulnerability audit to CI.
-- Add regression datasets and numerical result snapshots.
-- Document limitations, supported adapters and uncertainty.
+- Maintain seeded regression scenarios and locked numerical checksums.
+- Keep report limitations, supported adapters and explicit uncertainty status
+  synchronized with the implemented analysis.
 
 ## Implementation sequence
 

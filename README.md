@@ -81,15 +81,19 @@ npm run dev
 
 Then open the local URL printed by Vite (typically `http://localhost:5173`).
 
-| Script              | Purpose                                                 |
-| :------------------ | :------------------------------------------------------ |
-| `npm run dev`       | Start the Vite development server                       |
-| `npm run typecheck` | Run strict TypeScript checks                            |
-| `npm run test:run`  | Run deterministic numerical and data-integrity tests    |
-| `npm run test:e2e`  | Run Chromium workflow tests                             |
-| `npm run check`     | Run types, lint, formatting and unit-test quality gates |
-| `npm run build`     | Type-check and produce a production build in `dist/`    |
-| `npm run preview`   | Preview the production build locally                    |
+| Script                         | Purpose                                                 |
+| :----------------------------- | :------------------------------------------------------ |
+| `npm run dev`                  | Start the Vite development server                       |
+| `npm run typecheck`            | Run strict TypeScript checks                            |
+| `npm run test:run`             | Run deterministic numerical and data-integrity tests    |
+| `npm run test:e2e`             | Run Chromium workflow tests                             |
+| `npm run test:lab`             | Run seeded synthetic and 100k-sample validation         |
+| `npm run test:bench:1m`        | Run one-million-sample structural validation            |
+| `npm run check`                | Run types, lint, formatting and unit-test quality gates |
+| `npm run build`                | Type-check and produce a production build in `dist/`    |
+| `npm run verify:dist`          | Verify tracked build parity, references and SW stamp    |
+| `npm run verify:dist:artifact` | Verify unstaged artifact integrity                      |
+| `npm run preview`              | Preview the production build locally                    |
 
 Development is integrated on `dev`. Only stable, fully checked work is merged
 to `master`, which is the GitHub Pages production branch. See
@@ -123,9 +127,13 @@ Versioned wiki source starts at [`wiki/Home.md`](wiki/Home.md).
   A matching example is `shot 7 - 25kV - 200mm - Voltage.csv`.
 - **Any filename:** Turn off filename-convention extraction. Every supported file
   is accepted regardless of its name and becomes a separate shot.
-- **Review:** Open Sessions to navigate shots, place or accept authoritative
-  markers, add notes, include/exclude shots, compare event-aligned traces, and
-  run unit-aware pulse-power calculations.
+- **Review:** Open Sessions to filter needs-review, warning-bearing, excluded or
+  all-shot queues; monitor review progress and autosave state; place or accept
+  authoritative markers; and run unit-aware pulse-power calculations. With the
+  waveform focused, arrows move the sample cursor, Enter places a marker, and
+  A/R accepts or rejects the next suggestion.
+- **Compare:** Render overlays, small multiples, amplitude waterfalls or
+  per-shot STFT spectrograms aligned to an authoritative event marker.
 - Sessions persist in IndexedDB and can be transferred as checksum-verified
   `.signalforge` archives.
 
@@ -142,6 +150,22 @@ Versioned wiki source starts at [`wiki/Home.md`](wiki/Home.md).
 | **Hampel**          | Median/MAD outlier replacement, including zero-MAD plateaus.             | Remove isolated glitches with explicit changed-sample reporting.   |
 | **Wavelet Denoise** | Multilevel Haar soft-thresholding with per-level robust noise estimates. | Reduce nonstationary broadband noise while retaining transients.   |
 | **Start/Stop Norm** | Explicit baseline subtraction and independent sine tapers.               | Prepare deliberately selected boundaries; never applied on import. |
+
+#### Marker, region and reference processing
+
+- **Baseline subtract:** estimate a mean, median or 10% trimmed-mean baseline
+  from the current plot selection, explicit bounds, a named region or a named
+  marker pair, then subtract it from the trace.
+- **Time gate:** retain a resolved region and zero values outside it.
+- **Artifact blank:** mark a resolved interval missing or explicitly bridge it
+  by linear interpolation; filtered quality records the selected operation.
+- **Reference/common-mode subtract:** align the reference channel by timestamps
+  and channel timing offsets, then subtract its selected scale while
+  propagating quality from both inputs.
+- These steps never modify immutable imported samples. Their resolved
+  annotation IDs, bounds, changed-sample counts and warnings appear in the
+  pipeline report. Use the processing Undo/Redo controls, step bypass/removal
+  and the raw-minus-processed residual to review and reverse them.
 
 #### Designed FIR filters
 
@@ -220,7 +244,13 @@ apply a smooth zero-phase spectral response, and interpolate back.
   - _Filtered Only:_ Time + Active Column (Filtered).
   - _Original + Filtered:_ Distinct immutable-original, repaired-working,
     original-quality, working-quality, filtered, and math columns.
-- **Analysis:** Measurements (JSON/CSV), events CSV, spectral JSON, system/FRF JSON, or a full HTML report with a plot snapshot.
+- **Analysis:** Measurements (JSON/CSV), events CSV, spectral JSON, system/FRF
+  JSON, or reproducible engineering reports in HTML and JSON. Reports include
+  source and recipe SHA-256 hashes, application version, selection, pipeline
+  provenance, per-analysis quality exclusions, warnings, available confidence
+  indicators and an explicit statement when calibrated uncertainty is not
+  available. HTML summarizes at most 1,000 events; full JSON enforces a 64 MiB
+  estimated serialization budget.
 - **Images:** Save the current graph view as SVG (Vector) or PNG.
 - **Settings:** Save your pipeline configuration to a JSON file to reload later.
 - **Workspace settings:** Browser-memory save/load persists pipelines, math
@@ -294,6 +324,11 @@ document, so each deployment activates a fresh cache and deletes the previous
 one. Content-hashed `assets/` are served cache-first; the entry document,
 notices and other unhashed files are network-first with cache fallback, so a
 redeploy is picked up on the next online visit without clearing site data.
+
+Playwright exercises two distinct deployments on one origin, verifies worker
+activation and old-cache eviction, then proves the new hashed asset remains
+available offline. CI also rebuilds and runs `npm run verify:dist`, so stale,
+orphaned or source-mismatched tracked bundles fail the release gate.
 
 The current public site remains on the `master:/docs` fallback until this
 development branch is merged and GitHub Pages is switched to **GitHub
