@@ -1,0 +1,30 @@
+changelog:
+  categories:
+    - title: Scientific analysis and processing
+      labels:
+        - analysis
+        - processing
+        - scientific-correctness
+    - title: Import, sessions and review
+      labels:
+        - import
+        - sessions
+        - workflow
+    - title: Reliability, testing and deployment
+      labels:
+        - testing
+        - reliability
+        - deployment
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other changes
+      labels:
+        - '*'
+  exclude:
+    labels:
+      - skip-changelog
+  change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+  template: |
+    ## Changes
+    $CHANGES

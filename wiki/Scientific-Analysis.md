@@ -41,6 +41,24 @@ minimum event separation are explicit.
 Automatic events and marker suggestions are aids. An accepted manual marker is
 authoritative for downstream analysis.
 
+## Engineering reports and validation
+
+Engineering HTML and JSON exports preserve all contributing source hashes, the
+complete active-repair recipe hash, application and deterministic source-build
+identity, selection, pipeline reports, per-analysis quality exclusions, module
+warnings and available delay-confidence indicators. HTML bounds its event
+table to 1,000 entries; full JSON enforces a 64 MiB estimated serialization
+budget. SignalForge does not manufacture confidence intervals: the uncertainty
+section explicitly reports when no calibrated uncertainty model is available.
+
+Seeded synthetic scenarios cover pulses, ringing, jitter, clipping, missing
+gaps and noise. The normal gate exercises numerical invariants and a
+100,000-sample record; a scheduled/manual one-million-sample structural suite
+checks display reduction and typed-array memory shape without flaky wall-clock
+limits. A deterministic chunked client test verifies cancellation at its
+requested progress checkpoint. Timings are recorded as informational artifacts
+only.
+
 ## Standards statement
 
 Pulse terminology follows publicly documentable engineering practice where

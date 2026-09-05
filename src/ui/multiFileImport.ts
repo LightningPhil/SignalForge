@@ -92,7 +92,7 @@ export const MultiFileImport = {
       <div class="mb-3 flex flex-wrap gap-2">
         <input id="multi-files" type="file" multiple
           accept=".csv,.tsv,.txt,.wfm,.isf,.trc,.000,.bin,.h5,.hdf5,.psdata"
-          class="sf-field max-w-lg">
+          class="sf-field max-w-lg" aria-label="Choose waveform files">
         <button id="multi-preview" class="sf-btn" type="button">Preview extraction</button>
       </div>
       <p id="multi-error" class="mb-2 hidden text-sm text-red-500"></p>

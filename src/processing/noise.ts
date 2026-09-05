@@ -1,6 +1,7 @@
 export interface ProcessingResult {
   values: number[];
   changedIndices: number[];
+  affectedIndices?: number[];
   warnings: string[];
   effectiveParameters?: Record<string, string | number | number[] | boolean | null>;
 }
@@ -38,7 +39,8 @@ export function subtractBaseline(
   return {
     values: source.map((value) => value - baseline),
     changedIndices: Array.from({ length: source.length }, (_, index) => index),
-    warnings: []
+    warnings: [],
+    effectiveParameters: { baseline, estimator, startIndex: start, endIndex: end }
   };
 }
 
@@ -151,13 +153,15 @@ export function timeGate(
   const lower = Math.min(startTime, endTime);
   const upper = Math.max(startTime, endTime);
   const changedIndices: number[] = [];
+  const affectedIndices: number[] = [];
   for (let index = 0; index < length; index += 1) {
     if (Number(time[index]) < lower || Number(time[index]) > upper) {
+      affectedIndices.push(index);
       if (output[index] !== 0) changedIndices.push(index);
       output[index] = 0;
     }
   }
-  return { values: output, changedIndices, warnings: [] };
+  return { values: output, changedIndices, affectedIndices, warnings: [] };
 }
 
 export function blankArtifact(
@@ -182,7 +186,14 @@ export function blankArtifact(
   const left = indices[0] - 1;
   const right = indices[indices.length - 1] + 1;
   const canInterpolate =
-    mode === 'interpolate' && left >= 0 && right < length && Number(time[right]) > Number(time[left]);
+    mode === 'interpolate' &&
+    left >= 0 &&
+    right < length &&
+    Number.isFinite(Number(time[left])) &&
+    Number.isFinite(Number(time[right])) &&
+    Number(time[right]) > Number(time[left]) &&
+    Number.isFinite(Number(values[left])) &&
+    Number.isFinite(Number(values[right]));
   for (const index of indices) {
     if (canInterpolate) {
       const fraction = (Number(time[index]) - Number(time[left])) / (Number(time[right]) - Number(time[left]));
@@ -194,13 +205,19 @@ export function blankArtifact(
   return {
     values: output,
     changedIndices: indices,
+    affectedIndices: indices,
     warnings: canInterpolate
       ? ['Artifact region was explicitly interpolated.']
       : [
           mode === 'interpolate'
             ? 'Artifact region touches a boundary and was marked missing instead of interpolated.'
             : 'Artifact region was marked missing.'
-        ]
+        ],
+    effectiveParameters: {
+      operation: canInterpolate ? 'interpolate' : 'missing',
+      leftAnchorIndex: canInterpolate ? left : null,
+      rightAnchorIndex: canInterpolate ? right : null
+    }
   };
 }
 

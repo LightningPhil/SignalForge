@@ -25,6 +25,8 @@ export function setupEventListeners(): void {
     btnExport,
     btnHelp,
     btnAddStep,
+    btnUndoPipeline,
+    btnRedoPipeline,
     btnRemoveStep,
     btnMoveUp,
     btnMoveDown,
@@ -45,6 +47,18 @@ export function setupEventListeners(): void {
     inputStartOffset,
     inputAutoOffsetPoints,
     chkAutoOffset,
+    selRegionMode,
+    inputRegionMarker,
+    inputRegionStartMarker,
+    inputRegionEndMarker,
+    inputRegionStartTime,
+    inputRegionEndTime,
+    inputRegionStartIndex,
+    inputRegionEndIndex,
+    selBaselineEstimator,
+    selArtifactMode,
+    selReferenceColumn,
+    inputReferenceScale,
     sliderStartDecay,
     sliderEndDecay,
     inputFreq,
@@ -98,6 +112,18 @@ export function setupEventListeners(): void {
   btnExport?.addEventListener('click', showExportModal);
   btnHelp?.addEventListener('click', () => HelpSystem.show());
   btnAddStep?.addEventListener('click', showAddStepMenu);
+  btnUndoPipeline?.addEventListener('click', () => {
+    if (!State.undoPipelineChange()) return;
+    renderPipelineList();
+    updateParamEditor();
+    runPipelineAndRender();
+  });
+  btnRedoPipeline?.addEventListener('click', () => {
+    if (!State.redoPipelineChange()) return;
+    renderPipelineList();
+    updateParamEditor();
+    runPipelineAndRender();
+  });
 
   btnRemoveStep?.addEventListener('click', () => {
     if (!State.ui.selectedStepId) return;
@@ -169,7 +195,19 @@ export function setupEventListeners(): void {
     inputAutoOffsetPoints,
     chkApplyStart,
     chkApplyEnd,
-    chkAutoOffset
+    chkAutoOffset,
+    selRegionMode,
+    inputRegionMarker,
+    inputRegionStartMarker,
+    inputRegionEndMarker,
+    inputRegionStartTime,
+    inputRegionEndTime,
+    inputRegionStartIndex,
+    inputRegionEndIndex,
+    selBaselineEstimator,
+    selArtifactMode,
+    selReferenceColumn,
+    inputReferenceScale
   ].forEach((el) => el?.addEventListener('input', scheduleParamUpdate));
 
   const updateAutoOffsetInputs = () => {

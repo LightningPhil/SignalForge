@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CrossChannel } from '../../src/analysis/crossChannel';
+import { QualityFlag } from '../../src/data/quality';
 
 function uniformTime(length: number, sampleRate: number): number[] {
   return Array.from({ length }, (_, index) => index / sampleRate);
@@ -83,6 +84,33 @@ describe('CrossChannel', () => {
 
     expect(result.meta.segmentCount).toBeGreaterThan(50);
     expect(meanCoherence).toBeLessThan(0.08);
+  });
+
+  it('jointly excludes analysis-blocking quality from delay and FRF inputs', () => {
+    const sampleRate = 2048;
+    const input = pseudoRandom(4096, 0xabcdef01);
+    const output = input.map((value) => value * 2);
+    input[777] = 1e12;
+    output[777] = -1e12;
+    const inputQuality = new Uint16Array(input.length);
+    inputQuality[777] = QualityFlag.Clipped;
+
+    const delay = CrossChannel.estimateDelay(uniformTime(input.length, sampleRate), input, output, {
+      inputQuality
+    });
+    const frf = CrossChannel.computeTransferFunction(input, output, uniformTime(input.length, sampleRate), {
+      inputQuality,
+      segmentLength: 256
+    });
+
+    expect(Math.abs(delay.delaySamples)).toBeLessThan(0.1);
+    expect(delay.warnings.join(' ')).toContain('analysis-blocking quality');
+    expect(frf.warnings.join(' ')).toContain('analysis-blocking quality');
+    const finiteMagnitude = frf.magnitudeDb.slice(2, -2).filter(Number.isFinite);
+    expect(finiteMagnitude.reduce((sum, value) => sum + value, 0) / finiteMagnitude.length).toBeCloseTo(
+      20 * Math.log10(2),
+      4
+    );
   });
 
   it('does not select a high-confidence two-sample edge overlap for unrelated records', () => {

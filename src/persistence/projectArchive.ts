@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, Unzip, UnzipInflate, zip, type UnzipFile } from 'fflate';
 import { migrateSession } from '../domain/migrations';
+import { APP_VERSION } from '../domain/version';
 import type { Session, SessionChannel, Shot, SourceFileRecord } from '../domain/session';
 
 const FORMAT = 'signalforge-project';
@@ -244,7 +245,7 @@ function estimateJsonBytes(
   return running.bytes;
 }
 
-export async function exportProjectArchive(session: Session, applicationVersion = '6.0.0-dev'): Promise<Uint8Array> {
+export async function exportProjectArchive(session: Session, applicationVersion = APP_VERSION): Promise<Uint8Array> {
   let estimatedEntries = 1;
   const manifestEstimate = estimateJsonBytes(session, MAX_ENTRY_BYTES);
   let estimatedBytes = manifestEstimate;

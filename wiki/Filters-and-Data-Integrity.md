@@ -82,10 +82,30 @@ skipped and split segments are listed in the pipeline report.
 
 For a compact narrowband rejection filter, prefer the designed IIR notch.
 
-Baseline-region subtraction, time gating, artifact blanking and aligned
-reference subtraction currently have tested processing primitives but are not
-yet exposed as pipeline steps. They must gain marker/channel selection and
-provenance before becoming product controls.
+## Marker, region and reference processing
+
+The pipeline exposes four non-destructive transient-processing steps:
+
+- **Baseline subtract** uses a mean, median or 10% trimmed mean over a resolved
+  region.
+- **Time gate** zeros samples outside a resolved region.
+- **Artifact blank** marks a region missing or explicitly interpolates between
+  its finite neighbours.
+- **Reference/common-mode subtract** aligns the selected channel by its
+  timestamps and timing offset, removes the requested scale and propagates
+  quality flags from both inputs.
+
+Regions can come from the current plot selection, explicit times or indices, a
+named accepted region, or an accepted marker pair. Manual annotations take
+precedence over accepted suggestions; unresolved names pass through with a
+warning instead of silently applying the wrong interval. Reports include
+resolved indices/times, annotation IDs, changed samples and warnings.
+
+These operations affect only the derived processed series. Imported originals
+and repair history remain unchanged. Use pipeline Undo/Redo, step bypass or
+removal to reverse recipe edits, and inspect the raw-minus-processed residual
+before accepting a result. Artifact interpolation is marked `Interpolated` in
+filtered quality; missing blanking is marked `Missing`.
 
 ## Quality and repairs
 

@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Signal Forge</title>
-    <script type="module" crossorigin src="/SignalForge/assets/index-Jn-PJ0Lo.js"></script>
+    <script type="module" crossorigin src="/SignalForge/assets/index-C0C219lA.js"></script>
     <link rel="modulepreload" crossorigin href="/SignalForge/assets/plotly-Cu6rp8zO.js">
     <link rel="modulepreload" crossorigin href="/SignalForge/assets/math-CZFhsg77.js">
     <link rel="modulepreload" crossorigin href="/SignalForge/assets/csv-DYL8oeZ_.js">
-    <link rel="stylesheet" crossorigin href="/SignalForge/assets/index-VC8ZIOVg.css">
+    <link rel="stylesheet" crossorigin href="/SignalForge/assets/index-NB7mybXt.css">
   </head>
   <body>
     <div id="app" class="flex h-full flex-col">
@@ -93,6 +93,12 @@
               ></div>
               <div class="pipeline-actions mt-2 flex flex-wrap gap-2">
                 <button id="btn-add-step" class="sf-btn" type="button" title="Add Step">➕ Add</button>
+                <button id="btn-undo-pipeline" class="sf-btn" type="button" title="Undo processing change" disabled>
+                  ↶ Undo
+                </button>
+                <button id="btn-redo-pipeline" class="sf-btn" type="button" title="Redo processing change" disabled>
+                  ↷ Redo
+                </button>
                 <button
                   id="btn-remove-step"
                   class="sf-btn"
@@ -266,6 +272,61 @@
                   <label class="sf-label" for="param-offset-points">Auto Offset Sample Count</label>
                   <input type="number" id="param-offset-points" class="sf-field" value="200" min="1" />
                   <small class="sf-hint">Automatically averages the first N points when enabled.</small>
+                </div>
+
+                <div id="group-region-reference" class="hidden">
+                  <label class="sf-label" for="param-region-mode">Region source</label>
+                  <select id="param-region-mode" class="sf-field">
+                    <option value="selection">Current plot selection</option>
+                    <option value="region-marker">Named region marker</option>
+                    <option value="marker-pair">Named marker pair</option>
+                    <option value="times">Explicit times</option>
+                    <option value="indices">Explicit sample indices</option>
+                  </select>
+                  <label class="sf-label mt-2" for="param-region-marker">Region marker name</label>
+                  <input id="param-region-marker" class="sf-field" value="" />
+                  <div class="mt-2 grid grid-cols-2 gap-2">
+                    <label class="text-sm"
+                      >Start marker
+                      <input id="param-region-start-marker" class="sf-field" value="" />
+                    </label>
+                    <label class="text-sm"
+                      >End marker
+                      <input id="param-region-end-marker" class="sf-field" value="" />
+                    </label>
+                    <label class="text-sm"
+                      >Start time (s)
+                      <input id="param-region-start-time" class="sf-field" type="number" step="any" value="0" />
+                    </label>
+                    <label class="text-sm"
+                      >End time (s)
+                      <input id="param-region-end-time" class="sf-field" type="number" step="any" value="1" />
+                    </label>
+                    <label class="text-sm"
+                      >Start index
+                      <input id="param-region-start-index" class="sf-field" type="number" min="0" step="1" value="0" />
+                    </label>
+                    <label class="text-sm"
+                      >End index
+                      <input id="param-region-end-index" class="sf-field" type="number" min="0" step="1" value="1" />
+                    </label>
+                  </div>
+                  <label class="sf-label mt-2" for="param-baseline-estimator">Baseline estimator</label>
+                  <select id="param-baseline-estimator" class="sf-field">
+                    <option value="median">Median</option>
+                    <option value="mean">Mean</option>
+                    <option value="trimmed-mean">10% trimmed mean</option>
+                  </select>
+                  <label class="sf-label mt-2" for="param-artifact-mode">Artifact handling</label>
+                  <select id="param-artifact-mode" class="sf-field">
+                    <option value="missing">Mark missing</option>
+                    <option value="interpolate">Interpolate explicitly</option>
+                  </select>
+                  <label class="sf-label mt-2" for="param-reference-column">Reference channel</label>
+                  <select id="param-reference-column" class="sf-field"></select>
+                  <label class="sf-label mt-2" for="param-reference-scale">Reference scale</label>
+                  <input id="param-reference-scale" class="sf-field" type="number" step="any" value="1" />
+                  <p class="sf-hint mt-2">Marker names resolve to manual or accepted annotations in the active shot.</p>
                 </div>
 
                 <div id="group-freq" class="hidden">
@@ -698,8 +759,8 @@
       id="file-input"
       accept=".csv,.tsv,.txt,.wfm,.isf,.trc,.000,.bin,.h5,.hdf5,.psdata"
       class="hidden"
+      aria-label="Choose waveform file"
       aria-hidden="true"
     />
-
   </body>
 </html>

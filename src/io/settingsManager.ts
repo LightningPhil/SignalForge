@@ -518,7 +518,7 @@ export const SettingsManager = {
             ...(incomingConfig.analysis?.trigger || {})
           }
         },
-        settingsVersion: 4,
+        settingsVersion: 5,
         pipeline: normalizedPipeline.length > 0 ? normalizedPipeline : State.config.pipeline,
         columnPipelines: normalizedColumnPipelines,
         pipelineScope:
@@ -529,6 +529,7 @@ export const SettingsManager = {
               : true
       };
       delete (State.config as SettingsPayload).workspace;
+      State.clearPipelineHistory();
       this.applyWorkspace(workspace);
       State.ensureAnalysisConfig();
       return true;

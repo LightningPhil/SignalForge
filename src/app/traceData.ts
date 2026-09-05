@@ -5,6 +5,7 @@ import { State } from '../state';
 import type { ColumnSeries, SeriesPair } from '../types';
 import { timeScaleToSeconds } from '../units/units';
 import { toNumber } from './utils';
+import { buildFilterExecutionContext, filterExecutionContextKey } from './filterContext';
 
 export function getTimeArray(): number[] {
   const xCol = State.data.timeColumn;
@@ -74,7 +75,13 @@ export function getSeriesForColumn(columnId: string | null, rawX: number[]): Col
     State.data.quality[columnId],
     State.data.timeColumn ? State.data.quality[State.data.timeColumn] : null
   );
-  const filtered = Filter.applyPipelineWithReport(rawY, time, State.getPipelineForColumn(columnId), rawQuality);
+  const filtered = Filter.applyPipelineWithReport(
+    rawY,
+    time,
+    State.getPipelineForColumn(columnId),
+    rawQuality,
+    buildFilterExecutionContext(columnId, time)
+  );
   const series: ColumnSeries = {
     columnId,
     rawY,
@@ -99,7 +106,7 @@ const columnSeriesMemo = new Map<string, { key: string; series: ColumnSeries }>(
 let columnSeriesGeneration = -1;
 
 function columnSeriesKey(columnId: string, rawX: number[]): string {
-  return `${multiViewPreparationKey([columnId])}|${rawX.length}|${rawX[0]}|${rawX[rawX.length - 1]}`;
+  return `${multiViewPreparationKey([columnId])}|${filterExecutionContextKey(columnId)}|${rawX.length}|${rawX[0]}|${rawX[rawX.length - 1]}`;
 }
 
 function rememberColumnSeries(columnId: string, key: string, series: ColumnSeries): void {
@@ -142,6 +149,7 @@ export function multiViewPreparationKey(columnIds: string[]): string {
     rows: State.data.raw.length,
     repairCursor: State.data.repairCursor,
     generation: State.data.generation,
+    executionContexts: columnIds.map((columnId) => filterExecutionContextKey(columnId)),
     timeColumn: State.data.timeColumn,
     source: State.data.source ? [State.data.source.name, State.data.source.size, State.data.source.lastModified] : null
   });

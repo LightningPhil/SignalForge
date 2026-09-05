@@ -6,6 +6,7 @@ import {
   createAnnotation,
   createSession,
   createShot,
+  type Session,
   type SessionChannel
 } from '../../src/domain/session';
 import { migrateSession } from '../../src/domain/migrations';
@@ -278,8 +279,31 @@ describe('session persistence', () => {
     expect(failure.message).toMatch(/500 characters/);
 
     session.name = 'Autosave';
+    const saved = await new Promise<Session>((resolve, reject) => {
+      repository.scheduleAutosave(session, 0, reject, resolve);
+    });
+    expect(saved.name).toBe('Autosave');
     await repository.delete(session.id);
     expect(await repository.get(session.id)).toBeNull();
+    repository.close();
+  });
+
+  it('serializes in-flight saves before loading the same session revision', async () => {
+    const repository = new SessionRepository(new IDBFactory());
+    const session = createSession('Initial');
+    await repository.save(session);
+
+    session.name = 'First queued save';
+    const first = repository.save(session);
+    session.name = 'Second queued save';
+    const second = repository.save(session);
+    const loaded = await repository.get(session.id);
+    await Promise.all([first, second]);
+
+    expect(loaded?.name).toBe('Second queued save');
+    expect(loaded?.revision).toBe(session.revision);
+    loaded!.name = 'Saved after reload';
+    await expect(repository.save(loaded!)).resolves.toMatchObject({ name: 'Saved after reload' });
     repository.close();
   });
 

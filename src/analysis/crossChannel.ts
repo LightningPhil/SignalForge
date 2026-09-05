@@ -1,4 +1,5 @@
 import { FFT, type SpectrumOptions } from '../processing/fft';
+import { AnalysisExclusionMask } from '../data/quality';
 import { analyzeTimebase, resampleLinear } from '../processing/sampling';
 import type { AnalysisSelection } from '../types';
 
@@ -27,6 +28,16 @@ export interface TransferFunctionResult {
 export interface TransferFunctionOptions extends SpectrumOptions {
   segmentLength?: number;
   overlap?: number;
+  inputQuality?: ArrayLike<number> | null;
+  outputQuality?: ArrayLike<number> | null;
+}
+
+export interface DelayOptions {
+  selection?: AnalysisSelection | null;
+  maxLagSeconds?: number | null;
+  minimumOverlapFraction?: number;
+  inputQuality?: ArrayLike<number> | null;
+  outputQuality?: ArrayLike<number> | null;
 }
 
 interface PreparedPair {
@@ -60,7 +71,9 @@ function preparePair(
   time: ArrayLike<number>,
   input: ArrayLike<number>,
   output: ArrayLike<number>,
-  selection: AnalysisSelection | null
+  selection: AnalysisSelection | null,
+  inputQuality?: ArrayLike<number> | null,
+  outputQuality?: ArrayLike<number> | null
 ): PreparedPair {
   const limit = Math.min(time.length, input.length, output.length);
   const selected = normalizeSelection(selection, limit);
@@ -68,21 +81,30 @@ function preparePair(
   const selectedInput: number[] = [];
   const selectedOutput: number[] = [];
   let omitted = 0;
+  let qualityExcluded = 0;
 
   for (let index = selected.start; index <= selected.end; index += 1) {
     const timestamp = Number(time[index]);
     const inputValue = Number(input[index]);
     const outputValue = Number(output[index]);
-    if (Number.isFinite(timestamp) && Number.isFinite(inputValue) && Number.isFinite(outputValue)) {
+    const blocked =
+      ((Number(inputQuality?.[index]) || 0) & AnalysisExclusionMask) !== 0 ||
+      ((Number(outputQuality?.[index]) || 0) & AnalysisExclusionMask) !== 0;
+    if (!blocked && Number.isFinite(timestamp) && Number.isFinite(inputValue) && Number.isFinite(outputValue)) {
       selectedTime.push(timestamp);
       selectedInput.push(inputValue);
       selectedOutput.push(outputValue);
+    } else if (blocked) {
+      qualityExcluded += 1;
     } else {
       omitted += 1;
     }
   }
 
   const warnings = omitted > 0 ? [`Excluded ${omitted} invalid aligned sample pair(s).`] : [];
+  if (qualityExcluded > 0) {
+    warnings.push(`Excluded ${qualityExcluded} aligned pair(s) carrying analysis-blocking quality flags.`);
+  }
   const timebase = analyzeTimebase(selectedTime);
   warnings.push(...timebase.warnings);
   if (!timebase.valid || selectedTime.length < 2) {
@@ -163,13 +185,16 @@ export const CrossChannel = {
     time: number[] = [],
     input: number[] = [],
     output: number[] = [],
-    options: {
-      selection?: AnalysisSelection | null;
-      maxLagSeconds?: number | null;
-      minimumOverlapFraction?: number;
-    } = {}
+    options: DelayOptions = {}
   ): DelayEstimate {
-    const prepared = preparePair(time, input, output, options.selection || null);
+    const prepared = preparePair(
+      time,
+      input,
+      output,
+      options.selection || null,
+      options.inputQuality,
+      options.outputQuality
+    );
     if (prepared.time.length < 3) {
       return {
         delaySeconds: 0,
@@ -247,7 +272,14 @@ export const CrossChannel = {
     time: number[] = [],
     options: TransferFunctionOptions = {}
   ): TransferFunctionResult {
-    const prepared = preparePair(time, input, output, options.selection || null);
+    const prepared = preparePair(
+      time,
+      input,
+      output,
+      options.selection || null,
+      options.inputQuality,
+      options.outputQuality
+    );
     const empty = (warnings: string[]): TransferFunctionResult => ({
       freq: [],
       magnitudeDb: [],

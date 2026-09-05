@@ -100,7 +100,7 @@ export const HelpSystem = {
                             <li><strong>Configurable pipelines:</strong> Chain multiple filters (for example, Median → Savitzky-Golay → FFT notch) to isolate noise, correct baselines, and highlight features.</li>
                             <li><strong>Dual-domain analysis:</strong> Switch seamlessly between time and frequency views to validate both waveform fidelity and spectral content.</li>
                             <li><strong>Differential and derived traces:</strong> Toggle dy/dx for slope inspection or compute custom metrics via the math engine (impedance, power, arbitrary expressions over columns).</li>
-                            <li><strong>Reversible exploration:</strong> Enable or disable individual steps to understand each filter’s contribution without losing the configured parameters.</li>
+                            <li><strong>Reversible exploration:</strong> Use processing Undo/Redo or enable/disable individual steps to understand each contribution without changing imported originals.</li>
                         </ul>
                     </div>
 
@@ -130,7 +130,7 @@ export const HelpSystem = {
                             <li><strong>Filename profile:</strong> A profile such as <code>shot {shot:int} - {charge_voltage:quantity[V]} - {length:quantity[mm]} - {channel:text}.csv</code> accepts a filename such as <code>shot 7 - 25kV - 200mm - Voltage.csv</code>.</li>
                             <li><strong>No convention:</strong> Clear <em>Extract shot metadata from a filename convention</em> to accept any supported filename. Each file becomes a separate shot.</li>
                             <li><strong>Preview first:</strong> Review normalized SI metadata, unmatched files, importer choice, and warnings before committing the import.</li>
-                            <li>Native scope formats remain unavailable until representative model/firmware fixtures have been validated.</li>
+                            <li>Verified and beta native scope adapters are detected from file content, decoded in a worker, and labelled with their actual evidence level. Unsupported model/firmware layouts fail with diagnostics.</li>
                         </ul>
                     </div>
 
@@ -138,9 +138,10 @@ export const HelpSystem = {
                         <h3>Sessions & Manual Review</h3>
                         <ul>
                             <li>Sessions contain shots, calibrated channels, source files, quality flags, annotations, and provenance-rich results.</li>
-                            <li>Use previous/next controls or <kbd>Alt</kbd>+arrow keys to review shots.</li>
-                            <li>Place named markers manually or accept/reject automatic suggestions. Accepted manual markers are authoritative.</li>
-                            <li><strong>Compare shots:</strong> Render event-aligned overlays, small multiples, waterfall heatmaps, and ringing frequency/decay versus extracted metadata.</li>
+                            <li>Filter the queue to needs-review, warning-bearing, excluded or all shots. The summary reports progress, and the header shows pending, saving, saved or failed persistence state.</li>
+                            <li>Use previous/next controls or <kbd>Alt</kbd>+arrow keys to move within the active queue.</li>
+                            <li>Place named markers manually or accept/reject automatic suggestions. With the plot focused, arrows move the sample cursor, <kbd>Enter</kbd> places a marker, and A/R handles the next pending suggestion. Accepted manual markers are authoritative.</li>
+                            <li><strong>Compare shots:</strong> Render event-aligned overlays, small multiples, amplitude waterfalls, per-shot STFT spectrograms, and ringing frequency/decay versus extracted metadata.</li>
                             <li><strong>Batch all shots:</strong> Run the selected unit-aware voltage/current pulse calculation across the session with progress, cancellation, per-shot failures, and provenance.</li>
                             <li>Capture the current single-file workspace as a shot, or load/import/export complete sessions from the same panel.</li>
                             <li>Save to IndexedDB for local persistence or export a checksum-verified <code>.signalforge</code> archive.</li>
@@ -247,6 +248,7 @@ export const HelpSystem = {
                             <li><strong>Designed FIR filters:</strong> Kaiser low/high/band-pass/band-stop filters derive odd linear-phase tap counts from ripple, attenuation and transition specifications.</li>
                             <li><strong>Designed IIR filters:</strong> Butterworth low/high/band-pass, notch, and comb filters provide explicit causal or forward/backward zero-phase processing.</li>
                             <li><strong>Transient cleanup:</strong> Hampel deglitching and wavelet denoising report their processing choices while preserving the raw record.</li>
+                            <li><strong>Marker/region processing:</strong> Baseline subtraction, time gating and artifact blanking resolve the current selection, explicit bounds, a named region or an accepted marker pair. Reference/common-mode subtraction uses a selected aligned channel and scale. Reports retain bounds, annotation IDs, quality effects and warnings.</li>
                             <li><strong>Spectral shaping:</strong> FFT-based high/low/notch filters target specific bands when the sample rate and periodicity are known.</li>
                         </ul>
                     </div>
@@ -388,7 +390,7 @@ export const HelpSystem = {
                     </div>
                     <div id="content-analysis-spectrogram" class="help-section">
                         <h3>Spectrogram</h3>
-                        <p>Choose <em>Spectrogram</em> in the toolbar View menu to render an STFT heatmap. Window size and overlap are in the Spectral tab. Large records are downsampled before the STFT to keep the UI responsive.</p>
+                        <p>Choose <em>Spectrogram</em> in the toolbar View menu to render an STFT heatmap. Window size and overlap are in the Spectral tab. Large records are downsampled before the STFT to keep the UI responsive. Session Compare also renders bounded per-shot spectrograms on a shared event-relative time axis.</p>
                     </div>
                     <div id="content-analysis-system" class="help-section">
                         <h3>Cross-Channel / FRF</h3>
@@ -399,7 +401,7 @@ export const HelpSystem = {
                         <ul>
                             <li>Enable <strong>Residual</strong> in Time view to plot raw minus processed data on its own axis.</li>
                             <li>FFT view plots signal spectra and filter gain on the magnitude axis, raw/filtered/filter phase on the phase axis, and causal group delay on a dedicated axis.</li>
-                            <li>Moving-average, Savitzky–Golay, Gaussian, one-pole, designed FIR and designed IIR responses are reported. Median, Hampel, wavelet and taper operations are nonlinear or time-varying and do not have one LTI transfer function.</li>
+                            <li>Moving-average, Savitzky–Golay, Gaussian, one-pole, designed FIR and designed IIR responses are reported. Median, Hampel, wavelet, taper, gating, blanking, baseline and reference operations are nonlinear, data-dependent or time-varying and do not have one LTI transfer function.</li>
                             <li>Deep response nulls are masked from group-delay display because phase is undefined there.</li>
                         </ul>
                     </div>
@@ -411,6 +413,7 @@ export const HelpSystem = {
                             <li><strong>Quality masks:</strong> Missing, invalid, clipped, saturated, interpolated, forward-filled, and edited samples remain traceable.</li>
                             <li><strong>Reversible repair:</strong> Grid interpolation and forward filling are explicit operations with undo and redo.</li>
                             <li><strong>Export options:</strong> Full CSV exports keep original, working, original-quality, working-quality, filtered-quality and filtered values distinct.</li>
+                            <li><strong>Engineering reports:</strong> HTML and JSON reports include contributing source and complete active-recipe SHA-256 hashes, application/build identity, selection, pipeline provenance, per-analysis quality exclusions, warnings, available confidence indicators and an explicit statement when calibrated uncertainty is unavailable. HTML bounds dense event tables; full JSON has an explicit serialization budget.</li>
                             <li><strong>Reproducibility:</strong> Save filter-chain workspace settings in localStorage/JSON, or preserve chains with waveform data, markers and results in an IndexedDB session or <code>.signalforge</code> archive. Settings alone are not session archives.</li>
                         </ul>
                     </div>

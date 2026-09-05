@@ -21,7 +21,13 @@ export type FilterType =
   | 'iirNotch'
   | 'iirComb'
   | 'hampel'
-  | 'waveletDenoise';
+  | 'waveletDenoise'
+  | 'baselineSubtract'
+  | 'timeGate'
+  | 'artifactBlank'
+  | 'referenceSubtract';
+
+export type RegionBindingMode = 'region-marker' | 'marker-pair' | 'times' | 'indices' | 'selection';
 
 export type SourceMode = 'raw' | 'filtered';
 
@@ -77,6 +83,18 @@ export interface FilterStep {
   thresholdSigma?: number;
   waveletLevels?: number;
   waveletThreshold?: number;
+  regionMode?: RegionBindingMode;
+  regionMarker?: string;
+  startMarker?: string;
+  endMarker?: string;
+  regionStartTime?: number;
+  regionEndTime?: number;
+  regionStartIndex?: number;
+  regionEndIndex?: number;
+  baselineEstimator?: 'mean' | 'median' | 'trimmed-mean';
+  artifactMode?: 'missing' | 'interpolate';
+  referenceColumnId?: string;
+  referenceScale?: number;
 }
 
 export interface GraphSettings {
@@ -183,6 +201,39 @@ export interface FilterDefaults {
   };
   hampel: { windowSize: number; thresholdSigma: number };
   waveletDenoise: { waveletLevels: number; waveletThreshold?: number };
+  baselineSubtract: {
+    regionMode: RegionBindingMode;
+    regionMarker: string;
+    startMarker: string;
+    endMarker: string;
+    regionStartTime: number;
+    regionEndTime: number;
+    regionStartIndex: number;
+    regionEndIndex: number;
+    baselineEstimator: 'mean' | 'median' | 'trimmed-mean';
+  };
+  timeGate: {
+    regionMode: RegionBindingMode;
+    regionMarker: string;
+    startMarker: string;
+    endMarker: string;
+    regionStartTime: number;
+    regionEndTime: number;
+    regionStartIndex: number;
+    regionEndIndex: number;
+  };
+  artifactBlank: {
+    regionMode: RegionBindingMode;
+    regionMarker: string;
+    startMarker: string;
+    endMarker: string;
+    regionStartTime: number;
+    regionEndTime: number;
+    regionStartIndex: number;
+    regionEndIndex: number;
+    artifactMode: 'missing' | 'interpolate';
+  };
+  referenceSubtract: { referenceColumnId: string; referenceScale: number };
 }
 
 export interface AppLimits {

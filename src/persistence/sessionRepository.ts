@@ -44,6 +44,7 @@ export class SessionConflictError extends Error {
 export class SessionRepository {
   private databasePromise: Promise<IDBDatabase> | null = null;
   private autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private saveQueues = new Map<string, Promise<Session>>();
   private readonly factory: IDBFactory | null;
   listWarnings: string[] = [];
 
@@ -92,6 +93,20 @@ export class SessionRepository {
    * loaded with. Successful saves increment the revision on both the stored record and `session`.
    */
   async save(session: Session): Promise<Session> {
+    const previous = this.saveQueues.get(session.id);
+    const operation = (async () => {
+      if (previous) await previous.catch(() => undefined);
+      return this.performSave(session);
+    })();
+    this.saveQueues.set(session.id, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.saveQueues.get(session.id) === operation) this.saveQueues.delete(session.id);
+    }
+  }
+
+  private async performSave(session: Session): Promise<Session> {
     const database = await this.open();
     const previousUpdatedAt = session.updatedAt;
     session.updatedAt = new Date().toISOString();
@@ -117,6 +132,7 @@ export class SessionRepository {
   }
 
   async get(sessionId: string): Promise<Session | null> {
+    await this.saveQueues.get(sessionId)?.catch(() => undefined);
     const database = await this.open();
     const transaction = database.transaction(SESSION_STORE, 'readonly');
     const result = await requestResult(transaction.objectStore(SESSION_STORE).get(sessionId));
@@ -151,18 +167,27 @@ export class SessionRepository {
     await transactionComplete(transaction);
   }
 
-  scheduleAutosave(session: Session, delayMs = 500, onError?: (error: Error) => void): void {
+  scheduleAutosave(
+    session: Session,
+    delayMs = 500,
+    onError?: (error: Error) => void,
+    onSuccess?: (saved: Session) => void,
+    onStart?: () => void
+  ): void {
     const existing = this.autosaveTimers.get(session.id);
     if (existing) clearTimeout(existing);
     this.autosaveTimers.set(
       session.id,
       setTimeout(() => {
         this.autosaveTimers.delete(session.id);
-        void this.save(session).catch((error: unknown) => {
-          const resolved = error instanceof Error ? error : new Error(String(error));
-          console.error('Session autosave failed.', resolved);
-          onError?.(resolved);
-        });
+        onStart?.();
+        void this.save(session)
+          .then((saved) => onSuccess?.(saved))
+          .catch((error: unknown) => {
+            const resolved = error instanceof Error ? error : new Error(String(error));
+            console.error('Session autosave failed.', resolved);
+            onError?.(resolved);
+          });
       }, delayMs)
     );
   }

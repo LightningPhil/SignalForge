@@ -4,18 +4,32 @@ import { CrossChannel } from '../analysis/crossChannel';
 import { EventDetector } from '../analysis/eventDetector';
 import { Measurements } from '../analysis/measurements';
 import { SpectralMetrics } from '../analysis/spectralMetrics';
+import {
+  buildAnalysisRecipePayload,
+  buildProcessingRecipePayload,
+  buildQualitySummary,
+  buildSourceFingerprint,
+  hashCanonicalJson
+} from '../domain/provenance';
+import { APP_BUILD_ID, APP_VERSION } from '../domain/version';
 import { combineQualityMasks, qualityFlagNames } from '../data/quality';
-import { Filter } from '../processing/filter';
 import { MathEngine } from '../processing/math';
+import { SessionWorkspace } from '../session/workspace';
 import { State } from '../state';
 import type { AnalysisSeries, ImageExportOptions, ThemeName } from '../types';
 import { getAlignedSeriesForColumn, getRawSeries, getSeriesForColumn, getTimeArray } from '../app/traceData';
 import { toNumber } from '../app/utils';
 import { getColorsForTheme, hexToRgba } from '../ui/colors';
 import { getPixelsPerCm } from '../ui/displayCalibration';
-import { escapeHtml } from '../ui/uiHelpers';
 import { csvCell, csvRow } from './csvFormat';
 import { downloadText } from './download';
+import {
+  buildReport,
+  renderReportHtml,
+  serializeReportJson,
+  type ReportArtifacts,
+  type ReportBuilderInput
+} from './reportBuilder';
 
 const THEME_STYLES: Record<ThemeName, { paperBg: string; plotBg: string; fontColor: string; gridColor: string }> = {
   light: {
@@ -37,6 +51,80 @@ interface ProcessedColumn {
   filtered: number[];
   quality?: Uint16Array;
   isMath?: boolean;
+}
+
+const MAX_ENGINEERING_JSON_ESTIMATE = 64 * 1024 * 1024;
+const MAX_ENGINEERING_HTML_EVENTS = 1000;
+
+function summarizedSpectral(spectral: Record<string, unknown>): Record<string, unknown> {
+  const spectrum =
+    spectral.spectrum && typeof spectral.spectrum === 'object' ? (spectral.spectrum as Record<string, unknown>) : null;
+  return {
+    ...spectral,
+    spectrum: spectrum ? { meta: spectrum.meta ?? null, warnings: spectrum.warnings ?? [] } : null
+  };
+}
+
+function summarizedSystem(system: unknown): unknown {
+  if (!system || typeof system !== 'object') return system;
+  const record = system as Record<string, unknown>;
+  const frf = record.frf && typeof record.frf === 'object' ? (record.frf as Record<string, unknown>) : null;
+  return {
+    ...record,
+    frf: frf ? { meta: frf.meta ?? null, warnings: frf.warnings ?? [] } : null
+  };
+}
+
+function summarizedEvents(events: Record<string, unknown>): Record<string, unknown> {
+  const records = Array.isArray(events.events) ? events.events : [];
+  return {
+    ...events,
+    events: records.slice(0, MAX_ENGINEERING_HTML_EVENTS),
+    totalEventCount: records.length,
+    omittedEventCount: Math.max(0, records.length - MAX_ENGINEERING_HTML_EVENTS)
+  };
+}
+
+function estimatedSerializedBytes(value: unknown, budget = MAX_ENGINEERING_JSON_ESTIMATE): number {
+  const seen = new Set<object>();
+  const visit = (candidate: unknown): number => {
+    if (candidate === null || candidate === undefined) return 4;
+    if (typeof candidate === 'string') return candidate.length * 2 + 2;
+    if (typeof candidate === 'number') return 24;
+    if (typeof candidate === 'boolean') return 5;
+    if (typeof candidate !== 'object' || seen.has(candidate)) return 0;
+    seen.add(candidate);
+    if (ArrayBuffer.isView(candidate)) return candidate.byteLength * 3;
+    if (candidate instanceof ArrayBuffer) return candidate.byteLength * 3;
+    let total = 2;
+    if (Array.isArray(candidate) && candidate.every((entry) => typeof entry === 'number')) {
+      return Math.min(budget + 1, total + candidate.length * 24);
+    }
+    for (const [key, entry] of Object.entries(candidate)) {
+      total += key.length * 2 + visit(entry);
+      if (total > budget) return total;
+    }
+    return total;
+  };
+  return visit(value);
+}
+
+function reportStateFingerprint(): string {
+  return JSON.stringify({
+    generation: State.data.generation,
+    dataColumn: State.data.dataColumn,
+    activeMultiViewId: State.ui.activeMultiViewId,
+    activeShotId: SessionWorkspace.activeShotId,
+    activeShotUpdatedAt: SessionWorkspace.getActiveShot()?.updatedAt || null,
+    selection: State.getAnalysisSelection(),
+    analysis: State.ensureAnalysisConfig(),
+    pipelineScope: State.config.pipelineScope,
+    pipeline: State.config.pipeline,
+    columnPipelines: State.config.columnPipelines,
+    traceConfigs: State.traceConfigs,
+    repairCursor: State.data.repairCursor,
+    pipelineReport: State.data.pipelineReport
+  });
 }
 
 export const Exporter = {
@@ -67,12 +155,11 @@ export const Exporter = {
       const rawCol = State.data.columns[col]
         ? Array.from(State.data.columns[col])
         : rawData.map((r) => toNumber(r[col]));
-      const pipeline = State.getPipelineForColumn(col);
-      const filtered = Filter.applyPipelineWithReport(rawCol, rawTime, pipeline, State.data.quality[col]);
+      const series = getSeriesForColumn(col, rawTime);
       processedDataMap[col] = {
         raw: rawCol,
-        filtered: filtered.values,
-        quality: filtered.quality
+        filtered: series?.filteredY || rawCol,
+        quality: series?.filteredQuality || State.data.quality[col]
       };
     });
 
@@ -230,15 +317,12 @@ export const Exporter = {
       State.data.quality[columnId],
       State.data.timeColumn ? State.data.quality[State.data.timeColumn] : null
     );
-    const filtered = series.isMath
-      ? null
-      : Filter.applyPipelineWithReport(series.rawY, series.time, State.getPipelineForColumn(columnId), rawQuality);
     return {
       rawX: series.time,
       rawY: series.rawY,
       rawQuality,
-      filteredY: filtered?.values || null,
-      filteredQuality: filtered?.quality || null,
+      filteredY: series.filteredY,
+      filteredQuality: series.filteredQuality,
       seriesName: columnId,
       columnId,
       isMath: series.isMath
@@ -295,6 +379,232 @@ export const Exporter = {
     };
   },
 
+  async buildEngineeringReport(
+    plotImageDataUrl: string | null = null,
+    options: {
+      detail?: 'summary' | 'full';
+      expectedGeneration?: number;
+      expectedStateFingerprint?: string;
+      output?: 'html' | 'json' | 'both';
+    } = {}
+  ): Promise<ReportArtifacts | null> {
+    const generation = State.data.generation;
+    const stateFingerprint = reportStateFingerprint();
+    if (options.expectedGeneration !== undefined && options.expectedGeneration !== generation) {
+      throw new Error('The data changed while the report plot was being captured; export again.');
+    }
+    if (options.expectedStateFingerprint !== undefined && options.expectedStateFingerprint !== stateFingerprint) {
+      throw new Error('The analysis settings changed while the report plot was being captured; export again.');
+    }
+    const snapshot = this.buildAnalysisSnapshot();
+    const series = this.getActiveAnalysisSeries();
+    if (!snapshot || !series) return null;
+    const detail = options.detail || 'summary';
+    const activeShot = SessionWorkspace.getActiveShot();
+    const sessionSources = SessionWorkspace.activeSession?.shots.flatMap((candidate) => candidate.sourceFiles) || [];
+    const sourceInputs = activeShot?.sourceFiles.length
+      ? activeShot.sourceFiles.map((sourceFile) => {
+          const sharedSourceId =
+            typeof sourceFile.metadata.sharedSourceId === 'string' ? sourceFile.metadata.sharedSourceId : null;
+          const byteSource =
+            sourceFile.bytes || sessionSources.find((candidate) => candidate.id === sharedSourceId)?.bytes;
+          return {
+            name: sourceFile.name,
+            size: byteSource?.byteLength ?? sourceFile.size,
+            lastModified: sourceFile.lastModified,
+            sourceFileId: sourceFile.id,
+            sharedSourceId,
+            adapterId: sourceFile.adapterId,
+            bytes: byteSource
+          };
+        })
+      : State.data.source
+        ? [
+            {
+              name: State.data.source.name,
+              size: State.data.source.size,
+              lastModified: State.data.source.lastModified,
+              sourceFileId: null,
+              adapterId: 'workspace',
+              bytes:
+                State.data.source.bytes.byteLength > 0
+                  ? State.data.source.bytes
+                  : State.data.source.text
+                    ? State.data.source.text
+                    : null
+            }
+          ]
+        : [];
+    const activeRepairs = State.data.repairHistory.slice(0, State.data.repairCursor);
+    const reportRepairs =
+      detail === 'full'
+        ? activeRepairs
+        : activeRepairs.map((repair) => ({
+            id: repair.id,
+            label: repair.label,
+            timestamp: repair.timestamp,
+            changedCells: repair.changes.length
+          }));
+    const pipelineReport = structuredClone(State.data.pipelineReport);
+    const completeProcessingRecipe = buildProcessingRecipePayload({
+      columnId: series.columnId || series.seriesName,
+      sourceMode: series.filteredY?.length ? 'filtered' : 'raw',
+      isMath: series.isMath,
+      pipeline: State.getPipelineForColumn(series.columnId || series.seriesName),
+      pipelineReport,
+      firDesigns: State.data.firDesigns,
+      mathDefinitions: State.config.mathDefinitions,
+      repairHistory: activeRepairs,
+      repairCursor: State.data.repairCursor,
+      traceConfig: State.getTraceConfig(series.columnId || series.seriesName)
+    });
+    const processingRecipe =
+      detail === 'full'
+        ? completeProcessingRecipe
+        : {
+            ...completeProcessingRecipe,
+            repairHistory: reportRepairs,
+            repairDisplay: 'Summary only; SHA-256 covers the complete active repair records.'
+          };
+    const analysisRecipe = buildAnalysisRecipePayload({
+      config: snapshot.analysisConfig,
+      selection: snapshot.selection,
+      series: snapshot.series
+    });
+    const preferredQuality =
+      !series.isMath && series.filteredQuality?.length ? series.filteredQuality : series.rawQuality;
+    const spectralUsesRaw = snapshot.analysisConfig.fftSource === 'raw';
+    const spectralQuality = spectralUsesRaw
+      ? series.rawQuality
+      : series.filteredQuality?.length
+        ? series.filteredQuality
+        : series.rawQuality;
+    const spectralSelection = snapshot.analysisConfig.selectionOnly === false ? null : snapshot.selection;
+    const eventSource = snapshot.analysisConfig.trigger.source;
+    const eventQuality = eventSource === 'filtered' ? series.filteredQuality || series.rawQuality : series.rawQuality;
+    const eventSelection = snapshot.analysisConfig.trigger.selectionOnly ? snapshot.selection : null;
+    const moduleQuality: Record<string, unknown> = {
+      measurements: {
+        source: series.filteredY?.length ? 'filtered' : 'raw',
+        summary: buildQualitySummary(preferredQuality, snapshot.selection)
+      },
+      events: {
+        source: eventSource,
+        summary: buildQualitySummary(eventQuality, eventSelection)
+      },
+      spectral: {
+        source: spectralUsesRaw ? 'raw' : series.filteredY?.length ? 'filtered' : 'raw',
+        summary: buildQualitySummary(spectralQuality, spectralSelection)
+      }
+    };
+    if (snapshot.system) {
+      const systemTime = getRawSeries(snapshot.system.input).rawX;
+      const input = getAlignedSeriesForColumn(snapshot.system.input, systemTime);
+      const output = getAlignedSeriesForColumn(snapshot.system.output, systemTime);
+      const systemSelection = snapshot.analysisConfig.systemSelectionOnly === false ? null : snapshot.selection;
+      moduleQuality.system = {
+        input: snapshot.system.input,
+        inputSummary: input ? buildQualitySummary(input.filteredQuality || input.rawQuality, systemSelection) : null,
+        output: snapshot.system.output,
+        outputSummary: output ? buildQualitySummary(output.filteredQuality || output.rawQuality, systemSelection) : null
+      };
+    }
+    const reportSpectral =
+      detail === 'full'
+        ? snapshot.spectral
+        : summarizedSpectral(snapshot.spectral as unknown as Record<string, unknown>);
+    const reportSystem = detail === 'full' ? snapshot.system : summarizedSystem(snapshot.system);
+    const reportEvents =
+      detail === 'full' ? snapshot.events : summarizedEvents(snapshot.events as unknown as Record<string, unknown>);
+    if (
+      detail === 'full' &&
+      estimatedSerializedBytes({
+        source: sourceInputs.map((entry) => ({
+          name: entry.name,
+          size: entry.size,
+          lastModified: entry.lastModified,
+          sourceFileId: entry.sourceFileId,
+          adapterId: entry.adapterId
+        })),
+        processingRecipe,
+        analysisRecipe,
+        quality: moduleQuality,
+        measurements: snapshot.measurements,
+        events: reportEvents,
+        spectral: reportSpectral,
+        system: reportSystem,
+        pipelineReport
+      }) > MAX_ENGINEERING_JSON_ESTIMATE
+    ) {
+      throw new Error(
+        'The full engineering JSON report exceeds the 64 MiB export budget. Narrow the analysis selection or use the summary HTML report.'
+      );
+    }
+    const [source, processingRecipeHash, analysisRecipeHash] = await Promise.all([
+      Promise.all(
+        sourceInputs.map(async ({ bytes, ...metadata }) => ({
+          ...metadata,
+          ...((typeof bytes === 'string' ? bytes.length > 0 : (bytes?.byteLength || 0) > 0)
+            ? await buildSourceFingerprint({
+                bytes: bytes as string | Uint8Array,
+                name: metadata.name,
+                size: metadata.size,
+                lastModified: metadata.lastModified
+              })
+            : {
+                sha256: null,
+                note: 'Original source bytes are unavailable; no source hash is claimed.'
+              })
+        }))
+      ),
+      hashCanonicalJson(completeProcessingRecipe),
+      hashCanonicalJson(analysisRecipe)
+    ]);
+    if (State.data.generation !== generation || reportStateFingerprint() !== stateFingerprint) {
+      throw new Error(
+        'The data or analysis settings changed while the engineering report was generated; export again.'
+      );
+    }
+    const reportInput: ReportBuilderInput = {
+      generatedAt: snapshot.timestamp,
+      applicationVersion: APP_VERSION,
+      buildId: APP_BUILD_ID,
+      trace: snapshot.series,
+      selection: snapshot.selection,
+      source,
+      processingRecipe,
+      processingRecipeHash,
+      analysisRecipe,
+      analysisRecipeHash,
+      quality: buildQualitySummary(preferredQuality, snapshot.selection),
+      moduleQuality,
+      measurements: snapshot.measurements,
+      events: reportEvents,
+      spectral: reportSpectral,
+      system: reportSystem,
+      pipeline: pipelineReport,
+      confidence: snapshot.system
+        ? {
+            delayCorrelation: snapshot.system.delay.confidence,
+            interpretation:
+              'Dimensionless delay-correlation confidence; this is not a calibrated probability or uncertainty interval.'
+          }
+        : null,
+      uncertainty: {
+        status: 'not-quantified',
+        intervals: null,
+        note: 'No calibrated measurement uncertainty interval is available. Review source calibration, quality exclusions, numerical resolution and all listed warnings before engineering use.'
+      },
+      plotImageDataUrl
+    };
+    const report = buildReport(reportInput);
+    return {
+      report,
+      html: options.output === 'json' ? '' : renderReportHtml(report),
+      json: options.output === 'html' ? '' : serializeReportJson(report)
+    };
+  },
+
   buildSystemSnapshot(analysisCfg = State.ensureAnalysisConfig(), selection = State.getAnalysisSelection()) {
     const headers = (State.data.headers || []).filter((h) => h && h !== State.data.timeColumn);
     const inputId =
@@ -311,17 +621,27 @@ export const Exporter = {
     const systemSelection = analysisCfg.systemSelectionOnly === false ? null : selection;
     const inputY = inputSeries.isMath ? inputSeries.rawY : inputSeries.filteredY || inputSeries.rawY;
     const outputY = outputSeries.isMath ? outputSeries.rawY : outputSeries.filteredY || outputSeries.rawY;
+    const inputQuality = inputSeries.isMath
+      ? inputSeries.rawQuality
+      : inputSeries.filteredQuality || inputSeries.rawQuality;
+    const outputQuality = outputSeries.isMath
+      ? outputSeries.rawQuality
+      : outputSeries.filteredQuality || outputSeries.rawQuality;
     const time = inputSeries.time.length <= outputSeries.time.length ? inputSeries.time : outputSeries.time;
     const delay = CrossChannel.estimateDelay(time, inputY, outputY, {
       selection: systemSelection,
-      maxLagSeconds: analysisCfg.systemMaxLagSeconds
+      maxLagSeconds: analysisCfg.systemMaxLagSeconds,
+      inputQuality,
+      outputQuality
     });
     const frf = CrossChannel.computeTransferFunction(inputY, outputY, time, {
       selection: systemSelection,
       windowType: analysisCfg.fftWindow,
       detrend: analysisCfg.fftDetrend,
       zeroPadMode: analysisCfg.fftZeroPad,
-      zeroPadFactor: analysisCfg.fftZeroPadFactor
+      zeroPadFactor: analysisCfg.fftZeroPadFactor,
+      inputQuality,
+      outputQuality
     });
     return {
       input: inputId,
@@ -433,8 +753,12 @@ export const Exporter = {
   },
 
   async downloadReport(): Promise<void> {
-    const snapshot = this.buildAnalysisSnapshot();
-    if (!snapshot) return;
+    if (!this.getActiveAnalysisSeries()) {
+      alert('No active trace to analyze.');
+      return;
+    }
+    const generation = State.data.generation;
+    const stateFingerprint = reportStateFingerprint();
     const graphDiv = document.getElementById('main-plot') as PlotlyHTMLElement | null;
     let imageData: string | null = null;
     if (graphDiv?.layout) {
@@ -444,60 +768,24 @@ export const Exporter = {
         imageData = null;
       }
     }
-    const measurements = snapshot.measurements.metrics || {};
-    const events = snapshot.events.events || [];
-    const spectral = snapshot.spectral;
-    const system = snapshot.system;
-    const formatNumber = (value: unknown): string => {
-      if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
-      const abs = Math.abs(value);
-      return abs !== 0 && (abs < 0.001 || abs >= 1e6) ? value.toExponential(3) : value.toFixed(4);
-    };
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>SignalForge Analysis Report</title>
-<style>
-  body { font-family: Segoe UI, Arial, sans-serif; background:#f7f9fc; color:#102a43; margin:20px; }
-  h1, h2 { color:#0b2545; }
-  .card { background:#fff; border:1px solid #d7deea; border-radius:8px; padding:16px; margin-bottom:16px; }
-  table { width:100%; border-collapse: collapse; margin-top:8px; }
-  th, td { border:1px solid #d7deea; padding:6px 8px; text-align:left; }
-  th { background:#f0f4f8; }
-  .muted { color:#627d98; }
-</style>
-</head>
-<body>
-  <h1>SignalForge Analysis Report</h1>
-  <p class="muted">Generated ${snapshot.timestamp}</p>
-  <div class="card">
-    <h2>Overview</h2>
-    <p><strong>Trace:</strong> ${escapeHtml(snapshot.series.name || 'n/a')} ${snapshot.series.isMath ? '(math)' : ''}</p>
-    <p><strong>Selection:</strong> ${snapshot.selection ? `${escapeHtml(String(snapshot.selection.i0))}–${escapeHtml(String(snapshot.selection.i1))}` : 'Full record'}</p>
-    ${imageData && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(imageData) ? `<img src="${imageData}" alt="Plot snapshot" style="max-width:100%;"/>` : '<p class="muted">Plot snapshot unavailable.</p>'}
-  </div>
-  <div class="card">
-    <h2>Measurements</h2>
-    <table><tr><th>Metric</th><th>Value</th></tr>${Object.entries(measurements)
-      .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${formatNumber(v)}</td></tr>`)
-      .join('')}</table>
-  </div>
-  <div class="card">
-    <h2>Events</h2>
-    <p>${events.length} events detected.</p>
-    <table><tr><th>#</th><th>Time</th><th>Type</th></tr>${events.map((evt) => `<tr><td>${escapeHtml(String(evt.index ?? ''))}</td><td>${formatNumber(evt.time)}</td><td>${escapeHtml(String(evt.type ?? ''))}</td></tr>`).join('') || '<tr><td colspan="3">None</td></tr>'}</table>
-  </div>
-  <div class="card">
-    <h2>Spectral Metrics</h2>
-    <p>Fundamental ${formatNumber(spectral.fundamentalHz)} Hz · THD ${spectral.thd != null ? formatNumber(spectral.thd * 100) + ' %' : '—'} · SNR ${spectral.snr != null ? formatNumber(10 * Math.log10(Math.max(spectral.snr, 1e-12))) + ' dB' : '—'}</p>
-  </div>
-  <div class="card">
-    <h2>System / FRF</h2>
-    ${system ? `<p>${escapeHtml(system.input)} → ${escapeHtml(system.output)}: delay ${formatNumber(system.delay.delaySeconds)} s (${system.delay.delaySamples} samples), corr ${formatNumber(system.delay.correlationPeak)}</p>` : '<p class="muted">Need two channels to compute FRF.</p>'}
-  </div>
-</body>
-</html>`;
-    downloadText(html, 'analysis_report.html', 'text/html;charset=utf-8');
+    try {
+      const artifacts = await this.buildEngineeringReport(imageData, {
+        expectedGeneration: generation,
+        expectedStateFingerprint: stateFingerprint,
+        output: 'html'
+      });
+      if (artifacts) downloadText(artifacts.html, 'engineering_report.html', 'text/html;charset=utf-8');
+    } catch (error) {
+      alert(`Engineering report export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  async downloadEngineeringReportJSON(): Promise<void> {
+    try {
+      const artifacts = await this.buildEngineeringReport(null, { detail: 'full', output: 'json' });
+      if (artifacts) downloadText(artifacts.json, 'engineering_report.json', 'application/json');
+    } catch (error) {
+      alert(`Engineering report export failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 };

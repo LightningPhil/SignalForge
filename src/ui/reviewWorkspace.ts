@@ -4,13 +4,22 @@ import { BatchAnalyzer } from '../analysis/batch';
 import { CrossChannel } from '../analysis/crossChannel';
 import { snapMarker, type MarkerSnapMode } from '../analysis/markerSnap';
 import { calculatePulsePower, type PulsePowerResult } from '../analysis/pulsePower';
+import {
+  classifyShotForReview,
+  filterShotsForReview,
+  navigateReviewQueue,
+  summarizeReviewQueue,
+  type ReviewQueueFilter
+} from '../analysis/reviewQueue';
 import { getRawSeries } from '../app/traceData';
 import { runPipelineAndRender } from '../app/dataPipeline';
 import { renderColumnTabs } from '../app/tabs';
 import { downloadProjectArchive, importProjectArchive } from '../persistence/projectArchive';
 import { sessionRepository } from '../persistence/sessionRepository';
-import { interpolateToTimebase } from '../processing/sampling';
+import { alignQualityToTimebase, interpolateToTimebase } from '../processing/sampling';
 import type { Session, Shot } from '../domain/session';
+import { hashCanonicalJson } from '../domain/provenance';
+import { APP_VERSION } from '../domain/version';
 import { SessionWorkspace } from '../session/workspace';
 import { State } from '../state';
 import { createModal, escapeHtml } from './uiHelpers';
@@ -26,6 +35,8 @@ export const ReviewWorkspace = {
   batchAnalyzer: new BatchAnalyzer(),
   batchController: null as AbortController | null,
   unsubscribeWorkspace: null as (() => void) | null,
+  queueFilter: 'needs-review' as ReviewQueueFilter,
+  keyboardCursorIndex: null as number | null,
 
   init(): void {
     if (this.initialized) return;
@@ -39,14 +50,40 @@ export const ReviewWorkspace = {
       this.setClickPlacement(false);
       this.render();
     }) as (event: PlotMouseEvent) => void);
+    window.addEventListener('signalforge:save-state', () => this.updateSaveBadge());
     window.addEventListener('keydown', (event) => {
-      if (!this.content || !event.altKey) return;
-      if (event.key === 'ArrowLeft') {
+      if (!this.content) return;
+      const eventTarget = event.target;
+      const editing =
+        eventTarget instanceof HTMLElement &&
+        (eventTarget.matches('input, textarea, select') || eventTarget.isContentEditable);
+      if (event.altKey && editing) return;
+      if (event.altKey && event.key === 'ArrowLeft') {
         event.preventDefault();
         this.navigate(-1);
-      } else if (event.key === 'ArrowRight') {
+        return;
+      }
+      if (event.altKey && event.key === 'ArrowRight') {
         event.preventDefault();
         this.navigate(1);
+        return;
+      }
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active.id !== 'review-waveform-plot') return;
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        this.moveKeyboardCursor(event.key);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        const { rawX } = this.getReviewSeries();
+        const index = this.keyboardCursorIndex ?? 0;
+        if (rawX[index] !== undefined) {
+          this.placeMarker(rawX[index]);
+          this.render();
+        }
+      } else if (event.key.toLowerCase() === 'a' || event.key.toLowerCase() === 'r') {
+        event.preventDefault();
+        this.resolveFirstPendingSuggestion(event.key.toLowerCase() === 'a' ? 'accepted' : 'rejected');
       }
     });
   },
@@ -99,11 +136,17 @@ export const ReviewWorkspace = {
     const shot = SessionWorkspace.getActiveShot();
     if (!root || !session) return;
     const currentIndex = shot ? session.shots.findIndex((candidate) => candidate.id === shot.id) : -1;
+    const queueSummary = summarizeReviewQueue(session.shots);
+    const reviewQueue = filterShotsForReview(session.shots, this.queueFilter);
+    const queuePosition = shot ? reviewQueue.findIndex((candidate) => candidate.id === shot.id) : -1;
     root.innerHTML = `
       <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 class="${ui.modalTitle} mb-1">Session Review</h2>
           <input id="review-session-name" class="sf-field max-w-md" value="${escapeHtml(session.name)}" aria-label="Session name">
+          <p id="review-save-state" class="mt-1 text-xs text-muted" aria-live="polite">${escapeHtml(
+            this.saveStateLabel()
+          )}</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <select id="review-saved-session" class="sf-field w-48" aria-label="Saved sessions">
@@ -114,35 +157,64 @@ export const ReviewWorkspace = {
           </select>
           <button id="review-load-saved" class="sf-btn" type="button">Load saved</button>
           <button id="review-import" class="sf-btn" type="button">Import project</button>
-          <input id="review-import-file" type="file" accept=".signalforge" class="hidden">
+          <input id="review-import-file" type="file" accept=".signalforge" class="hidden" aria-label="Choose SignalForge project archive">
           <button id="review-capture" class="sf-btn" type="button">Capture current data as shot</button>
           <button id="review-compare" class="sf-btn" type="button">Compare shots</button>
           <button id="review-save" class="sf-btn" type="button">Save session</button>
           <button id="review-export" class="sf-btn" type="button">Export project</button>
         </div>
       </div>
-      ${
-        SessionWorkspace.persistenceError
-          ? `<p class="mb-3 rounded border border-red-500 bg-red-500/10 p-2 text-sm text-red-500">
-              Session persistence failed: ${escapeHtml(SessionWorkspace.persistenceError)}
-            </p>`
-          : ''
-      }
+      <p id="review-persistence-error"
+        class="mb-3 rounded border border-red-500 bg-red-500/10 p-2 text-sm text-red-500 ${
+          SessionWorkspace.persistenceError ? '' : 'hidden'
+        }">
+        ${
+          SessionWorkspace.persistenceError
+            ? `Session persistence failed: ${escapeHtml(SessionWorkspace.persistenceError)}`
+            : ''
+        }
+      </p>
+      <div class="mb-3 rounded border border-line bg-panel p-2 text-sm" id="review-progress-summary">
+        <strong>${queueSummary.accepted}/${queueSummary.total} accepted</strong>
+        · ${queueSummary.needsReview} need review
+        · ${queueSummary.warnings} warning-bearing
+        · ${queueSummary.excluded} excluded
+      </div>
       <div class="grid gap-4 lg:grid-cols-[18rem_1fr]">
         <aside class="rounded border border-line bg-surface p-3">
-          <h3 class="mb-2 font-semibold">Shots needing review</h3>
+          <h3 class="mb-2 font-semibold">Review queue</h3>
+          <div class="mb-2 grid grid-cols-2 gap-1" role="group" aria-label="Review queue filter">
+            ${(['needs-review', 'warnings', 'excluded', 'all'] as ReviewQueueFilter[])
+              .map(
+                (filter) =>
+                  `<button class="sf-btn px-2 py-1 ${this.queueFilter === filter ? 'ring-2 ring-accent' : ''}"
+                    type="button" data-review-filter="${filter}" aria-pressed="${this.queueFilter === filter}">${
+                      filter === 'needs-review' ? 'Needs review' : filter[0].toUpperCase() + filter.slice(1)
+                    }</button>`
+              )
+              .join('')}
+          </div>
           <div class="grid gap-1">
             ${
-              session.shots
-                .map(
-                  (candidate, index) => `
+              reviewQueue
+                .map((candidate) => {
+                  const classification = classifyShotForReview(candidate);
+                  const allIndex = session.shots.findIndex((entry) => entry.id === candidate.id);
+                  return `
               <button class="sf-btn justify-between text-left ${candidate.id === shot?.id ? 'ring-2 ring-accent' : ''}"
                 type="button" data-shot-id="${escapeHtml(candidate.id)}">
                 <span>${escapeHtml(candidate.name)}</span>
-                <span>${index + 1} · ${candidate.reviewStatus}</span>
-              </button>`
-                )
-                .join('') || '<p class="text-sm text-muted">Capture or import a shot to begin review.</p>'
+                <span>${allIndex + 1} · ${candidate.reviewStatus}${
+                  classification.hasWarnings || classification.pendingSuggestionCount
+                    ? ` · ⚠${classification.warnings.length + classification.pendingSuggestionCount}`
+                    : ''
+                }</span>
+              </button>`;
+                })
+                .join('') ||
+              `<p class="text-sm text-muted">${
+                session.shots.length ? 'No shots match this queue.' : 'Capture or import a shot to begin review.'
+              }</p>`
             }
           </div>
         </aside>
@@ -152,9 +224,11 @@ export const ReviewWorkspace = {
               ? `
             <div class="mb-3 flex flex-wrap items-center gap-2">
               <button id="review-previous" class="sf-btn" type="button">← Previous</button>
-              <strong>${escapeHtml(shot.name)} (${currentIndex + 1}/${session.shots.length})</strong>
+              <strong>${escapeHtml(shot.name)} (${currentIndex + 1}/${session.shots.length})${
+                queuePosition >= 0 ? ` · queue ${queuePosition + 1}/${reviewQueue.length}` : ''
+              }</strong>
               <button id="review-next" class="sf-btn" type="button">Next →</button>
-              <span class="text-xs text-muted">Alt+← / Alt+→</span>
+              <span class="text-xs text-muted">Alt+←/→ shots · focus plot: ←/→ cursor, Enter place, A/R suggestion</span>
             </div>
             ${
               typeof shot.metadata.appendWarning === 'string'
@@ -325,6 +399,11 @@ export const ReviewWorkspace = {
   async renderWaveform(shot: Shot): Promise<void> {
     const element = this.content?.querySelector<HTMLElement>('#review-waveform-plot');
     if (!element) return;
+    element.tabIndex = 0;
+    element.setAttribute(
+      'aria-label',
+      'Review waveform. Use left and right arrows to move the marker cursor and Enter to place.'
+    );
     element.classList.toggle('ring-2', this.clickPlacementArmed);
     element.classList.toggle('ring-accent', this.clickPlacementArmed);
     const traces: Data[] = shot.channels.map((channel) => ({
@@ -361,6 +440,23 @@ export const ReviewWorkspace = {
               }
             }
       );
+    const { rawX } = this.getReviewSeries();
+    if (rawX.length > 0) {
+      const cursorIndex = Math.max(
+        0,
+        Math.min(rawX.length - 1, this.keyboardCursorIndex ?? Math.floor(rawX.length / 2))
+      );
+      this.keyboardCursorIndex = cursorIndex;
+      shapes.push({
+        type: 'line',
+        x0: rawX[cursorIndex],
+        x1: rawX[cursorIndex],
+        y0: 0,
+        y1: 1,
+        yref: 'paper',
+        line: { color: '#22c55e', width: 1, dash: 'dash' }
+      });
+    }
     const plot = await Plotly.newPlot(
       element,
       traces,
@@ -517,10 +613,17 @@ export const ReviewWorkspace = {
     this.content.querySelector('#review-cancel-batch')?.addEventListener('click', () => {
       this.batchController?.abort();
     });
+    this.content.querySelectorAll<HTMLElement>('[data-review-filter]').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.queueFilter = (button.dataset.reviewFilter || 'needs-review') as ReviewQueueFilter;
+        this.render();
+      });
+    });
     this.content.querySelectorAll<HTMLElement>('[data-shot-id]').forEach((button) => {
       button.addEventListener('click', () => {
         SessionWorkspace.openShot(button.dataset.shotId || '');
         this.pulseResult = null;
+        this.keyboardCursorIndex = null;
         renderColumnTabs();
         runPipelineAndRender();
         this.render();
@@ -537,6 +640,7 @@ export const ReviewWorkspace = {
           SessionWorkspace.invalidateMarkerResults(annotation);
           SessionWorkspace.touchShot(false);
           this.batchAnalyzer.clearCache();
+          runPipelineAndRender();
         }
         this.render();
       });
@@ -555,6 +659,7 @@ export const ReviewWorkspace = {
         SessionWorkspace.invalidateMarkerResults(annotation);
         SessionWorkspace.touchShot(false);
         this.batchAnalyzer.clearCache();
+        runPipelineAndRender();
         this.render();
       });
     });
@@ -578,10 +683,21 @@ export const ReviewWorkspace = {
       shiftedVoltageTime,
       current.timingOffsetSeconds
     );
+    const alignedCurrentQuality = alignQualityToTimebase(
+      current.time,
+      current.quality,
+      shiftedVoltageTime,
+      current.timingOffsetSeconds,
+      current.values
+    );
     const estimate = CrossChannel.estimateDelay(
       Array.from(shiftedVoltageTime),
       Array.from(voltage.values),
-      alignedCurrent.values
+      alignedCurrent.values,
+      {
+        inputQuality: voltage.quality,
+        outputQuality: alignedCurrentQuality
+      }
     );
     const input = this.content.querySelector<HTMLInputElement>('#review-current-delay');
     if (input) input.value = String(estimate.delaySamples);
@@ -635,7 +751,7 @@ export const ReviewWorkspace = {
           minimumCurrent,
           voltagePolarity,
           currentPolarity,
-          applicationVersion: '6.0.0-dev'
+          applicationVersion: APP_VERSION
         },
         {
           signal: this.batchController.signal,
@@ -729,20 +845,19 @@ export const ReviewWorkspace = {
       },
       pretriggerRegion: { i0: 0, i1: Math.max(0, Math.min(start, end) - 1) }
     });
-    const recipe = JSON.stringify({
-      voltageId,
-      currentId,
-      startMarkerId,
-      endMarkerId,
+    const recipe = {
+      id: 'pulse-power',
+      voltageChannel: voltage.name,
+      currentChannel: current.name,
+      startMarker: shot.annotations.find((annotation) => annotation.id === startMarkerId)?.name,
+      endMarker: shot.annotations.find((annotation) => annotation.id === endMarkerId)?.name,
       currentDelaySamples,
       minimumCurrent,
       voltagePolarity,
       currentPolarity,
-      voltageTimingOffsetSeconds: voltage.timingOffsetSeconds,
-      currentTimingOffsetSeconds: current.timingOffsetSeconds
-    });
-    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(recipe));
-    const recipeHash = Array.from(new Uint8Array(hash), (value) => value.toString(16).padStart(2, '0')).join('');
+      applicationVersion: APP_VERSION
+    };
+    const recipeHash = await hashCanonicalJson(recipe);
     shot.analysisResults.push({
       id: `analysis-${crypto.randomUUID()}`,
       type: 'pulse-power',
@@ -757,7 +872,7 @@ export const ReviewWorkspace = {
         processingRecipeHash: recipeHash,
         annotationIds: [startMarkerId, endMarkerId].filter((id): id is string => Boolean(id)),
         warnings: this.pulseResult.warnings,
-        applicationVersion: '6.0.0-dev',
+        applicationVersion: APP_VERSION,
         appliedDelaySeconds:
           current.timingOffsetSeconds -
           voltage.timingOffsetSeconds +
@@ -784,6 +899,7 @@ export const ReviewWorkspace = {
       kind: Number.isFinite(endTime) ? 'region' : 'marker',
       endTime: Number.isFinite(endTime) ? endTime : undefined
     });
+    runPipelineAndRender();
   },
 
   getReviewSeries(): { rawX: number[]; rawY: number[] } {
@@ -802,9 +918,80 @@ export const ReviewWorkspace = {
     this.content?.querySelector('#review-waveform-plot')?.classList.toggle('ring-accent', armed);
   },
 
+  saveStateLabel(): string {
+    if (SessionWorkspace.saveState === 'pending') return 'Changes pending…';
+    if (SessionWorkspace.saveState === 'saving') return 'Saving…';
+    if (SessionWorkspace.saveState === 'error') {
+      return `Save failed${SessionWorkspace.persistenceError ? `: ${SessionWorkspace.persistenceError}` : ''}`;
+    }
+    if (SessionWorkspace.saveState === 'saved') {
+      const savedAt = SessionWorkspace.lastSavedAt ? new Date(SessionWorkspace.lastSavedAt).toLocaleTimeString() : null;
+      return savedAt ? `Saved ${savedAt}` : 'Saved';
+    }
+    return 'Not yet saved';
+  },
+
+  updateSaveBadge(): void {
+    const badge = this.content?.querySelector<HTMLElement>('#review-save-state');
+    if (badge) badge.textContent = this.saveStateLabel();
+    const error = this.content?.querySelector<HTMLElement>('#review-persistence-error');
+    if (error) {
+      error.classList.toggle('hidden', !SessionWorkspace.persistenceError);
+      error.textContent = SessionWorkspace.persistenceError
+        ? `Session persistence failed: ${SessionWorkspace.persistenceError}`
+        : '';
+    }
+  },
+
+  moveKeyboardCursor(key: string): void {
+    const { rawX } = this.getReviewSeries();
+    if (rawX.length === 0) return;
+    const current = Math.max(0, Math.min(rawX.length - 1, this.keyboardCursorIndex ?? Math.floor(rawX.length / 2)));
+    this.keyboardCursorIndex =
+      key === 'Home'
+        ? 0
+        : key === 'End'
+          ? rawX.length - 1
+          : Math.max(0, Math.min(rawX.length - 1, current + (key === 'ArrowLeft' ? -1 : 1)));
+    const plot = this.content?.querySelector<PlotlyHTMLElement>('#review-waveform-plot');
+    const shapeIndex = Math.max(0, (plot?.layout.shapes?.length || 1) - 1);
+    if (plot) {
+      const position = rawX[this.keyboardCursorIndex];
+      plot.setAttribute('aria-valuetext', `Marker cursor ${position} seconds`);
+      void Plotly.relayout(plot, {
+        [`shapes[${shapeIndex}].x0`]: position,
+        [`shapes[${shapeIndex}].x1`]: position
+      });
+    }
+  },
+
+  resolveFirstPendingSuggestion(state: 'accepted' | 'rejected'): void {
+    const annotation = SessionWorkspace.getActiveShot()?.annotations.find(
+      (candidate) => candidate.source === 'suggested' && candidate.suggestionState === 'pending'
+    );
+    if (!annotation) return;
+    annotation.suggestionState = state;
+    annotation.updatedAt = new Date().toISOString();
+    SessionWorkspace.invalidateMarkerResults(annotation);
+    SessionWorkspace.touchShot(false);
+    this.batchAnalyzer.clearCache();
+    runPipelineAndRender();
+    this.render();
+    requestAnimationFrame(() => this.content?.querySelector<HTMLElement>('#review-waveform-plot')?.focus());
+  },
+
   navigate(direction: number): void {
-    SessionWorkspace.stepShot(direction);
+    const session = SessionWorkspace.activeSession;
+    if (!session) return;
+    const target = navigateReviewQueue(
+      session.shots,
+      SessionWorkspace.activeShotId,
+      direction < 0 ? -1 : 1,
+      this.queueFilter
+    );
+    if (target) SessionWorkspace.openShot(target.id);
     this.pulseResult = null;
+    this.keyboardCursorIndex = null;
     renderColumnTabs();
     runPipelineAndRender();
     this.render();

@@ -1,10 +1,41 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 
 const packageVersion = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
+
+function sourceBuildId(): string {
+  const digest = createHash('sha256');
+  const textExtensions = new Set(['.css', '.html', '.js', '.json', '.mjs', '.ts', '.tsx', '.txt']);
+  const visit = (entryPath: string): void => {
+    const status = statSync(entryPath);
+    if (status.isDirectory()) {
+      for (const child of readdirSync(entryPath).sort()) visit(path.join(entryPath, child));
+      return;
+    }
+    digest.update(entryPath.replaceAll('\\', '/'));
+    const content = readFileSync(entryPath);
+    digest.update(
+      textExtensions.has(path.extname(entryPath).toLowerCase())
+        ? content.toString('utf8').replace(/\r\n?/g, '\n')
+        : content
+    );
+  };
+  ['index.html', 'package.json', 'src', 'public', 'vite.config.ts'].forEach(visit);
+  return digest.digest('hex').slice(0, 12);
+}
+
+const buildId = sourceBuildId();
+
+function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
+function writeLf(filePath: string, text: string): void {
+  writeFileSync(filePath, normalizeNewlines(text));
+}
 
 /**
  * Stamps the service worker cache name with the package version plus a hash of the built entry
@@ -21,28 +52,34 @@ function serviceWorkerCacheVersion(): Plugin {
       outDir = config.build.outDir;
     },
     transformIndexHtml: {
-      order: 'post',
+      order: 'pre',
       handler(html) {
-        // A CRLF checkout (core.autocrlf on Windows) would otherwise leak into the tracked dist/index.html
-        // as mixed line endings and change the cache stamp for an identical build.
-        return html.replace(/\r\n?/g, '\n');
+        // Vite's HTML transform is not byte-identical for CRLF vs LF source. Windows checkouts with
+        // core.autocrlf=true would otherwise emit an extra blank line in dist/index.html and a
+        // different service-worker cache stamp than GitHub's Ubuntu runner.
+        return normalizeNewlines(html);
       }
     },
     closeBundle() {
       const swPath = path.join(outDir, 'sw.js');
       const indexPath = path.join(outDir, 'index.html');
+      writeLf(indexPath, readFileSync(indexPath, 'utf8'));
       const digest = createHash('sha256').update(readFileSync(indexPath)).digest('hex').slice(0, 12);
       const source = readFileSync(swPath, 'utf8');
       if (!source.includes(placeholder)) {
         throw new Error(`public/sw.js no longer contains the ${placeholder} cache-name placeholder.`);
       }
-      writeFileSync(swPath, source.replaceAll(placeholder, `${packageVersion}-${digest}`));
+      writeLf(swPath, source.replaceAll(placeholder, `${packageVersion}-${digest}`));
     }
   };
 }
 
 export default defineConfig({
   plugins: [tailwindcss(), serviceWorkerCacheVersion()],
+  define: {
+    __APP_VERSION__: JSON.stringify(packageVersion),
+    __BUILD_ID__: JSON.stringify(buildId)
+  },
   base: '/SignalForge/',
   worker: {
     format: 'es'

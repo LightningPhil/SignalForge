@@ -40,6 +40,7 @@ describe('settings filter migrations', () => {
     State.ui.viewRanges = originalWorkspace.viewRanges;
     State.ui.activeMultiViewId = originalWorkspace.activeMultiViewId;
     State.data.dataColumn = originalWorkspace.dataColumn;
+    State.clearPipelineHistory();
     vi.unstubAllGlobals();
   });
 
@@ -65,7 +66,7 @@ describe('settings filter migrations', () => {
     ];
 
     expect(SettingsManager.applySettings(JSON.stringify(payload))).toBe(true);
-    expect(State.config.settingsVersion).toBe(4);
+    expect(State.config.settingsVersion).toBe(5);
     expect(State.config.pipeline[0]).toEqual({
       id: 'legacy-low',
       type: 'lowPassFFT',
@@ -91,6 +92,20 @@ describe('settings filter migrations', () => {
 
     expect(SettingsManager.applySettings(JSON.stringify(payload))).toBe(false);
     expect(vi.mocked(alert).mock.calls[0]?.[0]).toContain('unsupported parameter');
+  });
+
+  it('clears processing undo history when settings replace the recipe', () => {
+    State.config = clone(Config);
+    State.clearPipelineHistory();
+    const existing = State.addStep('movingAverage');
+    State.updateStepParams(existing.id, { windowSize: 11 });
+    expect(State.pipelineUndoStack.length).toBeGreaterThan(0);
+
+    const replacement = clone(Config);
+    replacement.pipeline = [{ id: 'replacement', type: 'median', enabled: true, windowSize: 7 }];
+    expect(SettingsManager.applySettings(JSON.stringify(replacement))).toBe(true);
+    expect(State.getPipeline()[0]).toMatchObject({ id: 'replacement', type: 'median', windowSize: 7 });
+    expect(State.undoPipelineChange()).toBe(false);
   });
 
   it('rejects unknown sections, out-of-range numbers and invalid enums instead of applying them', () => {

@@ -1,12 +1,14 @@
 import { State } from '../state';
 import type { FilterStep, FilterType } from '../types';
 import { cx, ui } from '../ui/classes';
-import { closeModal, createModal } from '../ui/uiHelpers';
+import { closeModal, createModal, escapeHtml } from '../ui/uiHelpers';
 import { runPipelineAndRender } from './dataPipeline';
 import { elements } from './domElements';
 
 const {
   pipelineList,
+  btnUndoPipeline,
+  btnRedoPipeline,
   paramPanel,
   filterTypeDisplay,
   inputWindow,
@@ -26,6 +28,18 @@ const {
   inputStartOffset,
   inputAutoOffsetPoints,
   chkAutoOffset,
+  selRegionMode,
+  inputRegionMarker,
+  inputRegionStartMarker,
+  inputRegionEndMarker,
+  inputRegionStartTime,
+  inputRegionEndTime,
+  inputRegionStartIndex,
+  inputRegionEndIndex,
+  selBaselineEstimator,
+  selArtifactMode,
+  selReferenceColumn,
+  inputReferenceScale,
   sliderStartDecay,
   sliderEndDecay,
   inputFreq,
@@ -48,6 +62,7 @@ const {
   grpSigma,
   grpIters,
   grpDecay,
+  grpRegionReference,
   grpFreq,
   grpSlope,
   grpBW,
@@ -79,6 +94,10 @@ const FILTER_NAMES: Record<FilterType, string> = {
   iirComb: 'IIR Comb Notch',
   hampel: 'Hampel Deglitch',
   waveletDenoise: 'Wavelet Denoise',
+  baselineSubtract: 'Marker/Region Baseline Subtract',
+  timeGate: 'Marker/Region Time Gate',
+  artifactBlank: 'Marker/Region Artifact Blank',
+  referenceSubtract: 'Reference/Common-Mode Subtract',
   nullFilter: 'Null Filter (Pass-through)'
 };
 
@@ -160,7 +179,6 @@ export function updateParamsFromUI(): void {
     'iirNotch',
     'iirComb'
   ].includes(type);
-
   if (isWindowed) {
     const maximumWindow =
       type === 'median' || type === 'hampel' ? 501 : type === 'savitzkyGolay' || type === 'gaussian' ? 1001 : 9999;
@@ -209,6 +227,31 @@ export function updateParamsFromUI(): void {
     if (chkAutoOffset) params.autoOffset = !!chkAutoOffset.checked;
     const autoOffsetPointsVal = clampInteger(inputAutoOffsetPoints, 1, 100000);
     if (autoOffsetPointsVal !== null) params.autoOffsetPoints = autoOffsetPointsVal;
+  }
+  if (['baselineSubtract', 'timeGate', 'artifactBlank'].includes(type)) {
+    params.regionMode = (selRegionMode?.value || 'selection') as FilterStep['regionMode'];
+    params.regionMarker = inputRegionMarker?.value.trim() || '';
+    params.startMarker = inputRegionStartMarker?.value.trim() || '';
+    params.endMarker = inputRegionEndMarker?.value.trim() || '';
+    const startTime = getNumericValue(inputRegionStartTime);
+    const endTime = getNumericValue(inputRegionEndTime);
+    const startIndex = clampInteger(inputRegionStartIndex, 0, 100_000_000);
+    const endIndex = clampInteger(inputRegionEndIndex, 0, 100_000_000);
+    if (startTime !== null) params.regionStartTime = startTime;
+    if (endTime !== null) params.regionEndTime = endTime;
+    if (startIndex !== null) params.regionStartIndex = startIndex;
+    if (endIndex !== null) params.regionEndIndex = endIndex;
+  }
+  if (type === 'baselineSubtract') {
+    params.baselineEstimator = (selBaselineEstimator?.value || 'median') as FilterStep['baselineEstimator'];
+  }
+  if (type === 'artifactBlank') {
+    params.artifactMode = (selArtifactMode?.value || 'missing') as FilterStep['artifactMode'];
+  }
+  if (type === 'referenceSubtract') {
+    params.referenceColumnId = selReferenceColumn?.value || '';
+    const scale = getNumericValue(inputReferenceScale);
+    if (scale !== null) params.referenceScale = scale;
   }
 
   if ((isFreq || isCenterBandwidth) && selFreqUnit) {
@@ -285,6 +328,16 @@ function describeStep(step: FilterStep): string {
     const autoLabel = step.autoOffset ? 'Auto' : `Offset ${step.startOffset ?? 0}`;
     return `Norm (${autoLabel}, Start: ${startLabel}, End: ${endLabel})`;
   }
+  if (step.type === 'baselineSubtract') {
+    return `Baseline (${step.regionMode}, ${step.baselineEstimator || 'median'})`;
+  }
+  if (step.type === 'timeGate') return `Time Gate (${step.regionMode})`;
+  if (step.type === 'artifactBlank') {
+    return `Artifact Blank (${step.regionMode}, ${step.artifactMode || 'missing'})`;
+  }
+  if (step.type === 'referenceSubtract') {
+    return `Reference (${step.referenceColumnId || 'not selected'} × ${step.referenceScale ?? 1})`;
+  }
   if (step.type === 'lowPassFFT') return `Low Pass (${fmtHz(step.cutoffFreq ?? 0)}Hz)`;
   if (step.type === 'highPassFFT') return `High Pass (${fmtHz(step.cutoffFreq ?? 0)}Hz)`;
   if (step.type === 'notchFFT') return `Notch (${fmtHz(step.centerFreq ?? 0)}Hz)`;
@@ -318,6 +371,8 @@ function describeStep(step: FilterStep): string {
 
 export function renderPipelineList(): void {
   if (!pipelineList) return;
+  if (btnUndoPipeline) btnUndoPipeline.disabled = State.pipelineUndoStack.length === 0;
+  if (btnRedoPipeline) btnRedoPipeline.disabled = State.pipelineRedoStack.length === 0;
   pipelineList.replaceChildren();
 
   if (chkSyncTabs) chkSyncTabs.checked = State.isGlobalScope();
@@ -429,6 +484,7 @@ export function updateParamEditor(): void {
     'iirNotch',
     'iirComb'
   ].includes(type);
+  const isContextual = ['baselineSubtract', 'timeGate', 'artifactBlank', 'referenceSubtract'].includes(type);
 
   if (type === 'nullFilter') {
     [
@@ -438,6 +494,7 @@ export function updateParamEditor(): void {
       grpAlpha,
       grpSigma,
       grpDecay,
+      grpRegionReference,
       grpFreq,
       grpSlope,
       grpBW,
@@ -455,6 +512,7 @@ export function updateParamEditor(): void {
   setVisible(grpAlpha, type === 'iir');
   setVisible(grpSigma, type === 'gaussian' || type === 'hampel' || type === 'waveletDenoise');
   setVisible(grpDecay, type === 'startStopNorm');
+  setVisible(grpRegionReference, isContextual);
   setVisible(grpFreq, isFreq || isCenterBandwidth);
   setVisible(grpSlope, isFftShape);
   setVisible(grpBW, isCenterBandwidth);
@@ -514,6 +572,50 @@ export function updateParamEditor(): void {
     const value = step.waveletThreshold == null ? '' : String(step.waveletThreshold);
     if (inputSigma) inputSigma.value = value;
     if (sliderSigma && value) sliderSigma.value = value;
+  }
+  if (selRegionMode) selRegionMode.value = step.regionMode || 'selection';
+  if (inputRegionMarker) inputRegionMarker.value = step.regionMarker || '';
+  if (inputRegionStartMarker) inputRegionStartMarker.value = step.startMarker || '';
+  if (inputRegionEndMarker) inputRegionEndMarker.value = step.endMarker || '';
+  if (inputRegionStartTime) inputRegionStartTime.value = String(step.regionStartTime ?? 0);
+  if (inputRegionEndTime) inputRegionEndTime.value = String(step.regionEndTime ?? 1);
+  if (inputRegionStartIndex) inputRegionStartIndex.value = String(step.regionStartIndex ?? 0);
+  if (inputRegionEndIndex) inputRegionEndIndex.value = String(step.regionEndIndex ?? 1);
+  if (selBaselineEstimator) {
+    selBaselineEstimator.value = step.baselineEstimator || 'median';
+    selBaselineEstimator.disabled = type !== 'baselineSubtract';
+  }
+  if (selArtifactMode) {
+    selArtifactMode.value = step.artifactMode || 'missing';
+    selArtifactMode.disabled = type !== 'artifactBlank';
+  }
+  if (selRegionMode) selRegionMode.disabled = type === 'referenceSubtract';
+  [
+    inputRegionMarker,
+    inputRegionStartMarker,
+    inputRegionEndMarker,
+    inputRegionStartTime,
+    inputRegionEndTime,
+    inputRegionStartIndex,
+    inputRegionEndIndex
+  ].forEach((control) => {
+    if (control) control.disabled = type === 'referenceSubtract';
+  });
+  if (selReferenceColumn) {
+    const activeColumn = State.getActiveColumnId();
+    const candidates = State.data.headers.filter(
+      (header) => header !== State.data.timeColumn && header !== activeColumn
+    );
+    selReferenceColumn.innerHTML = [
+      '<option value="">Select reference…</option>',
+      ...candidates.map((header) => `<option value="${escapeHtml(header)}">${escapeHtml(header)}</option>`)
+    ].join('');
+    selReferenceColumn.value = step.referenceColumnId || '';
+    selReferenceColumn.disabled = type !== 'referenceSubtract';
+  }
+  if (inputReferenceScale) {
+    inputReferenceScale.value = String(step.referenceScale ?? 1);
+    inputReferenceScale.disabled = type !== 'referenceSubtract';
   }
   if (inputFilterOrder) {
     inputFilterOrder.value = String(step.order || 4);
@@ -594,6 +696,13 @@ export function showAddStepMenu(): void {
         <button type="button" class="${ui.addOpt}" data-type="lowPassFFT">Low Pass</button>
         <button type="button" class="${ui.addOpt}" data-type="highPassFFT">High Pass</button>
         <button type="button" class="${ui.addOpt}" data-type="notchFFT">Notch Filter</button>
+      </div>
+      <div class="mb-1 border-b border-line pb-2.5">
+        <small class="mb-2 block text-muted">Marker / Region / Reference</small>
+        <button type="button" class="${ui.addOpt}" data-type="baselineSubtract">Baseline Subtract</button>
+        <button type="button" class="${ui.addOpt}" data-type="timeGate">Time Gate</button>
+        <button type="button" class="${ui.addOpt}" data-type="artifactBlank">Artifact Blank / Interpolate</button>
+        <button type="button" class="${ui.addOpt}" data-type="referenceSubtract">Reference/Common-Mode Subtract</button>
       </div>
       <div>
         <div class="mb-1 border-b border-line pb-2.5">
