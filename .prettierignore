@@ -6,3 +6,4 @@ package-lock.json
 playwright-report
 reference-material
 test-results
+.gitattributes

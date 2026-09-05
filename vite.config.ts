@@ -29,6 +29,14 @@ function sourceBuildId(): string {
 
 const buildId = sourceBuildId();
 
+function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n?/g, '\n');
+}
+
+function writeLf(filePath: string, text: string): void {
+  writeFileSync(filePath, normalizeNewlines(text));
+}
+
 /**
  * Stamps the service worker cache name with the package version plus a hash of the built entry
  * document (which embeds every hashed asset name). The stamp is deterministic for identical builds,
@@ -44,22 +52,24 @@ function serviceWorkerCacheVersion(): Plugin {
       outDir = config.build.outDir;
     },
     transformIndexHtml: {
-      order: 'post',
+      order: 'pre',
       handler(html) {
-        // A CRLF checkout (core.autocrlf on Windows) would otherwise leak into the tracked dist/index.html
-        // as mixed line endings and change the cache stamp for an identical build.
-        return html.replace(/\r\n?/g, '\n');
+        // Vite's HTML transform is not byte-identical for CRLF vs LF source. Windows checkouts with
+        // core.autocrlf=true would otherwise emit an extra blank line in dist/index.html and a
+        // different service-worker cache stamp than GitHub's Ubuntu runner.
+        return normalizeNewlines(html);
       }
     },
     closeBundle() {
       const swPath = path.join(outDir, 'sw.js');
       const indexPath = path.join(outDir, 'index.html');
+      writeLf(indexPath, readFileSync(indexPath, 'utf8'));
       const digest = createHash('sha256').update(readFileSync(indexPath)).digest('hex').slice(0, 12);
       const source = readFileSync(swPath, 'utf8');
       if (!source.includes(placeholder)) {
         throw new Error(`public/sw.js no longer contains the ${placeholder} cache-name placeholder.`);
       }
-      writeFileSync(swPath, source.replaceAll(placeholder, `${packageVersion}-${digest}`));
+      writeLf(swPath, source.replaceAll(placeholder, `${packageVersion}-${digest}`));
     }
   };
 }
